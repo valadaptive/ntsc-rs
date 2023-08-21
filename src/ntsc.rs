@@ -12,7 +12,7 @@ use rand_xoshiro::SplitMix64;
 use simdnoise::NoiseBuilder;
 
 use crate::{
-    filter::{StateSpace, TransferFunction},
+    filter::TransferFunction,
     random::key_seed,
     shift::shift_row,
 };

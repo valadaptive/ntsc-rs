@@ -19,9 +19,5 @@ criterion = { version = "0.5", features = ["html_reports"] }
 pprof = { version = "0.12.1", features = ["flamegraph", "criterion"] }
 
 [[bench]]
-name = "filter_bench"
-harness = false
-
-[[bench]]
 name = "filter_profile"
 harness = false

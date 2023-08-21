@@ -1,4 +1,4 @@
-use ntscrs::filter::{TransferFunction, StateSpace, polynomial_multiply};
+use ntscrs::filter::{TransferFunction, polynomial_multiply};
 use ntscrs::ntsc::{NtscEffect, make_lowpass};
 
 use image::ImageFormat;
