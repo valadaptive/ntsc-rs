@@ -121,8 +121,13 @@ impl TransferFunction {
             self.steady_state_condition(initial)
         };
 
-        for i in 0..items.len() {
-            let sample = items[i];
+        for i in 0..(items.len() + delay) {
+            // Either the loop bound extending past items.len() or the min() call seems to prevent the optimizer from
+            // determining that we're in-bounds here. Since i.min(items.len() - 1) never exceeds items.len() - 1 by
+            // definition, this is safe.
+            let sample = unsafe {
+                items.get_unchecked(i.min(items.len() - 1))
+            };
             let filt_sample = z[0] + (num_padded[0] * sample);
             for i in 0..filter_len - 2 {
                 z[i] = z[i + 1] + (num_padded[i + 1] * sample) - (self.den[i + 1] * filt_sample);
