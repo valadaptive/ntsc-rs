@@ -1,14 +1,8 @@
 use std::collections::VecDeque;
 
-use image::{
-    buffer::Rows,
-    imageops::{resize, FilterType},
-    Rgb, RgbImage,
-};
+use image::{Rgb, RgbImage};
 use nalgebra::{matrix, Matrix3, Vector3};
-use num_traits::{Float, NumCast};
 use rand::{rngs::SmallRng, Rng, RngCore, SeedableRng};
-use rand_xoshiro::SplitMix64;
 use simdnoise::NoiseBuilder;
 
 use crate::{
@@ -440,7 +434,9 @@ fn row_speckles<R: Rng>(row: &mut [f64], rng: &mut R, intensity: f64) {
 
         let transient_len = 2;
 
-        for i in pixel_idx..(pixel_idx + (transient_len * SPECKLE_TRANSIENT_FREQUENCY)).min(row.len()) {
+        for i in
+            pixel_idx..(pixel_idx + (transient_len * SPECKLE_TRANSIENT_FREQUENCY)).min(row.len())
+        {
             let x = (i - pixel_idx) as f64;
             // Simulate transient with sin(pi*x / 4) * (1 - x/len)^2
             row[i] += ((x * core::f64::consts::PI) / SPECKLE_TRANSIENT_FREQUENCY as f64).sin()

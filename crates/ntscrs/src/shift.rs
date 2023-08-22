@@ -2,26 +2,24 @@ pub enum BoundaryHandling {
     /// Repeat the boundary pixel over and over.
     Extend,
     /// Use a specific constant for the boundary.
-    Constant(f64)
+    Constant(f64),
 }
 
 /// Shift a row by a non-integer amount using linear interpolation.
 pub fn shift_row(row: &mut [f64], shift: f64, boundary_handling: BoundaryHandling) {
     // floor the shift (conversions round towards zero)
-    let shift_int = shift as i64 - if shift < 0.0 {
-        1
-    } else {
-        0
-    };
+    let shift_int = shift as i64 - if shift < 0.0 { 1 } else { 0 };
 
     let width = row.len();
     let boundary_value = match boundary_handling {
-        BoundaryHandling::Extend => if shift > 0.0 {
-            row[0]
-        } else {
-            row[width - 1]
-        },
-        BoundaryHandling::Constant(value) => value
+        BoundaryHandling::Extend => {
+            if shift > 0.0 {
+                row[0]
+            } else {
+                row[width - 1]
+            }
+        }
+        BoundaryHandling::Constant(value) => value,
     };
 
     // Do the integer part of the shift
@@ -53,7 +51,7 @@ pub fn shift_row(row: &mut [f64], shift: f64, boundary_handling: BoundaryHandlin
 
     // Interpolate
     let mut prev: f64 = row[0];
-    for i in 0..width-1 {
+    for i in 0..width - 1 {
         let old_value = row[i];
         row[i] = (prev * shift_frac) + (row[i] * (1.0 - shift_frac));
         prev = old_value;

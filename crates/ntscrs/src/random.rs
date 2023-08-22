@@ -10,7 +10,7 @@ pub fn key_seed(seed: u64, key: u64, frame_num: usize) -> u64 {
 }
 
 pub struct Geometric {
-    lambda: f64
+    lambda: f64,
 }
 
 impl Geometric {
@@ -19,7 +19,9 @@ impl Geometric {
             panic!("Invalid probability");
         }
 
-        Geometric { lambda: (1.0 - p).ln() }
+        Geometric {
+            lambda: (1.0 - p).ln(),
+        }
     }
 }
 
@@ -61,14 +63,14 @@ impl FromSeeder for f64 {
 }
 
 pub struct Seeder {
-    state: u64
+    state: u64,
 }
 
 // TODO: replace key_seed fully
 impl Seeder {
     pub fn new(seed: u64) -> Self {
         Seeder {
-            state: splitmix64(seed)
+            state: splitmix64(seed),
         }
     }
 

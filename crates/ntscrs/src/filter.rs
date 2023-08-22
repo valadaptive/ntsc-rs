@@ -17,7 +17,7 @@ pub fn polynomial_multiply(a: &Vec<f64>, b: &Vec<f64>) -> Vec<f64> {
 pub struct TransferFunction {
     pub num: Vec<f64>,
     pub den: Vec<f64>,
-    _private: ()
+    _private: (),
 }
 
 impl TransferFunction {
@@ -35,7 +35,7 @@ impl TransferFunction {
         TransferFunction {
             num,
             den,
-            _private: ()
+            _private: (),
         }
     }
 
@@ -55,12 +55,16 @@ impl TransferFunction {
             })
             .expect("There must be at least one nonzero coefficient in the denominator.");
 
-        let norm_num = self.num.iter().map(|item| {
-            *item / first_nonzero_coeff
-        }).collect::<Vec<f64>>();
-        let norm_den = self.den.iter().map(|item| {
-            *item / first_nonzero_coeff
-        }).collect::<Vec<f64>>();
+        let norm_num = self
+            .num
+            .iter()
+            .map(|item| *item / first_nonzero_coeff)
+            .collect::<Vec<f64>>();
+        let norm_den = self
+            .den
+            .iter()
+            .map(|item| *item / first_nonzero_coeff)
+            .collect::<Vec<f64>>();
 
         let filter_len = usize::max(self.num.len(), self.den.len());
 
@@ -95,7 +99,13 @@ impl TransferFunction {
         yout
     }
 
-    pub fn filter_signal_in_place(&self, items: &mut [f64], initial: f64, scale: f64, delay: usize) {
+    pub fn filter_signal_in_place(
+        &self,
+        items: &mut [f64],
+        initial: f64,
+        scale: f64,
+        delay: usize,
+    ) {
         // Zero-pad the numerator from the right
         let num_padded = {
             let mut num = self.num.clone();
@@ -132,7 +142,7 @@ impl std::ops::Mul<&TransferFunction> for &TransferFunction {
         TransferFunction {
             num: polynomial_multiply(&self.num, &rhs.num),
             den: polynomial_multiply(&self.den, &rhs.den),
-            _private: ()
+            _private: (),
         }
     }
 }
