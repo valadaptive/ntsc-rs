@@ -348,6 +348,56 @@ impl eframe::App for NtscApp {
                             }
                         });
 
+                        ui.group(|ui| {
+                            if ui
+                                .checkbox(&mut self.settings.ringing.enabled, "Ringing")
+                                .changed()
+                            {
+                                self.update_effect(ctx);
+                            }
+
+                            ui.set_enabled(self.settings.ringing.enabled);
+
+                            if ui
+                                .add(
+                                    egui::Slider::new(
+                                        &mut self.settings.ringing.settings.frequency,
+                                        0.0..=1.0,
+                                    )
+                                    .text("Frequency"),
+                                )
+                                .changed()
+                            {
+                                self.update_effect(ctx)
+                            }
+
+                            if ui
+                                .add(
+                                    egui::Slider::new(
+                                        &mut self.settings.ringing.settings.power,
+                                        1.0..=10.0,
+                                    )
+                                    .text("Power"),
+                                )
+                                .changed()
+                            {
+                                self.update_effect(ctx)
+                            }
+
+                            if ui
+                                .add(
+                                    egui::Slider::new(
+                                        &mut self.settings.ringing.settings.intensity,
+                                        0.0..=10.0,
+                                    )
+                                    .text("Scale"),
+                                )
+                                .changed()
+                            {
+                                self.update_effect(ctx)
+                            }
+                        });
+
                         if ui
                             .add(
                                 egui::Slider::new(
