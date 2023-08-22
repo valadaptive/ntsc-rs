@@ -109,16 +109,6 @@ impl NtscApp {
             ctx.request_repaint();
         }
     }
-
-    fn add_control<R>(
-        label: &'static str,
-        ui: &mut egui::Ui,
-        add_contents: impl FnOnce(&mut egui::Ui) -> R,
-    ) {
-        ui.label(label);
-        add_contents(ui);
-        ui.separator();
-    }
 }
 
 impl eframe::App for NtscApp {
