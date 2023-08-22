@@ -499,25 +499,30 @@ fn snow(yiq: &mut YiqPlanar, seed: u64, intensity: f64, frame_num: usize) {
     }
 }
 
-fn vhs_edge_wave(yiq: &mut YiqPlanar, seed: u64, intensity: f64, frame_num: usize) {
+fn vhs_edge_wave(yiq: &mut YiqPlanar, seed: u64, intensity: f64, speed: f64, frame_num: usize) {
     let width = yiq.resolution.0;
 
-    let mut rng = SmallRng::seed_from_u64(key_seed(seed, noise_seeds::EDGE_WAVE, frame_num));
+    let mut rng = SmallRng::seed_from_u64(key_seed(seed, noise_seeds::EDGE_WAVE, 0));
     let noise_seed = rng.next_u32();
     // TODO: sample perlin noise in time domain
     let offset = rng.gen::<f32>() * yiq.resolution.1 as f32;
-    let noise = NoiseBuilder::gradient_1d_offset(offset as f32, width)
-        .with_seed(noise_seed as i32)
-        .with_freq(0.05)
-        .generate()
-        .0;
+    let noise = NoiseBuilder::gradient_2d_offset(
+        offset as f32,
+        width,
+        (frame_num as f64 * speed) as f32,
+        1,
+    )
+    .with_seed(noise_seed as i32)
+    .with_freq(0.05)
+    .generate()
+    .0;
 
     for plane in [&mut yiq.y, &mut yiq.i, &mut yiq.q] {
         plane
             .chunks_mut(width)
             .enumerate()
             .for_each(|(index, row)| {
-                let shift = (noise[index] as f64) * intensity * 0.25;
+                let shift = (noise[index] as f64 / 0.022) * intensity * 0.5;
                 shift_row(row, shift as f64, BoundaryHandling::Extend);
             })
     }
@@ -565,6 +570,7 @@ pub struct VHSSettings {
     pub chroma_vert_blend: bool,
     pub sharpen: f64,
     edge_wave: f64,
+    edge_wave_speed: f64,
 }
 
 pub struct NtscEffect {
@@ -596,7 +602,8 @@ impl Default for NtscEffect {
                 tape_speed: VHSTapeSpeed::LP,
                 chroma_vert_blend: true,
                 sharpen: 1.0,
-                edge_wave: 2.0,
+                edge_wave: 1.0,
+                edge_wave_speed: 4.0,
             }),
         }
     }
@@ -654,7 +661,7 @@ impl NtscEffect {
 
         if let Some(vhs_settings) = &self.vhs_settings {
             if vhs_settings.edge_wave > 0.0 {
-                vhs_edge_wave(&mut yiq, seed, vhs_settings.edge_wave, frame_num);
+                vhs_edge_wave(&mut yiq, seed, vhs_settings.edge_wave, vhs_settings.edge_wave_speed, frame_num);
             }
 
             let (luma_cut, chroma_cut, chroma_delay): (f64, f64, usize) =
