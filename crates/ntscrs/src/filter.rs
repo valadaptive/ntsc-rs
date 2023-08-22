@@ -86,6 +86,7 @@ impl TransferFunction {
             c_sum += num_i - den_i * norm_num[0];
             zi[i] = (a_sum * zi[0] - c_sum) * value;
         }
+        zi[0] *= value;
 
         zi
     }
