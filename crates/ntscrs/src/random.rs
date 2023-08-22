@@ -15,7 +15,7 @@ pub struct Geometric {
 
 impl Geometric {
     pub fn new(p: f64) -> Self {
-        if p <= 0.0 || p >= 1.0 {
+        if p <= 0.0 || p > 1.0 {
             panic!("Invalid probability");
         }
 

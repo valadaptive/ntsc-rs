@@ -13,6 +13,7 @@ rand_xoshiro = "0.6.0"
 simdnoise = "3.1.6"
 siphasher = "0.3.10"
 num-traits = "0.2"
+macros = {path = "../macros"}
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

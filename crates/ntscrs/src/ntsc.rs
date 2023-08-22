@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use image::{Rgb, RgbImage};
+use macros::FullSettings;
 use nalgebra::{matrix, Matrix3, Vector3};
 use rand::{rngs::SmallRng, Rng, RngCore, SeedableRng};
 use simdnoise::NoiseBuilder;
@@ -40,12 +41,6 @@ pub fn make_lowpass(cutoff: f64, rate: f64) -> TransferFunction {
     let alpha = time_interval / (tau + time_interval);
 
     TransferFunction::new(vec![alpha], vec![1.0, -(1.0 - alpha)])
-
-    /*StateSpace::try_from(&TransferFunction::new(
-        vec![alpha, 0.0],
-        vec![1.0, -(1.0 - alpha)],
-    ))
-    .unwrap()*/
 }
 
 /// Create a lowpass filter with the given parameters, which can then be used to filter a signal.
@@ -58,9 +53,6 @@ pub fn make_lowpass_triple(cutoff: f64, rate: f64) -> TransferFunction {
     let tf = TransferFunction::new(vec![alpha], vec![1.0, -(1.0 - alpha)]);
 
     &(&tf * &tf) * &tf
-
-    /*StateSpace::try_from(&(&(&tf * &tf) * &tf))
-    .unwrap()*/
 }
 
 /// Apply a given filter to one color plane.
@@ -221,6 +213,15 @@ fn composite_chroma_lowpass(frame: &mut YiqPlanar) {
     filter_plane(&mut frame.q, width, &q_filter, 0.0, 1.0, 4);
 }
 
+fn composite_chroma_lowpass_lite(frame: &mut YiqPlanar) {
+    let filter = make_lowpass_triple(2600000.0, NTSC_RATE);
+
+    let width = frame.resolution.0;
+
+    filter_plane(&mut frame.i, width, &filter, 0.0, 1.0, 1);
+    filter_plane(&mut frame.q, width, &filter, 0.0, 1.0, 1);
+}
+
 const I_MULT: [f64; 4] = [1.0, 0.0, -1.0, 0.0];
 const Q_MULT: [f64; 4] = [0.0, 1.0, 0.0, -1.0];
 
@@ -304,13 +305,8 @@ fn luma_into_chroma_line(
     }
 }
 
-fn video_noise_line<R: Rng>(
-    row: &mut [f64],
-    width: usize,
-    rng: &mut R,
-    frequency: f64,
-    intensity: f64,
-) {
+fn video_noise_line<R: Rng>(row: &mut [f64], rng: &mut R, frequency: f64, intensity: f64) {
+    let width = row.len();
     let noise_seed = rng.next_u32();
     let offset = rng.gen::<f64>() * width as f64;
 
@@ -336,7 +332,7 @@ fn composite_noise(
     let mut rng = SmallRng::seed_from_u64(key_seed(seed, noise_seeds::VIDEO_COMPOSITE, frame_num));
 
     yiq.y.chunks_mut(width).for_each(|row| {
-        video_noise_line(row, width, &mut rng, frequency, intensity);
+        video_noise_line(row, &mut rng, frequency, intensity);
     });
 }
 
@@ -358,8 +354,8 @@ fn chroma_noise(yiq: &mut YiqPlanar, seed: u64, frequency: f64, intensity: f64, 
         .chunks_mut(width)
         .zip(yiq.q.chunks_mut(width))
         .for_each(|(i, q)| {
-            video_noise_line(i, width, &mut rng, frequency, intensity);
-            video_noise_line(q, width, &mut rng, frequency, intensity);
+            video_noise_line(i, &mut rng, frequency, intensity);
+            video_noise_line(q, &mut rng, frequency, intensity);
         });
 }
 
@@ -551,7 +547,7 @@ fn chroma_vert_blend(yiq: &mut YiqPlanar) {
         });
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PhaseShift {
     Degrees0,
     Degrees90,
@@ -559,52 +555,189 @@ pub enum PhaseShift {
     Degrees270,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum VHSTapeSpeed {
     SP,
     LP,
     EP,
 }
 
-pub struct VHSSettings {
-    pub tape_speed: VHSTapeSpeed,
-    pub chroma_vert_blend: bool,
-    pub sharpen: f64,
-    edge_wave: f64,
-    edge_wave_speed: f64,
+struct VHSTapeParams {
+    luma_cut: f64,
+    chroma_cut: f64,
+    chroma_delay: usize,
 }
 
+impl VHSTapeSpeed {
+    fn filter_params(&self) -> VHSTapeParams {
+        match self {
+            VHSTapeSpeed::SP => VHSTapeParams {
+                luma_cut: 2400000.0,
+                chroma_cut: 320000.0,
+                chroma_delay: 4,
+            },
+            VHSTapeSpeed::LP => VHSTapeParams {
+                luma_cut: 1900000.0,
+                chroma_cut: 300000.0,
+                chroma_delay: 5,
+            },
+            VHSTapeSpeed::EP => VHSTapeParams {
+                luma_cut: 1400000.0,
+                chroma_cut: 280000.0,
+                chroma_delay: 6,
+            },
+        }
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub struct VHSSettings {
+    pub tape_speed: Option<VHSTapeSpeed>,
+    pub chroma_vert_blend: bool,
+    pub sharpen: f64,
+    pub edge_wave: f64,
+    pub edge_wave_speed: f64,
+}
+
+impl Default for VHSSettings {
+    fn default() -> Self {
+        Self {
+            tape_speed: Some(VHSTapeSpeed::LP),
+            chroma_vert_blend: true,
+            sharpen: 1.0,
+            edge_wave: 1.0,
+            edge_wave_speed: 4.0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ChromaLowpass {
+    None,
+    Light,
+    Full,
+}
+
+#[derive(Clone, PartialEq)]
+pub struct HeadSwitchingSettings {
+    pub height: usize,
+    pub offset: usize,
+    pub horiz_shift: f64,
+}
+
+impl Default for HeadSwitchingSettings {
+    fn default() -> Self {
+        Self {
+            height: 8,
+            offset: 3,
+            horiz_shift: 72.0,
+        }
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub struct HeadSwitchingNoiseSettings {
+    pub height: usize,
+    pub wave_intensity: f64,
+    pub snow_intensity: f64,
+}
+
+impl Default for HeadSwitchingNoiseSettings {
+    fn default() -> Self {
+        Self {
+            height: 24,
+            wave_intensity: 5.0,
+            snow_intensity: 0.005,
+        }
+    }
+}
+
+pub struct SettingsBlock<T> {
+    pub enabled: bool,
+    pub settings: T
+}
+
+impl<T: Default + Clone> From<&Option<T>> for SettingsBlock<T> {
+    fn from(opt: &Option<T>) -> Self {
+        Self {
+            enabled: opt.is_some(),
+            settings: match opt {
+                Some(v) => v.clone(),
+                None => T::default()
+            }
+        }
+    }
+}
+
+impl<T: Default> From<Option<T>> for SettingsBlock<T> {
+    fn from(opt: Option<T>) -> Self {
+        Self {
+            enabled: opt.is_some(),
+            settings: opt.unwrap_or_else(T::default)
+        }
+    }
+}
+
+impl<T> From<SettingsBlock<T>> for Option<T> {
+    fn from(value: SettingsBlock<T>) -> Self {
+        if value.enabled {
+            Some(value.settings)
+        } else {
+            None
+        }
+    }
+}
+
+impl<T: Clone> From<&SettingsBlock<T>> for Option<T> {
+    fn from(value: &SettingsBlock<T>) -> Self {
+        if value.enabled {
+            Some(value.settings.clone())
+        } else {
+            None
+        }
+    }
+}
+
+impl<T: Default> Default for SettingsBlock<T> {
+    fn default() -> Self {
+        Self { enabled: true, settings: T::default() }
+    }
+}
+
+#[derive(FullSettings)]
 pub struct NtscEffect {
-    pub chroma_lowpass_in: bool,
-    pub chroma_lowpass_out: bool,
+    pub chroma_lowpass_in: ChromaLowpass,
+    pub composite_preemphasis: f64,
     pub video_scanline_phase_shift: PhaseShift,
     pub video_scanline_phase_shift_offset: i32,
-    pub composite_preemphasis: f64,
+    #[settings_block]
+    pub head_switching: Option<HeadSwitchingSettings>,
+    #[settings_block]
+    pub head_switching_noise: Option<HeadSwitchingNoiseSettings>,
     pub composite_noise_intensity: f64,
     pub chroma_noise_intensity: f64,
     pub snow_intensity: f64,
     pub chroma_phase_noise_intensity: f64,
+    #[settings_block]
     pub vhs_settings: Option<VHSSettings>,
+    pub chroma_lowpass_out: ChromaLowpass,
 }
 
 impl Default for NtscEffect {
     fn default() -> Self {
         Self {
-            chroma_lowpass_in: true,
-            chroma_lowpass_out: true,
+            chroma_lowpass_in: ChromaLowpass::Full,
+            chroma_lowpass_out: ChromaLowpass::Full,
             composite_preemphasis: 1.0,
             video_scanline_phase_shift: PhaseShift::Degrees90,
             video_scanline_phase_shift_offset: 0,
+            head_switching: Some(HeadSwitchingSettings::default()),
+            head_switching_noise: Some(HeadSwitchingNoiseSettings::default()),
             snow_intensity: 0.00001,
             composite_noise_intensity: 0.01,
             chroma_noise_intensity: 0.1,
             chroma_phase_noise_intensity: 0.001,
-            vhs_settings: Some(VHSSettings {
-                tape_speed: VHSTapeSpeed::LP,
-                chroma_vert_blend: true,
-                sharpen: 1.0,
-                edge_wave: 1.0,
-                edge_wave_speed: 4.0,
-            }),
+            vhs_settings: Some(VHSSettings::default()),
         }
     }
 }
@@ -614,9 +747,15 @@ impl NtscEffect {
         let mut yiq = YiqPlanar::from_image(input_frame, YiqField::Lower);
         let (width, _) = yiq.resolution;
 
-        if self.chroma_lowpass_in {
-            composite_chroma_lowpass(&mut yiq);
-        }
+        match self.chroma_lowpass_in {
+            ChromaLowpass::Full => {
+                composite_chroma_lowpass(&mut yiq);
+            }
+            ChromaLowpass::Light => {
+                composite_chroma_lowpass_lite(&mut yiq);
+            }
+            ChromaLowpass::None => {}
+        };
 
         self.chroma_into_luma(&mut yiq, 50.0, 1);
 
@@ -646,8 +785,30 @@ impl NtscEffect {
             snow(&mut yiq, seed, self.snow_intensity, frame_num);
         }
 
-        head_switching_noise(&mut yiq, seed, 24, 5.0, 0.005, frame_num);
-        head_switching(&mut yiq, 8, 3, 72.0, seed, frame_num);
+        if let Some(HeadSwitchingNoiseSettings {
+            height,
+            wave_intensity,
+            snow_intensity,
+        }) = self.head_switching_noise
+        {
+            head_switching_noise(
+                &mut yiq,
+                seed,
+                height,
+                wave_intensity,
+                snow_intensity,
+                frame_num,
+            );
+        }
+
+        if let Some(HeadSwitchingSettings {
+            height,
+            offset,
+            horiz_shift,
+        }) = self.head_switching
+        {
+            head_switching(&mut yiq, height, offset, horiz_shift, seed, frame_num);
+        }
 
         self.luma_into_chroma(&mut yiq, 50.0, 1);
 
@@ -661,44 +822,66 @@ impl NtscEffect {
 
         if let Some(vhs_settings) = &self.vhs_settings {
             if vhs_settings.edge_wave > 0.0 {
-                vhs_edge_wave(&mut yiq, seed, vhs_settings.edge_wave, vhs_settings.edge_wave_speed, frame_num);
+                vhs_edge_wave(
+                    &mut yiq,
+                    seed,
+                    vhs_settings.edge_wave,
+                    vhs_settings.edge_wave_speed,
+                    frame_num,
+                );
             }
 
-            let (luma_cut, chroma_cut, chroma_delay): (f64, f64, usize) =
-                match vhs_settings.tape_speed {
-                    VHSTapeSpeed::SP => (2400000.0, 320000.0, 4),
-                    VHSTapeSpeed::LP => (1900000.0, 300000.0, 5),
-                    VHSTapeSpeed::EP => (1400000.0, 280000.0, 6),
-                };
+            if let Some(tape_speed) = &vhs_settings.tape_speed {
+                let VHSTapeParams {
+                    luma_cut,
+                    chroma_cut,
+                    chroma_delay,
+                } = tape_speed.filter_params();
 
-            // TODO: implement filter reset and try to fix the black line on the left
-            // it's present in both the original C++ code and Python port but probably not an actual VHS
-            // TODO: use a better filter! this effect's output looks way more smear-y than real VHS
-            let luma_filter = make_lowpass_triple(luma_cut, NTSC_RATE);
-            let chroma_filter = make_lowpass_triple(chroma_cut, NTSC_RATE);
-            filter_plane(&mut yiq.y, width, &luma_filter, 0.0, 1.0, 0);
-            filter_plane(&mut yiq.i, width, &chroma_filter, 0.0, 1.0, chroma_delay);
-            filter_plane(&mut yiq.q, width, &chroma_filter, 0.0, 1.0, chroma_delay);
-            let luma_filter_single = make_lowpass(luma_cut, NTSC_RATE);
-            filter_plane(&mut yiq.y, width, &luma_filter_single, 0.0, -1.6, 0);
+                // TODO: implement filter reset and try to fix the black line on the left
+                // it's present in both the original C++ code and Python port but probably not an actual VHS
+                // TODO: use a better filter! this effect's output looks way more smear-y than real VHS
+                let luma_filter = make_lowpass_triple(luma_cut, NTSC_RATE);
+                let chroma_filter = make_lowpass_triple(chroma_cut, NTSC_RATE);
+                filter_plane(&mut yiq.y, width, &luma_filter, 0.0, 1.0, 0);
+                filter_plane(&mut yiq.i, width, &chroma_filter, 0.0, 1.0, chroma_delay);
+                filter_plane(&mut yiq.q, width, &chroma_filter, 0.0, 1.0, chroma_delay);
+                let luma_filter_single = make_lowpass(luma_cut, NTSC_RATE);
+                filter_plane(&mut yiq.y, width, &luma_filter_single, 0.0, -1.6, 0);
+            }
 
             if vhs_settings.chroma_vert_blend {
                 chroma_vert_blend(&mut yiq);
             }
 
-            let luma_sharpen_filter = make_lowpass_triple(luma_cut * 4.0, NTSC_RATE);
-            // let chroma_sharpen_filter = make_lowpass_triple(chroma_cut * 4.0, 0.0, NTSC_RATE);
-            filter_plane(
-                &mut yiq.y,
-                width,
-                &luma_sharpen_filter,
-                0.0,
-                -vhs_settings.sharpen * 2.0,
-                0,
-            );
-            // filter_plane_scaled(&mut yiq.i, width, &chroma_sharpen_filter, -vhs_settings.sharpen * 0.85);
-            // filter_plane_scaled(&mut yiq.q, width, &chroma_sharpen_filter, -vhs_settings.sharpen * 0.85);
+            if vhs_settings.sharpen > 0.0 {
+                if let Some(tape_speed) = &vhs_settings.tape_speed {
+                    let VHSTapeParams { luma_cut, .. } = tape_speed.filter_params();
+                    let luma_sharpen_filter = make_lowpass_triple(luma_cut * 4.0, NTSC_RATE);
+                    // let chroma_sharpen_filter = make_lowpass_triple(chroma_cut * 4.0, 0.0, NTSC_RATE);
+                    filter_plane(
+                        &mut yiq.y,
+                        width,
+                        &luma_sharpen_filter,
+                        0.0,
+                        -vhs_settings.sharpen * 2.0,
+                        0,
+                    );
+                    // filter_plane_scaled(&mut yiq.i, width, &chroma_sharpen_filter, -vhs_settings.sharpen * 0.85);
+                    // filter_plane_scaled(&mut yiq.q, width, &chroma_sharpen_filter, -vhs_settings.sharpen * 0.85);
+                }
+            }
         }
+
+        match self.chroma_lowpass_out {
+            ChromaLowpass::Full => {
+                composite_chroma_lowpass(&mut yiq);
+            }
+            ChromaLowpass::Light => {
+                composite_chroma_lowpass_lite(&mut yiq);
+            }
+            ChromaLowpass::None => {}
+        };
 
         RgbImage::from(&yiq)
     }
