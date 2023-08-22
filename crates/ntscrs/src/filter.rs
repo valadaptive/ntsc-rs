@@ -1,5 +1,3 @@
-use nalgebra::{DMatrix, DVector};
-
 // Multiplies two polynomials (lowest coefficients first).
 pub fn polynomial_multiply(a: &Vec<f64>, b: &Vec<f64>) -> Vec<f64> {
     let degree = a.len() + b.len() - 1;

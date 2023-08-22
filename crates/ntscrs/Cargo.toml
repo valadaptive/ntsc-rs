@@ -1,0 +1,23 @@
+[package]
+name = "ntscrs"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+image = { version = "0.24.7", features = [] }
+nalgebra = "0.32.3"
+rand = { version = "0.8.5", features = ["small_rng"] }
+rand_xoshiro = "0.6.0"
+simdnoise = "3.1.6"
+siphasher = "0.3.10"
+num-traits = "0.2"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+pprof = { version = "0.12.1", features = ["flamegraph", "criterion"] }
+
+[[bench]]
+name = "filter_profile"
+harness = false
