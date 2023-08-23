@@ -7,7 +7,15 @@ use syn::{
     ItemStruct, Member, Token, Type, TypePath,
 };
 
-fn gen_fields(original: &ItemStruct) -> (Fields, Vec<FieldValue>, Vec<FieldValue>, Vec<FieldValue>, Vec<FieldValue>) {
+fn gen_fields(
+    original: &ItemStruct,
+) -> (
+    Fields,
+    Vec<FieldValue>,
+    Vec<FieldValue>,
+    Vec<FieldValue>,
+    Vec<FieldValue>,
+) {
     let mut fields = original.fields.clone();
     let mut from_ref_fields = Vec::<FieldValue>::new();
     let mut from_owned_fields = Vec::<FieldValue>::new();
@@ -68,7 +76,13 @@ fn gen_fields(original: &ItemStruct) -> (Fields, Vec<FieldValue>, Vec<FieldValue
         });
     }
 
-    (fields, from_ref_fields, from_owned_fields, to_ref_fields, to_owned_fields)
+    (
+        fields,
+        from_ref_fields,
+        from_owned_fields,
+        to_ref_fields,
+        to_owned_fields,
+    )
 }
 
 fn generate(original: &ItemStruct) -> proc_macro2::TokenStream {
@@ -80,7 +94,8 @@ fn generate(original: &ItemStruct) -> proc_macro2::TokenStream {
     );
     full_struct.ident = new_ident.clone();
 
-    let (new_fields, from_ref_fields, from_owned_fields, to_ref_fields, to_owned_fields) = gen_fields(original);
+    let (new_fields, from_ref_fields, from_owned_fields, to_ref_fields, to_owned_fields) =
+        gen_fields(original);
 
     full_struct.fields = new_fields;
 

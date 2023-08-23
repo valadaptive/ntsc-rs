@@ -48,10 +48,7 @@ pub fn sample_noise(t: f64, jitter: f64, seed: u64) -> f64 {
     };
     let mut dist =
         (cellspace_coord - (left_jitter + dist_offset)) / (right_jitter + 1.0 - left_jitter);
-    let left_rand: f64 = Seeder::new(rand_coord)
-        .mix(seed)
-        .mix(VALUE_SEED)
-        .finalize();
+    let left_rand: f64 = Seeder::new(rand_coord).mix(seed).mix(VALUE_SEED).finalize();
     let right_rand: f64 = Seeder::new(rand_coord.wrapping_add(1))
         .mix(seed)
         .mix(VALUE_SEED)
