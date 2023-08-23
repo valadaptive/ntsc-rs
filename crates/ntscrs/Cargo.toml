@@ -11,7 +11,6 @@ nalgebra = "0.32.3"
 rand = { version = "0.8.5", features = ["small_rng"] }
 rand_xoshiro = "0.6.0"
 simdnoise = "3.1.6"
-siphasher = "0.3.10"
 num-traits = "0.2"
 macros = {path = "../macros"}
 

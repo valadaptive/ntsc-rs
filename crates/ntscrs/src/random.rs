@@ -1,13 +1,4 @@
-use std::hash::Hasher;
-
 use rand::distributions::Distribution;
-use siphasher::sip::SipHasher;
-
-pub fn key_seed(seed: u64, key: u64, frame_num: usize) -> u64 {
-    let mut hasher = SipHasher::new_with_keys(seed, key);
-    hasher.write_u64(frame_num as u64);
-    hasher.finish()
-}
 
 pub struct Geometric {
     lambda: f64,
@@ -40,10 +31,6 @@ fn splitmix64(seed: u64) -> u64 {
     z ^ (z >> 31)
 }
 
-pub fn seek_rng(seed: u64, index: u64) -> u64 {
-    splitmix64(splitmix64(seed)) ^ splitmix64(index)
-}
-
 pub trait FromSeeder {
     fn from_seeder(input: u64) -> Self;
 }
@@ -55,27 +42,41 @@ impl FromSeeder for u64 {
     }
 }
 
-impl FromSeeder for f64 {
+impl FromSeeder for i32 {
     #[inline(always)]
     fn from_seeder(input: u64) -> Self {
-        f64::from_bits((input | 0x3FF0000000000000u64) & 0x3FFFFFFFFFFFFFFFu64) - 1.0
+        (input & (u32::MAX as u64)) as i32
     }
 }
 
+impl FromSeeder for f64 {
+    #[inline(always)]
+    fn from_seeder(input: u64) -> Self {
+        f64::from_bits((input | 0x3FF0000000000000) & 0x3FFFFFFFFFFFFFFF) - 1.0
+    }
+}
+
+impl FromSeeder for f32 {
+    #[inline(always)]
+    fn from_seeder(input: u64) -> Self {
+        f32::from_bits(((input & 0xFFFFFFFF) as u32 >> 9) >> 9 | 0x3F800000) - 1.0
+    }
+}
+
+#[derive(Clone, Copy)]
 pub struct Seeder {
     state: u64,
 }
 
-// TODO: replace key_seed fully
 impl Seeder {
-    pub fn new(seed: u64) -> Self {
+    pub fn new<T: Mix>(seed: T) -> Self {
         Seeder {
-            state: splitmix64(seed),
+            state: splitmix64(seed.mix()),
         }
     }
 
-    pub fn mix_u64(mut self, input: u64) -> Self {
-        self.state = splitmix64(self.state) ^ splitmix64(input);
+    pub fn mix<T: Mix>(mut self, input: T) -> Self {
+        self.state = splitmix64(self.state) ^ input.mix();
         self
     }
 
@@ -83,3 +84,43 @@ impl Seeder {
         T::from_seeder(self.state)
     }
 }
+
+pub trait Mix {
+    fn mix(&self) -> u64;
+}
+
+macro_rules! impl_mix_for {
+    ($ty: tt) => {
+        impl Mix for $ty {
+            #[inline(always)]
+            fn mix(&self) -> u64 {
+                splitmix64(*self as u64)
+            }
+        }
+    };
+}
+
+macro_rules! impl_mix_for_float {
+    ($ty: tt) => {
+        impl Mix for $ty {
+            #[inline(always)]
+            fn mix(&self) -> u64 {
+                splitmix64(self.to_bits() as u64)
+            }
+        }
+    };
+}
+
+impl_mix_for!(i8);
+impl_mix_for!(u8);
+impl_mix_for!(i16);
+impl_mix_for!(u16);
+impl_mix_for!(i32);
+impl_mix_for!(u32);
+impl_mix_for!(i64);
+impl_mix_for!(u64);
+impl_mix_for!(isize);
+impl_mix_for!(usize);
+
+impl_mix_for_float!(f32);
+impl_mix_for_float!(f64);

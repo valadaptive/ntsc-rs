@@ -1,15 +1,15 @@
 use std::collections::VecDeque;
 
-use image::{Rgb, RgbImage};
+use core::f64::consts::PI;
+use image::RgbImage;
 use macros::FullSettings;
 use nalgebra::{matrix, Matrix3, Vector3};
 use rand::{rngs::SmallRng, Rng, RngCore, SeedableRng};
 use simdnoise::NoiseBuilder;
-use core::f64::consts::PI;
 
 use crate::{
     filter::TransferFunction,
-    random::{key_seed, Geometric},
+    random::{Geometric, Seeder},
     shift::{shift_row, BoundaryHandling},
 };
 
@@ -97,7 +97,7 @@ fn filter_plane(
         let initial = match initial {
             InitialCondition::Zero => 0.0,
             InitialCondition::Constant(c) => c,
-            InitialCondition::FirstSample => field[0]
+            InitialCondition::FirstSample => field[0],
         };
         filter.filter_signal_in_place(field, initial, scale, delay);
     });
@@ -118,12 +118,10 @@ impl YiqPlanar {
             YiqField::Both => image.height(),
         } as usize;
 
-        // If the row index modulo 2 equals this number, skip that row.
-        let skip_field: usize = match field {
-            YiqField::Upper => 1,
-            YiqField::Lower => 0,
-            // The row index modulo 2 never reaches 2, meaning we don't skip any fields
-            YiqField::Both => 2,
+        let (row_lshift, row_offset): (usize, usize) = match field {
+            YiqField::Upper => (1, 0),
+            YiqField::Lower => (1, 1),
+            YiqField::Both => (0, 0),
         };
 
         let num_pixels = width * height;
@@ -131,28 +129,26 @@ impl YiqPlanar {
         let mut i = vec![0f64; num_pixels];
         let mut q = vec![0f64; num_pixels];
 
-        // let iter: &dyn Iterator<Item = (usize, Rows<'_, Rgb<u8>>)> = &image.rows().enumerate() as &dyn Iterator<Item = (usize, Rows<'_, Rgb<u8>>)>;
-        let rows = image.rows().enumerate();
-        let mut offset_out = 0usize;
-        for (row_idx, row) in rows {
-            if row_idx & 1 == skip_field {
-                continue;
-            }
+        let src_data = image.as_raw();
 
-            row.enumerate().for_each(|(index, Rgb(pixel))| {
-                let yiq_pixel = YIQ_MATRIX
-                    * Vector3::new(
-                        (pixel[0] as f64) / 255.0,
-                        (pixel[1] as f64) / 255.0,
-                        (pixel[2] as f64) / 255.0,
-                    );
-                y[offset_out + index] = yiq_pixel[0];
-                i[offset_out + index] = yiq_pixel[1];
-                q[offset_out + index] = yiq_pixel[2];
+        y.chunks_mut(width)
+            .zip(i.chunks_mut(width).zip(q.chunks_mut(width)))
+            .enumerate()
+            .for_each(|(row_idx, (y, (i, q)))| {
+                let src_row_idx = (row_idx << row_lshift) + row_offset;
+                let src_offset = src_row_idx * width;
+                for pixel_idx in 0..width {
+                    let yiq_pixel = YIQ_MATRIX
+                        * Vector3::new(
+                            (src_data[((pixel_idx + src_offset) * 3) + 0] as f64) / 255.0,
+                            (src_data[((pixel_idx + src_offset) * 3) + 1] as f64) / 255.0,
+                            (src_data[((pixel_idx + src_offset) * 3) + 2] as f64) / 255.0,
+                        );
+                    y[pixel_idx] = yiq_pixel[0];
+                    i[pixel_idx] = yiq_pixel[1];
+                    q[pixel_idx] = yiq_pixel[2];
+                }
             });
-
-            offset_out += width;
-        }
 
         YiqPlanar {
             y,
@@ -227,8 +223,22 @@ fn composite_chroma_lowpass(frame: &mut YiqPlanar) {
 
     let width = frame.resolution.0;
 
-    filter_plane(&mut frame.i, width, &i_filter, InitialCondition::Zero, 1.0, 2);
-    filter_plane(&mut frame.q, width, &q_filter, InitialCondition::Zero, 1.0, 4);
+    filter_plane(
+        &mut frame.i,
+        width,
+        &i_filter,
+        InitialCondition::Zero,
+        1.0,
+        2,
+    );
+    filter_plane(
+        &mut frame.q,
+        width,
+        &q_filter,
+        InitialCondition::Zero,
+        1.0,
+        4,
+    );
 }
 
 fn composite_chroma_lowpass_lite(frame: &mut YiqPlanar) {
@@ -323,8 +333,9 @@ fn luma_into_chroma_line(
     }
 }
 
-fn video_noise_line<R: Rng>(row: &mut [f64], rng: &mut R, frequency: f64, intensity: f64) {
+fn video_noise_line(row: &mut [f64], seeder: Seeder, index: usize, frequency: f64, intensity: f64) {
     let width = row.len();
+    let mut rng = SmallRng::seed_from_u64(seeder.mix(index as u64).finalize());
     let noise_seed = rng.next_u32();
     let offset = rng.gen::<f64>() * width as f64;
 
@@ -347,18 +358,23 @@ fn composite_noise(
     frame_num: usize,
 ) {
     let width = yiq.resolution.0;
-    let mut rng = SmallRng::seed_from_u64(key_seed(seed, noise_seeds::VIDEO_COMPOSITE, frame_num));
+    let seeder = Seeder::new(seed)
+        .mix(noise_seeds::VIDEO_COMPOSITE)
+        .mix(frame_num);
 
-    yiq.y.chunks_mut(width).for_each(|row| {
-        video_noise_line(row, &mut rng, frequency, intensity);
-    });
+    yiq.y
+        .chunks_mut(width)
+        .enumerate()
+        .for_each(|(index, row)| {
+            video_noise_line(row, seeder, index, frequency, intensity);
+        });
 }
 
 mod noise_seeds {
     pub const VIDEO_COMPOSITE: u64 = 0;
     pub const VIDEO_CHROMA: u64 = 1;
     pub const HEAD_SWITCHING: u64 = 2;
-    pub const HEAD_SWITCHING_PHASE: u64 = 3;
+    pub const HEAD_SWITCHING_NOISE: u64 = 3;
     pub const VIDEO_CHROMA_PHASE: u64 = 4;
     pub const EDGE_WAVE: u64 = 5;
     pub const SNOW: u64 = 6;
@@ -366,29 +382,34 @@ mod noise_seeds {
 
 fn chroma_noise(yiq: &mut YiqPlanar, seed: u64, frequency: f64, intensity: f64, frame_num: usize) {
     let width = yiq.resolution.0;
-    let mut rng = SmallRng::seed_from_u64(key_seed(seed, noise_seeds::VIDEO_CHROMA, frame_num));
+    let seeder = Seeder::new(seed)
+        .mix(noise_seeds::VIDEO_CHROMA)
+        .mix(frame_num);
 
     yiq.i
         .chunks_mut(width)
         .zip(yiq.q.chunks_mut(width))
-        .for_each(|(i, q)| {
-            video_noise_line(i, &mut rng, frequency, intensity);
-            video_noise_line(q, &mut rng, frequency, intensity);
+        .enumerate()
+        .for_each(|(index, (i, q))| {
+            video_noise_line(i, seeder, index, frequency, intensity);
+            video_noise_line(q, seeder, index, frequency, intensity);
         });
 }
 
 fn chroma_phase_noise(yiq: &mut YiqPlanar, seed: u64, intensity: f64, frame_num: usize) {
     let width = yiq.resolution.0;
-    let mut rng =
-        SmallRng::seed_from_u64(key_seed(seed, noise_seeds::VIDEO_CHROMA_PHASE, frame_num));
+    let seeder = Seeder::new(seed)
+        .mix(noise_seeds::VIDEO_CHROMA_PHASE)
+        .mix(frame_num);
 
     yiq.i
         .chunks_mut(width)
         .zip(yiq.q.chunks_mut(width))
-        .for_each(|(i, q)| {
+        .enumerate()
+        .for_each(|(index, (i, q))| {
             // Phase shift angle in radians. Mapped so that an intensity of 1.0 is a phase shift ranging from a full
             // rotation to the left - a full rotation to the right.
-            let phase_shift = (rng.gen::<f64>() - 0.5) * PI * 4.0 * intensity;
+            let phase_shift = (seeder.mix(index).finalize::<f64>() - 0.5) * PI * 4.0 * intensity;
             let (sin_angle, cos_angle) = phase_shift.sin_cos();
 
             for (i, q) in i.iter_mut().zip(q.iter_mut()) {
@@ -413,20 +434,25 @@ fn head_switching(
     let (width, height) = yiq.resolution;
     let num_affected_rows = num_rows - offset;
 
-    let mut rng =
-        SmallRng::seed_from_u64(key_seed(seed, noise_seeds::HEAD_SWITCHING_PHASE, frame_num));
+    let start_row = height - num_affected_rows;
+    let affected_rows = &mut yiq.y[start_row * width..];
 
-    for row_idx in 0..num_affected_rows {
-        let dst_row_idx = height - 1 - row_idx;
-        let row = &mut yiq.y[width * dst_row_idx..width * (dst_row_idx + 1)];
+    let seeder = Seeder::new(seed)
+        .mix(noise_seeds::HEAD_SWITCHING)
+        .mix(frame_num);
 
-        let row_shift = shift * ((row_idx + offset) as f64 / num_rows as f64).powf(1.5);
-        shift_row(
-            row,
-            row_shift + (rng.gen::<f64>() - 0.5),
-            BoundaryHandling::Constant(0.0),
-        );
-    }
+    affected_rows
+        .chunks_mut(width)
+        .enumerate()
+        .for_each(|(index, row)| {
+            let index = num_affected_rows - index;
+            let row_shift = shift * ((index + offset) as f64 / num_rows as f64).powf(1.5);
+            shift_row(
+                row,
+                row_shift + (seeder.mix(index).finalize::<f64>() - 0.5),
+                BoundaryHandling::Constant(0.0),
+            );
+        });
 }
 
 // 4 pixels between the zeros of the speckle's transient
@@ -468,58 +494,75 @@ fn row_speckles<R: Rng>(row: &mut [f64], rng: &mut R, intensity: f64) {
 fn head_switching_noise(
     yiq: &mut YiqPlanar,
     seed: u64,
-    height: usize,
+    num_rows: usize,
     wave_intensity: f64,
     snow_intensity: f64,
     frame_num: usize,
 ) {
-    let width = yiq.resolution.0;
+    let (width, height) = yiq.resolution;
 
-    let mut rng = SmallRng::seed_from_u64(key_seed(seed, noise_seeds::HEAD_SWITCHING, frame_num));
-    let noise_seed = rng.next_u32();
-    let offset = rng.gen::<f32>() * yiq.resolution.1 as f32;
-    let shift_noise = NoiseBuilder::gradient_1d_offset(offset as f32, height)
-        .with_seed(noise_seed as i32)
+    let seeder = Seeder::new(seed)
+        .mix(noise_seeds::HEAD_SWITCHING_NOISE)
+        .mix(frame_num);
+    let noise_seed = seeder.finalize::<i32>();
+    let offset = seeder.mix(1).finalize::<f32>() * yiq.resolution.1 as f32;
+    let shift_noise = NoiseBuilder::gradient_1d_offset(offset as f32, num_rows)
+        .with_seed(noise_seed)
         .with_freq(0.5)
         .generate()
         .0;
 
-    for row_idx in 0..height {
-        // This iterates from the bottom up. Decrease the intensity as we approach the top of the picture.
-        let intensity_scale = 1.0 - (row_idx as f64 / height as f64);
-        let dst_row_idx = yiq.resolution.1 - 1 - row_idx;
-        let row = &mut yiq.y[width * dst_row_idx..width * (dst_row_idx + 1)];
-        shift_row(
-            row,
-            shift_noise[row_idx] as f64 * intensity_scale * wave_intensity * 0.25,
-            BoundaryHandling::Constant(0.0),
-        );
+    let start_row = height - num_rows;
+    let affected_rows = &mut yiq.y[start_row * width..];
 
-        // Turn each pixel into "snow" with probability snow_intensity * intensity_scale
-        // We can simulate the distance between each "snow" pixel with a geometric distribution which avoids having to
-        // loop over every pixel
-        row_speckles(row, &mut rng, snow_intensity * intensity_scale);
-    }
+    affected_rows
+        .chunks_mut(width)
+        .enumerate()
+        .for_each(|(index, row)| {
+            // This iterates from the top down. Increase the intensity as we approach the bottom of the picture.
+            let intensity_scale = index as f64 / num_rows as f64;
+            shift_row(
+                row,
+                shift_noise[index] as f64 * intensity_scale * wave_intensity * 0.25,
+                BoundaryHandling::Constant(0.0),
+            );
+
+            // Turn each pixel into "snow" with probability snow_intensity * intensity_scale
+            // We can simulate the distance between each "snow" pixel with a geometric distribution which avoids having to
+            // loop over every pixel
+            row_speckles(
+                row,
+                &mut SmallRng::seed_from_u64(seeder.mix(index).finalize()),
+                snow_intensity * intensity_scale,
+            );
+        });
 }
 
 fn snow(yiq: &mut YiqPlanar, seed: u64, intensity: f64, frame_num: usize) {
-    let mut rng = SmallRng::seed_from_u64(key_seed(seed, noise_seeds::SNOW, frame_num));
+    let seeder = Seeder::new(seed).mix(noise_seeds::SNOW).mix(frame_num);
 
-    for row in yiq.y.chunks_mut(yiq.resolution.0) {
-        // Turn each pixel into "snow" with probability snow_intensity * intensity_scale
-        // We can simulate the distance between each "snow" pixel with a geometric distribution which avoids having to
-        // loop over every pixel
-        row_speckles(row, &mut rng, intensity);
-    }
+    yiq.y
+        .chunks_mut(yiq.resolution.0)
+        .enumerate()
+        .for_each(|(index, row)| {
+            // Turn each pixel into "snow" with probability snow_intensity * intensity_scale
+            // We can simulate the distance between each "snow" pixel with a geometric distribution which avoids having to
+            // loop over every pixel
+            row_speckles(
+                row,
+                &mut SmallRng::seed_from_u64(seeder.mix(index).finalize()),
+                intensity,
+            );
+        });
 }
 
 fn vhs_edge_wave(yiq: &mut YiqPlanar, seed: u64, intensity: f64, speed: f64, frame_num: usize) {
     let width = yiq.resolution.0;
 
-    let mut rng = SmallRng::seed_from_u64(key_seed(seed, noise_seeds::EDGE_WAVE, 0));
-    let noise_seed = rng.next_u32();
+    let seeder = Seeder::new(seed).mix(noise_seeds::EDGE_WAVE);
+    let noise_seed: i32 = seeder.finalize();
     // TODO: sample perlin noise in time domain
-    let offset = rng.gen::<f32>() * yiq.resolution.1 as f32;
+    let offset = seeder.mix(1).finalize::<f32>() * yiq.resolution.1 as f32;
     let noise = NoiseBuilder::gradient_2d_offset(
         offset as f32,
         width,
@@ -674,18 +717,22 @@ impl Default for HeadSwitchingNoiseSettings {
 pub struct RingingSettings {
     pub frequency: f64,
     pub power: f64,
-    pub intensity: f64
+    pub intensity: f64,
 }
 
 impl Default for RingingSettings {
     fn default() -> Self {
-        Self { frequency: 0.45, power: 4.0, intensity: 4.0 }
+        Self {
+            frequency: 0.45,
+            power: 4.0,
+            intensity: 4.0,
+        }
     }
 }
 
 pub struct SettingsBlock<T> {
     pub enabled: bool,
-    pub settings: T
+    pub settings: T,
 }
 
 impl<T: Default + Clone> From<&Option<T>> for SettingsBlock<T> {
@@ -694,8 +741,8 @@ impl<T: Default + Clone> From<&Option<T>> for SettingsBlock<T> {
             enabled: opt.is_some(),
             settings: match opt {
                 Some(v) => v.clone(),
-                None => T::default()
-            }
+                None => T::default(),
+            },
         }
     }
 }
@@ -704,7 +751,7 @@ impl<T: Default> From<Option<T>> for SettingsBlock<T> {
     fn from(opt: Option<T>) -> Self {
         Self {
             enabled: opt.is_some(),
-            settings: opt.unwrap_or_else(T::default)
+            settings: opt.unwrap_or_else(T::default),
         }
     }
 }
@@ -731,7 +778,10 @@ impl<T: Clone> From<&SettingsBlock<T>> for Option<T> {
 
 impl<T: Default> Default for SettingsBlock<T> {
     fn default() -> Self {
-        Self { enabled: true, settings: T::default() }
+        Self {
+            enabled: true,
+            settings: T::default(),
+        }
     }
 }
 
@@ -848,7 +898,14 @@ impl NtscEffect {
 
         if let Some(ringing) = &self.ringing {
             let notch_filter = make_notch_filter(ringing.frequency, ringing.power);
-            filter_plane(&mut yiq.y, width, &notch_filter, InitialCondition::FirstSample, ringing.intensity, 1);
+            filter_plane(
+                &mut yiq.y,
+                width,
+                &notch_filter,
+                InitialCondition::FirstSample,
+                ringing.intensity,
+                1,
+            );
         }
 
         if self.chroma_noise_intensity > 0.0 {
@@ -882,11 +939,39 @@ impl NtscEffect {
                 // TODO: use a better filter! this effect's output looks way more smear-y than real VHS
                 let luma_filter = make_lowpass_triple(luma_cut, NTSC_RATE);
                 let chroma_filter = make_lowpass_triple(chroma_cut, NTSC_RATE);
-                filter_plane(&mut yiq.y, width, &luma_filter, InitialCondition::Zero, 1.0, 0);
-                filter_plane(&mut yiq.i, width, &chroma_filter, InitialCondition::Zero, 1.0, chroma_delay);
-                filter_plane(&mut yiq.q, width, &chroma_filter, InitialCondition::Zero, 1.0, chroma_delay);
+                filter_plane(
+                    &mut yiq.y,
+                    width,
+                    &luma_filter,
+                    InitialCondition::Zero,
+                    1.0,
+                    0,
+                );
+                filter_plane(
+                    &mut yiq.i,
+                    width,
+                    &chroma_filter,
+                    InitialCondition::Zero,
+                    1.0,
+                    chroma_delay,
+                );
+                filter_plane(
+                    &mut yiq.q,
+                    width,
+                    &chroma_filter,
+                    InitialCondition::Zero,
+                    1.0,
+                    chroma_delay,
+                );
                 let luma_filter_single = make_lowpass(luma_cut, NTSC_RATE);
-                filter_plane(&mut yiq.y, width, &luma_filter_single, InitialCondition::Zero, -1.6, 0);
+                filter_plane(
+                    &mut yiq.y,
+                    width,
+                    &luma_filter_single,
+                    InitialCondition::Zero,
+                    -1.6,
+                    0,
+                );
             }
 
             if vhs_settings.chroma_vert_blend {

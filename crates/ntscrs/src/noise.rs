@@ -13,14 +13,14 @@ pub fn sample_noise(t: f64, jitter: f64, seed: u64) -> f64 {
     let cellspace_coord = t.fract();
 
     let mut left_jitter = (Seeder::new(left_coord)
-        .mix_u64(seed)
-        .mix_u64(JITTER_SEED)
+        .mix(seed)
+        .mix(JITTER_SEED)
         .finalize::<f64>()
         - 0.5)
         * jitter;
     let mut right_jitter = (Seeder::new(left_coord.wrapping_add(1))
-        .mix_u64(seed)
-        .mix_u64(JITTER_SEED)
+        .mix(seed)
+        .mix(JITTER_SEED)
         .finalize::<f64>()
         - 0.5)
         * jitter;
@@ -28,8 +28,8 @@ pub fn sample_noise(t: f64, jitter: f64, seed: u64) -> f64 {
     let (dist_offset, rand_coord) = if cellspace_coord < left_jitter {
         right_jitter = left_jitter;
         left_jitter = (Seeder::new(left_coord.wrapping_sub(1))
-            .mix_u64(seed)
-            .mix_u64(JITTER_SEED)
+            .mix(seed)
+            .mix(JITTER_SEED)
             .finalize::<f64>()
             - 0.5)
             * jitter;
@@ -37,8 +37,8 @@ pub fn sample_noise(t: f64, jitter: f64, seed: u64) -> f64 {
     } else if cellspace_coord > right_jitter + 1.0 {
         left_jitter = right_jitter;
         right_jitter = (Seeder::new(left_coord.wrapping_add(2))
-            .mix_u64(seed)
-            .mix_u64(JITTER_SEED)
+            .mix(seed)
+            .mix(JITTER_SEED)
             .finalize::<f64>()
             - 0.5)
             * jitter;
@@ -49,12 +49,12 @@ pub fn sample_noise(t: f64, jitter: f64, seed: u64) -> f64 {
     let mut dist =
         (cellspace_coord - (left_jitter + dist_offset)) / (right_jitter + 1.0 - left_jitter);
     let left_rand: f64 = Seeder::new(rand_coord)
-        .mix_u64(seed)
-        .mix_u64(VALUE_SEED)
+        .mix(seed)
+        .mix(VALUE_SEED)
         .finalize();
     let right_rand: f64 = Seeder::new(rand_coord.wrapping_add(1))
-        .mix_u64(seed)
-        .mix_u64(VALUE_SEED)
+        .mix(seed)
+        .mix(VALUE_SEED)
         .finalize();
 
     // Smoothstep

@@ -2083,7 +2083,6 @@ dependencies = [
  "rand",
  "rand_xoshiro",
  "simdnoise",
- "siphasher",
 ]
 
 [[package]]
@@ -2915,12 +2914,6 @@ checksum = "d9f69a3fa031fc2906ffe27aecc55bdd2c9cb95327c4695ea814a083145fa462"
 dependencies = [
  "simdeez",
 ]
-
-[[package]]
-name = "siphasher"
-version = "0.3.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7bd3e3206899af3f8b12af284fafc038cc1dc2b41d1b89dd17297221c5d225de"
 
 [[package]]
 name = "slab"
