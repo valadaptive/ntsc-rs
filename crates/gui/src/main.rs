@@ -226,21 +226,21 @@ impl eframe::App for NtscApp {
                         ui.group(|ui| {
                             if ui
                                 .checkbox(
-                                    &mut self.settings.head_switching_noise.enabled,
-                                    "Head switching noise",
+                                    &mut self.settings.tracking_noise.enabled,
+                                    "Tracking noise",
                                 )
                                 .changed()
                             {
                                 self.update_effect(ctx);
                             }
 
-                            ui.set_enabled(self.settings.head_switching_noise.enabled);
+                            ui.set_enabled(self.settings.tracking_noise.enabled);
 
                             if ui
                                 .add(
                                     egui::Slider::new(
-                                        &mut self.settings.head_switching_noise.settings.height,
-                                        1..=48,
+                                        &mut self.settings.tracking_noise.settings.height,
+                                        1..=120,
                                     )
                                     .text("Height"),
                                 )
@@ -254,7 +254,7 @@ impl eframe::App for NtscApp {
                                     egui::Slider::new(
                                         &mut self
                                             .settings
-                                            .head_switching_noise
+                                            .tracking_noise
                                             .settings
                                             .wave_intensity,
                                         0.0..=50.0,
@@ -271,13 +271,31 @@ impl eframe::App for NtscApp {
                                     egui::Slider::new(
                                         &mut self
                                             .settings
-                                            .head_switching_noise
+                                            .tracking_noise
                                             .settings
                                             .snow_intensity,
                                         0.0..=1.0,
                                     )
                                     .logarithmic(true)
                                     .text("Snow intensity"),
+                                )
+                                .changed()
+                            {
+                                self.update_effect(ctx)
+                            }
+
+                            if ui
+                                .add(
+                                    egui::Slider::new(
+                                        &mut self
+                                            .settings
+                                            .tracking_noise
+                                            .settings
+                                            .noise_intensity,
+                                        0.0..=1.0,
+                                    )
+                                    .logarithmic(true)
+                                    .text("Noise intensity"),
                                 )
                                 .changed()
                             {
@@ -392,7 +410,7 @@ impl eframe::App for NtscApp {
                             .add(
                                 egui::Slider::new(
                                     &mut self.settings.chroma_noise_intensity,
-                                    0.0..=1.0,
+                                    0.0..=2.0,
                                 )
                                 .logarithmic(true)
                                 .text("Chroma noise"),

@@ -375,7 +375,7 @@ mod noise_seeds {
     pub const VIDEO_COMPOSITE: u64 = 0;
     pub const VIDEO_CHROMA: u64 = 1;
     pub const HEAD_SWITCHING: u64 = 2;
-    pub const HEAD_SWITCHING_NOISE: u64 = 3;
+    pub const TRACKING_NOISE: u64 = 3;
     pub const VIDEO_CHROMA_PHASE: u64 = 4;
     pub const EDGE_WAVE: u64 = 5;
     pub const SNOW: u64 = 6;
@@ -457,8 +457,6 @@ fn head_switching(
         });
 }
 
-// 4 pixels between the zeros of the speckle's transient
-const SPECKLE_TRANSIENT_FREQUENCY: usize = 8;
 fn row_speckles<R: Rng>(row: &mut [f64], rng: &mut R, intensity: f64) {
     if intensity <= 0.0 {
         return;
@@ -474,17 +472,14 @@ fn row_speckles<R: Rng>(row: &mut [f64], rng: &mut R, intensity: f64) {
             break;
         }
 
-        let transient_len = 2;
+        let transient_len: f64 = rng.gen_range(8.0..64.0);
 
         for i in
-            pixel_idx..(pixel_idx + (transient_len * SPECKLE_TRANSIENT_FREQUENCY)).min(row.len())
+            pixel_idx..(pixel_idx + transient_len.ceil() as usize).min(row.len())
         {
             let x = (i - pixel_idx) as f64;
-            // Simulate transient with sin(pi*x / 4) * (1 - x/len)^2
-            row[i] += ((x * PI) / SPECKLE_TRANSIENT_FREQUENCY as f64).sin()
-                * (1.0 - x / (transient_len * SPECKLE_TRANSIENT_FREQUENCY) as f64).powi(2)
-                * 2.0
-                * rng.gen::<f64>();
+            // Quadratic decay to 0
+            row[i] += (1.0 - (x / transient_len as f64)).powi(2) * 2.0 * rng.gen::<f64>();
         }
 
         // Make sure we advance the pixel index each time. Our geometric distribution gives us the time between
@@ -493,18 +488,19 @@ fn row_speckles<R: Rng>(row: &mut [f64], rng: &mut R, intensity: f64) {
     }
 }
 
-fn head_switching_noise(
+fn tracking_noise(
     yiq: &mut YiqPlanar,
     seed: u64,
     num_rows: usize,
     wave_intensity: f64,
     snow_intensity: f64,
+    noise_intensity: f64,
     frame_num: usize,
 ) {
     let (width, height) = yiq.resolution;
 
     let seeder = Seeder::new(seed)
-        .mix(noise_seeds::HEAD_SWITCHING_NOISE)
+        .mix(noise_seeds::TRACKING_NOISE)
         .mix(frame_num);
     let noise_seed = seeder.finalize::<i32>();
     let offset = seeder.mix(1).finalize::<f32>() * yiq.resolution.1 as f32;
@@ -529,13 +525,15 @@ fn head_switching_noise(
                 BoundaryHandling::Constant(0.0),
             );
 
+            video_noise_line(row, seeder, index, 0.25, intensity_scale.powi(2) * noise_intensity * 4.0);
+
             // Turn each pixel into "snow" with probability snow_intensity * intensity_scale
             // We can simulate the distance between each "snow" pixel with a geometric distribution which avoids having to
             // loop over every pixel
             row_speckles(
                 row,
                 &mut SmallRng::seed_from_u64(seeder.mix(index).finalize()),
-                snow_intensity * intensity_scale,
+                snow_intensity * intensity_scale.powi(2),
             );
         });
 }
@@ -798,6 +796,7 @@ pub struct HeadSwitchingNoiseSettings {
     pub height: usize,
     pub wave_intensity: f64,
     pub snow_intensity: f64,
+    pub noise_intensity: f64,
 }
 
 impl Default for HeadSwitchingNoiseSettings {
@@ -806,6 +805,7 @@ impl Default for HeadSwitchingNoiseSettings {
             height: 24,
             wave_intensity: 5.0,
             snow_intensity: 0.005,
+            noise_intensity: 0.005,
         }
     }
 }
@@ -891,7 +891,7 @@ pub struct NtscEffect {
     #[settings_block]
     pub head_switching: Option<HeadSwitchingSettings>,
     #[settings_block]
-    pub head_switching_noise: Option<HeadSwitchingNoiseSettings>,
+    pub tracking_noise: Option<HeadSwitchingNoiseSettings>,
     pub composite_noise_intensity: f64,
     #[settings_block]
     pub ringing: Option<RingingSettings>,
@@ -913,7 +913,7 @@ impl Default for NtscEffect {
             video_scanline_phase_shift: PhaseShift::Degrees90,
             video_scanline_phase_shift_offset: 0,
             head_switching: Some(HeadSwitchingSettings::default()),
-            head_switching_noise: Some(HeadSwitchingNoiseSettings::default()),
+            tracking_noise: Some(HeadSwitchingNoiseSettings::default()),
             ringing: Some(RingingSettings::default()),
             snow_intensity: 0.00001,
             composite_noise_intensity: 0.01,
@@ -968,22 +968,6 @@ impl NtscEffect {
             snow(&mut yiq, seed, self.snow_intensity, frame_num);
         }
 
-        if let Some(HeadSwitchingNoiseSettings {
-            height,
-            wave_intensity,
-            snow_intensity,
-        }) = self.head_switching_noise
-        {
-            head_switching_noise(
-                &mut yiq,
-                seed,
-                height,
-                wave_intensity,
-                snow_intensity,
-                frame_num,
-            );
-        }
-
         if let Some(HeadSwitchingSettings {
             height,
             offset,
@@ -991,6 +975,24 @@ impl NtscEffect {
         }) = self.head_switching
         {
             head_switching(&mut yiq, height, offset, horiz_shift, seed, frame_num);
+        }
+
+        if let Some(HeadSwitchingNoiseSettings {
+            height,
+            wave_intensity,
+            snow_intensity,
+            noise_intensity,
+        }) = self.tracking_noise
+        {
+            tracking_noise(
+                &mut yiq,
+                seed,
+                height,
+                wave_intensity,
+                snow_intensity,
+                noise_intensity,
+                frame_num,
+            );
         }
 
         self.luma_into_chroma(&mut yiq, 50.0, 1);
