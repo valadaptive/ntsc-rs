@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use core::f64::consts::PI;
 use image::RgbImage;
 use macros::FullSettings;
-use nalgebra::{matrix, Matrix3, Vector3};
+use glam::{DVec3, DMat3};
 use rand::{rngs::SmallRng, Rng, RngCore, SeedableRng};
 use simdnoise::NoiseBuilder;
 
@@ -13,17 +13,18 @@ use crate::{
     shift::{shift_row, BoundaryHandling, shift_row_to},
 };
 
-const YIQ_MATRIX: Matrix3<f64> = matrix![
-    0.299, 0.587, 0.114;
-    0.5959, -0.2746, -0.3213;
-    0.2115, -0.5227, 0.3112;
-];
+const YIQ_MATRIX: DMat3 = DMat3 {
+    x_axis: DVec3 {x: 0.299, y: 0.5959, z: 0.2115},
+    y_axis: DVec3 {x: 0.587, y: -0.2746, z: -0.5227},
+    z_axis: DVec3 {x: 0.114, y: -0.3213, z: 0.3112},
+};
 
-const RGB_MATRIX: Matrix3<f64> = matrix![
-    1.0, 0.956, 0.619;
-    1.0, -0.272, -0.647;
-    1.0, -1.106, 1.703;
-];
+const RGB_MATRIX: DMat3 = DMat3 {
+    x_axis: DVec3 {x: 1.0, y: 1.0, z: 1.0},
+    y_axis: DVec3 {x: 0.956, y: -0.272, z: -1.106},
+    z_axis: DVec3 {x: 0.619, y: -0.647, z: 1.703},
+};
+
 
 const NTSC_RATE: f64 = (315000000.00 / 88.0) * 4.0; // 315/88 Mhz rate * 4
 
@@ -139,7 +140,7 @@ impl YiqPlanar {
                 let src_offset = src_row_idx * width;
                 for pixel_idx in 0..width {
                     let yiq_pixel = YIQ_MATRIX
-                        * Vector3::new(
+                        * DVec3::new(
                             (src_data[((pixel_idx + src_offset) * 3) + 0] as f64) / 255.0,
                             (src_data[((pixel_idx + src_offset) * 3) + 1] as f64) / 255.0,
                             (src_data[((pixel_idx + src_offset) * 3) + 2] as f64) / 255.0,
@@ -189,7 +190,7 @@ impl From<&YiqPlanar> for RgbImage {
                         let src_idx_lower = ((row_idx - 1) >> 1) * width + pix_idx;
                         let src_idx_upper = ((row_idx + 1) >> 1) * width + pix_idx;
 
-                        let interp_pixel = Vector3::new(
+                        let interp_pixel = DVec3::new(
                             (image.y[src_idx_lower] + image.y[src_idx_upper]) * 0.5,
                             (image.i[src_idx_lower] + image.i[src_idx_upper]) * 0.5,
                             (image.q[src_idx_lower] + image.q[src_idx_upper]) * 0.5,
@@ -205,7 +206,7 @@ impl From<&YiqPlanar> for RgbImage {
                     for (pix_idx, pixel) in dst_row.chunks_mut(3).enumerate() {
                         let src_idx = (row_idx >> row_rshift) * width + pix_idx;
                         let rgb = RGB_MATRIX
-                            * Vector3::new(image.y[src_idx], image.i[src_idx], image.q[src_idx]);
+                            * DVec3::new(image.y[src_idx], image.i[src_idx], image.q[src_idx]);
                         pixel[0] = (rgb[0] * 255.0).clamp(0.0, 255.0) as u8;
                         pixel[1] = (rgb[1] * 255.0).clamp(0.0, 255.0) as u8;
                         pixel[2] = (rgb[2] * 255.0).clamp(0.0, 255.0) as u8;
