@@ -1,4 +1,6 @@
+use std::hash::Hasher;
 use rand::distributions::Distribution;
+use siphasher::sip::SipHasher;
 
 pub struct Geometric {
     lambda: f64,
@@ -65,23 +67,23 @@ impl FromSeeder for f32 {
 
 #[derive(Clone, Copy)]
 pub struct Seeder {
-    state: u64,
+    state: SipHasher,
 }
 
 impl Seeder {
     pub fn new<T: Mix>(seed: T) -> Self {
         Seeder {
-            state: splitmix64(seed.mix()),
+            state: SipHasher::new_with_keys(seed.mix(), 0),
         }
     }
 
     pub fn mix<T: Mix>(mut self, input: T) -> Self {
-        self.state = splitmix64(self.state) ^ input.mix();
+        self.state.write_u64(input.mix());
         self
     }
 
     pub fn finalize<T: FromSeeder>(self) -> T {
-        T::from_seeder(self.state)
+        T::from_seeder(self.state.finish())
     }
 }
 
