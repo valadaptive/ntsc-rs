@@ -10,7 +10,7 @@ use simdnoise::NoiseBuilder;
 use crate::{
     filter::TransferFunction,
     random::{Geometric, Seeder},
-    shift::{shift_row, BoundaryHandling},
+    shift::{shift_row, BoundaryHandling, shift_row_to},
 };
 
 const YIQ_MATRIX: Matrix3<f64> = matrix![
@@ -378,6 +378,7 @@ mod noise_seeds {
     pub const VIDEO_CHROMA_PHASE: u64 = 4;
     pub const EDGE_WAVE: u64 = 5;
     pub const SNOW: u64 = 6;
+    pub const CHROMA_LOSS: u64 = 7;
 }
 
 fn chroma_noise(yiq: &mut YiqPlanar, seed: u64, frequency: f64, intensity: f64, frame_num: usize) {
@@ -556,12 +557,75 @@ fn snow(yiq: &mut YiqPlanar, seed: u64, intensity: f64, frame_num: usize) {
         });
 }
 
+fn chroma_delay(yiq: &mut YiqPlanar, offset: (f64, isize)) {
+    let copy_or_shift = |src: &mut [f64], dst: &mut [f64]| {
+        if offset.0.abs() == 0.0 {
+            dst.copy_from_slice(src);
+        } else {
+            shift_row_to(src, dst, offset.0, BoundaryHandling::Constant(0.0));
+        }
+    };
+
+    let (width, height) = yiq.resolution;
+
+    if offset.1 == 0 {
+        yiq.i.chunks_mut(width).zip(yiq.q.chunks_mut(width)).for_each(|(i, q)| {
+            shift_row(i, offset.0, BoundaryHandling::Constant(0.0));
+            shift_row(q, offset.0, BoundaryHandling::Constant(0.0));
+        });
+    } else if offset.1 > 0 {
+        let offset = offset.1 as usize;
+        for dst_row_idx in (0..height).rev() {
+            let (i_src_part, i_dst_part) = yiq.i.split_at_mut(dst_row_idx * width);
+            let (q_src_part, q_dst_part) = yiq.q.split_at_mut(dst_row_idx * width);
+
+            let dst_row_range = 0..width;
+            let dst_i = &mut i_dst_part[dst_row_range.clone()];
+            let dst_q = &mut q_dst_part[dst_row_range.clone()];
+
+            if dst_row_idx < offset {
+                dst_i.fill(0.0);
+                dst_q.fill(0.0);
+            } else {
+                let src_row_idx = dst_row_idx - offset;
+                let src_row_range = src_row_idx * width..(src_row_idx + 1) * width;
+                let src_i = &mut i_src_part[src_row_range.clone()];
+                let src_q = &mut q_src_part[src_row_range.clone()];
+
+                copy_or_shift(src_i, dst_i);
+                copy_or_shift(src_q, dst_q);
+            }
+        }
+    } else {
+        let offset = (-offset.1) as usize;
+        for dst_row_idx in 0..height {
+            let (i_dst_part, i_src_part) = yiq.i.split_at_mut((dst_row_idx + 1) * width);
+            let (q_dst_part, q_src_part) = yiq.q.split_at_mut((dst_row_idx + 1) * width);
+
+            let dst_row_range = dst_row_idx * width..(dst_row_idx + 1) * width;
+            let dst_i = &mut i_dst_part[dst_row_range.clone()];
+            let dst_q = &mut q_dst_part[dst_row_range.clone()];
+
+            if dst_row_idx >= height - offset {
+                dst_i.fill(0.0);
+                dst_q.fill(0.0);
+            } else {
+                let src_row_range = (offset - 1) * width..offset * width;
+                let src_i = &mut i_src_part[src_row_range.clone()];
+                let src_q = &mut q_src_part[src_row_range.clone()];
+
+                copy_or_shift(src_i, dst_i);
+                copy_or_shift(src_q, dst_q);
+            }
+        }
+    }
+}
+
 fn vhs_edge_wave(yiq: &mut YiqPlanar, seed: u64, intensity: f64, speed: f64, frame_num: usize) {
     let width = yiq.resolution.0;
 
     let seeder = Seeder::new(seed).mix(noise_seeds::EDGE_WAVE);
     let noise_seed: i32 = seeder.finalize();
-    // TODO: sample perlin noise in time domain
     let offset = seeder.mix(1).finalize::<f32>() * yiq.resolution.1 as f32;
     let noise = NoiseBuilder::gradient_2d_offset(
         offset as f32,
@@ -582,6 +646,36 @@ fn vhs_edge_wave(yiq: &mut YiqPlanar, seed: u64, intensity: f64, speed: f64, fra
                 let shift = (noise[index] as f64 / 0.022) * intensity * 0.5;
                 shift_row(row, shift as f64, BoundaryHandling::Extend);
             })
+    }
+}
+
+fn chroma_loss(
+    yiq: &mut YiqPlanar,
+    intensity: f64,
+    seed: u64,
+    frame_num: usize
+) {
+    let (width, height) = yiq.resolution;
+
+    let seeder = Seeder::new(seed).mix(noise_seeds::CHROMA_LOSS).mix(frame_num);
+
+    let mut rng = SmallRng::seed_from_u64(seeder.finalize());
+    // We blank out each row with a probability of `intensity` (0 to 1). Instead of going over each row and checking
+    // whether to blank out the chroma, use a geometric distribution to simulate that process and tell us which rows
+    // to blank.
+    let dist = Geometric::new(intensity);
+
+    let mut row_idx = 0usize;
+    loop {
+        row_idx += rng.sample(&dist);
+        if row_idx >= height {
+            break;
+        }
+
+        let row_range = row_idx * width..(row_idx + 1) * width;
+        yiq.i[row_range.clone()].fill(0.0);
+        yiq.q[row_range.clone()].fill(0.0);
+        row_idx += 1;
     }
 }
 
@@ -655,6 +749,7 @@ impl VHSTapeSpeed {
 pub struct VHSSettings {
     pub tape_speed: Option<VHSTapeSpeed>,
     pub chroma_vert_blend: bool,
+    pub chroma_loss: f64,
     pub sharpen: f64,
     pub edge_wave: f64,
     pub edge_wave_speed: f64,
@@ -665,6 +760,7 @@ impl Default for VHSSettings {
         Self {
             tape_speed: Some(VHSTapeSpeed::LP),
             chroma_vert_blend: true,
+            chroma_loss: 0.0,
             sharpen: 1.0,
             edge_wave: 1.0,
             edge_wave_speed: 4.0,
@@ -801,6 +897,7 @@ pub struct NtscEffect {
     pub chroma_noise_intensity: f64,
     pub snow_intensity: f64,
     pub chroma_phase_noise_intensity: f64,
+    pub chroma_delay: (f64, isize),
     #[settings_block]
     pub vhs_settings: Option<VHSSettings>,
     pub chroma_lowpass_out: ChromaLowpass,
@@ -821,6 +918,7 @@ impl Default for NtscEffect {
             composite_noise_intensity: 0.01,
             chroma_noise_intensity: 0.1,
             chroma_phase_noise_intensity: 0.001,
+            chroma_delay: (0.0, 0),
             vhs_settings: Some(VHSSettings::default()),
         }
     }
@@ -916,6 +1014,10 @@ impl NtscEffect {
             chroma_phase_noise(&mut yiq, seed, self.chroma_phase_noise_intensity, frame_num);
         }
 
+        if self.chroma_delay.0 != 0.0 || self.chroma_delay.1 != 0 {
+            chroma_delay(&mut yiq, self.chroma_delay);
+        }
+
         if let Some(vhs_settings) = &self.vhs_settings {
             if vhs_settings.edge_wave > 0.0 {
                 vhs_edge_wave(
@@ -934,8 +1036,8 @@ impl NtscEffect {
                     chroma_delay,
                 } = tape_speed.filter_params();
 
-                // TODO: implement filter reset and try to fix the black line on the left
-                // it's present in both the original C++ code and Python port but probably not an actual VHS
+                // TODO: add an option to control whether there should be a line on the left from the filter starting
+                // at 0. it's present in both the original C++ code and Python port but probably not an actual VHS
                 // TODO: use a better filter! this effect's output looks way more smear-y than real VHS
                 let luma_filter = make_lowpass_triple(luma_cut, NTSC_RATE);
                 let chroma_filter = make_lowpass_triple(chroma_cut, NTSC_RATE);
@@ -972,6 +1074,10 @@ impl NtscEffect {
                     -1.6,
                     0,
                 );
+            }
+
+            if vhs_settings.chroma_loss > 0.0 {
+                chroma_loss(&mut yiq, vhs_settings.chroma_loss, seed, frame_num);
             }
 
             if vhs_settings.chroma_vert_blend {

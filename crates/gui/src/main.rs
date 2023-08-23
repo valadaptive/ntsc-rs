@@ -416,6 +416,32 @@ impl eframe::App for NtscApp {
                             self.update_effect(ctx);
                         }
 
+                        if ui
+                            .add(
+                                egui::Slider::new(
+                                    &mut self.settings.chroma_delay.0,
+                                    -10.0..=10.0,
+                                )
+                                .text("Chroma delay (horizontal)"),
+                            )
+                            .changed()
+                        {
+                            self.update_effect(ctx);
+                        }
+
+                        if ui
+                            .add(
+                                egui::Slider::new(
+                                    &mut self.settings.chroma_delay.1,
+                                    -10..=10,
+                                )
+                                .text("Chroma delay (vertical)"),
+                            )
+                            .changed()
+                        {
+                            self.update_effect(ctx);
+                        }
+
                         ui.group(|ui| {
                             if ui
                                 .checkbox(&mut self.settings.vhs_settings.enabled, "Emulate VHS")
@@ -477,6 +503,20 @@ impl eframe::App for NtscApp {
                                         self.update_effect(ctx);
                                     };
                                 });
+
+                            if ui
+                                .add(
+                                    egui::Slider::new(
+                                        &mut self.settings.vhs_settings.settings.chroma_loss,
+                                        0.0..=1.0,
+                                    )
+                                    .logarithmic(true)
+                                    .text("Chroma loss"),
+                                )
+                                .changed()
+                            {
+                                self.update_effect(ctx)
+                            }
 
                             if ui
                                 .checkbox(
