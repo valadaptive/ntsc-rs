@@ -1,8 +1,8 @@
 // Multiplies two polynomials (lowest coefficients first).
-pub fn polynomial_multiply(a: &[f64], b: &[f64]) -> Vec<f64> {
+pub fn polynomial_multiply(a: &[f32], b: &[f32]) -> Vec<f32> {
     let degree = a.len() + b.len() - 1;
 
-    let mut out = vec![0f64; degree];
+    let mut out = vec![0f32; degree];
 
     for ai in 0..a.len() {
         for bi in 0..b.len() {
@@ -15,19 +15,19 @@ pub fn polynomial_multiply(a: &[f64], b: &[f64]) -> Vec<f64> {
 
 #[derive(Debug)]
 pub struct TransferFunction {
-    pub num: Vec<f64>,
-    pub den: Vec<f64>,
+    pub num: Vec<f32>,
+    pub den: Vec<f32>,
     _private: (),
 }
 
 impl TransferFunction {
     pub fn new<I, J>(num: I, den: J) -> Self
     where
-        I: IntoIterator<Item = f64>,
-        J: IntoIterator<Item = f64>,
+        I: IntoIterator<Item = f32>,
+        J: IntoIterator<Item = f32>,
     {
-        let mut num = num.into_iter().collect::<Vec<f64>>();
-        let den = den.into_iter().collect::<Vec<f64>>();
+        let mut num = num.into_iter().collect::<Vec<f32>>();
+        let den = den.into_iter().collect::<Vec<f32>>();
         if num.len() > den.len() {
             panic!("Numerator length exceeds denominator length.");
         }
@@ -42,12 +42,12 @@ impl TransferFunction {
         }
     }
 
-    fn initial_condition(&self, value: f64) -> Vec<f64> {
+    fn initial_condition(&self, value: f32) -> Vec<f32> {
         // Adapted from scipy
         // https://github.com/scipy/scipy/blob/da82ac849a4ccade2d954a0998067e6aa706dd70/scipy/signal/_signaltools.py#L3609-L3742
 
         let filter_len = usize::max(self.num.len(), self.den.len());
-        let mut zi = vec![0f64; filter_len - 1];
+        let mut zi = vec![0f32; filter_len - 1];
         if value.abs() == 0.0 {
             return zi;
         }
@@ -68,12 +68,12 @@ impl TransferFunction {
             .num
             .iter()
             .map(|item| *item / first_nonzero_coeff)
-            .collect::<Vec<f64>>();
+            .collect::<Vec<f32>>();
         let norm_den = self
             .den
             .iter()
             .map(|item| *item / first_nonzero_coeff)
-            .collect::<Vec<f64>>();
+            .collect::<Vec<f32>>();
 
         let mut b_sum = 0.0;
         for i in 1..filter_len {
@@ -82,7 +82,7 @@ impl TransferFunction {
             b_sum += num_i - den_i * norm_num[0];
         }
 
-        zi[0] = b_sum / norm_den.iter().sum::<f64>();
+        zi[0] = b_sum / norm_den.iter().sum::<f32>();
         let mut a_sum = 1.0;
         let mut c_sum = 0.0;
         for i in 1..filter_len - 1 {
@@ -98,7 +98,7 @@ impl TransferFunction {
     }
 
     #[inline(always)]
-    fn filter_sample(filter_len: usize, num: &Vec<f64>, den: &Vec<f64>, z: &mut Vec<f64>, sample: f64, scale: f64) -> f64 {
+    fn filter_sample(filter_len: usize, num: &Vec<f32>, den: &Vec<f32>, z: &mut Vec<f32>, sample: f32, scale: f32) -> f32 {
             // Either the loop bound extending past items.len() or the min() call seems to prevent the optimizer from
             // determining that we're in-bounds here. Since i.min(items.len() - 1) never exceeds items.len() - 1 by
             // definition, this is safe.
@@ -113,21 +113,21 @@ impl TransferFunction {
             (filt_sample - sample) * scale + sample
     }
 
-    pub fn filter_signal<'a, I>(&self, items: I) -> Vec<f64>
+    pub fn filter_signal<'a, I>(&self, items: I) -> Vec<f32>
     where
-        I: IntoIterator<Item = &'a f64>,
+        I: IntoIterator<Item = &'a f32>,
     {
-        let mut yout = items.into_iter().cloned().collect::<Vec<f64>>();
+        let mut yout = items.into_iter().cloned().collect::<Vec<f32>>();
         self.filter_signal_in_place(&mut yout, 0.0, 1.0, 0);
         yout
     }
 
     pub fn filter_signal_into(
         &self,
-        src: &[f64],
-        dst: &mut [f64],
-        initial: f64,
-        scale: f64,
+        src: &[f32],
+        dst: &mut [f32],
+        initial: f32,
+        scale: f32,
         delay: usize,
     ) {
         if dst.len() < src.len() {
@@ -151,9 +151,9 @@ impl TransferFunction {
 
     pub fn filter_signal_in_place(
         &self,
-        items: &mut [f64],
-        initial: f64,
-        scale: f64,
+        items: &mut [f32],
+        initial: f32,
+        scale: f32,
         delay: usize,
     ) {
         let filter_len = usize::max(self.num.len(), self.den.len());
@@ -172,7 +172,7 @@ impl TransferFunction {
     }
 }
 
-fn trim_zeros(input: &[f64]) -> &[f64] {
+fn trim_zeros(input: &[f32]) -> &[f32] {
     let mut end = input.len() - 1;
     while input[end].abs() == 0.0 {
         end -= 1;

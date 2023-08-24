@@ -3,11 +3,11 @@ use rand::distributions::Distribution;
 use siphasher::sip::SipHasher;
 
 pub struct Geometric {
-    lambda: f64,
+    lambda: f32,
 }
 
 impl Geometric {
-    pub fn new(p: f64) -> Self {
+    pub fn new(p: f32) -> Self {
         if p <= 0.0 || p > 1.0 {
             panic!("Invalid probability");
         }
@@ -22,7 +22,7 @@ impl Distribution<usize> for Geometric {
     // We can simulate a geometric distribution by taking the floor of an exponential distribution
     // https://en.wikipedia.org/wiki/Geometric_distribution#Related_distributions
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> usize {
-        (rng.gen::<f64>().ln() / self.lambda) as usize
+        (rng.gen::<f32>().ln() / self.lambda) as usize
     }
 }
 

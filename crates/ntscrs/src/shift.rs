@@ -2,10 +2,10 @@ pub enum BoundaryHandling {
     /// Repeat the boundary pixel over and over.
     Extend,
     /// Use a specific constant for the boundary.
-    Constant(f64),
+    Constant(f32),
 }
 
-fn shift_row_initial_conditions(row: &[f64], shift: f64, boundary_handling: BoundaryHandling) -> (i64, f64, f64) {
+fn shift_row_initial_conditions(row: &[f32], shift: f32, boundary_handling: BoundaryHandling) -> (i64, f32, f32) {
     // Floor the shift (conversions round towards zero)
     let shift_int = shift as i64 - if shift < 0.0 { 1 } else { 0 };
 
@@ -30,7 +30,7 @@ fn shift_row_initial_conditions(row: &[f64], shift: f64, boundary_handling: Boun
 }
 
 /// Shift a row by a non-integer amount using linear interpolation.
-pub fn shift_row(row: &mut [f64], shift: f64, boundary_handling: BoundaryHandling) {
+pub fn shift_row(row: &mut [f32], shift: f32, boundary_handling: BoundaryHandling) {
     let width = row.len();
     let (shift_int, shift_frac, boundary_value) = shift_row_initial_conditions(row, shift, boundary_handling);
 
@@ -68,7 +68,7 @@ pub fn shift_row(row: &mut [f64], shift: f64, boundary_handling: BoundaryHandlin
 }
 
 /// Shift a row by a non-integer amount using linear interpolation.
-pub fn shift_row_to(src: &[f64], dst: &mut [f64], shift: f64, boundary_handling: BoundaryHandling) {
+pub fn shift_row_to(src: &[f32], dst: &mut [f32], shift: f32, boundary_handling: BoundaryHandling) {
     let width = src.len();
     let (shift_int, shift_frac, boundary_value) = shift_row_initial_conditions(src, shift, boundary_handling);
 

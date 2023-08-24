@@ -190,7 +190,7 @@ impl eframe::App for NtscApp {
                             .add(
                                 egui::Slider::new(
                                     &mut self.settings.composite_preemphasis,
-                                    0f64..=2f64,
+                                    0f32..=2f32,
                                 )
                                 .text("Composite preemphasis"),
                             )
@@ -203,7 +203,7 @@ impl eframe::App for NtscApp {
                             .add(
                                 egui::Slider::new(
                                     &mut self.settings.composite_noise_intensity,
-                                    0f64..=0.1f64,
+                                    0f32..=0.1f32,
                                 )
                                 .text("Composite noise"),
                             )

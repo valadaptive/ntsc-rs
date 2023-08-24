@@ -1,9 +1,9 @@
 use std::collections::VecDeque;
 
-use core::f64::consts::PI;
+use core::f32::consts::PI;
 use image::RgbImage;
 use macros::FullSettings;
-use glam::{DVec3, DMat3};
+use glam::{Vec3, Mat3};
 use rand::{rngs::SmallRng, Rng, RngCore, SeedableRng};
 use simdnoise::NoiseBuilder;
 
@@ -13,31 +13,31 @@ use crate::{
     shift::{shift_row, BoundaryHandling, shift_row_to},
 };
 
-const YIQ_MATRIX: DMat3 = DMat3 {
-    x_axis: DVec3 {x: 0.299, y: 0.5959, z: 0.2115},
-    y_axis: DVec3 {x: 0.587, y: -0.2746, z: -0.5227},
-    z_axis: DVec3 {x: 0.114, y: -0.3213, z: 0.3112},
+const YIQ_MATRIX: Mat3 = Mat3 {
+    x_axis: Vec3 {x: 0.299, y: 0.5959, z: 0.2115},
+    y_axis: Vec3 {x: 0.587, y: -0.2746, z: -0.5227},
+    z_axis: Vec3 {x: 0.114, y: -0.3213, z: 0.3112},
 };
 
-const RGB_MATRIX: DMat3 = DMat3 {
-    x_axis: DVec3 {x: 1.0, y: 1.0, z: 1.0},
-    y_axis: DVec3 {x: 0.956, y: -0.272, z: -1.106},
-    z_axis: DVec3 {x: 0.619, y: -0.647, z: 1.703},
+const RGB_MATRIX: Mat3 = Mat3 {
+    x_axis: Vec3 {x: 1.0, y: 1.0, z: 1.0},
+    y_axis: Vec3 {x: 0.956, y: -0.272, z: -1.106},
+    z_axis: Vec3 {x: 0.619, y: -0.647, z: 1.703},
 };
 
 
-const NTSC_RATE: f64 = (315000000.00 / 88.0) * 4.0; // 315/88 Mhz rate * 4
+const NTSC_RATE: f32 = (315000000.00 / 88.0) * 4.0; // 315/88 Mhz rate * 4
 
 struct YiqPlanar {
-    y: Vec<f64>,
-    i: Vec<f64>,
-    q: Vec<f64>,
+    y: Vec<f32>,
+    i: Vec<f32>,
+    q: Vec<f32>,
     resolution: (usize, usize),
     field: YiqField,
 }
 
 /// Create a lowpass filter with the given parameters, which can then be used to filter a signal.
-pub fn make_lowpass(cutoff: f64, rate: f64) -> TransferFunction {
+pub fn make_lowpass(cutoff: f32, rate: f32) -> TransferFunction {
     let time_interval = 1.0 / rate;
     let tau = (cutoff * 2.0 * PI).recip();
     let alpha = time_interval / (tau + time_interval);
@@ -47,7 +47,7 @@ pub fn make_lowpass(cutoff: f64, rate: f64) -> TransferFunction {
 
 /// Create a lowpass filter with the given parameters, which can then be used to filter a signal.
 /// This is equivalent to applying the same lowpass filter 3 times.
-pub fn make_lowpass_triple(cutoff: f64, rate: f64) -> TransferFunction {
+pub fn make_lowpass_triple(cutoff: f32, rate: f32) -> TransferFunction {
     let time_interval = 1.0 / rate;
     let tau = (cutoff * 2.0 * PI).recip();
     let alpha = time_interval / (tau + time_interval);
@@ -57,7 +57,7 @@ pub fn make_lowpass_triple(cutoff: f64, rate: f64) -> TransferFunction {
     &(&tf * &tf) * &tf
 }
 
-pub fn make_notch_filter(freq: f64, quality: f64) -> TransferFunction {
+pub fn make_notch_filter(freq: f32, quality: f32) -> TransferFunction {
     if freq > 1.0 || freq < 0.0 {
         panic!("Frequency outside valid range");
     }
@@ -80,18 +80,18 @@ enum InitialCondition {
     /// Convenience value--just use 0.
     Zero,
     /// Set the initial filter condition to a constant.
-    Constant(f64),
+    Constant(f32),
     /// Set the initial filter condition to that of the first sample to be filtered.
     FirstSample,
 }
 
 /// Apply a given filter to one color plane.
 fn filter_plane(
-    plane: &mut Vec<f64>,
+    plane: &mut Vec<f32>,
     width: usize,
     filter: &TransferFunction,
     initial: InitialCondition,
-    scale: f64,
+    scale: f32,
     delay: usize,
 ) {
     plane.chunks_mut(width).for_each(|field| {
@@ -126,9 +126,9 @@ impl YiqPlanar {
         };
 
         let num_pixels = width * height;
-        let mut y = vec![0f64; num_pixels];
-        let mut i = vec![0f64; num_pixels];
-        let mut q = vec![0f64; num_pixels];
+        let mut y = vec![0f32; num_pixels];
+        let mut i = vec![0f32; num_pixels];
+        let mut q = vec![0f32; num_pixels];
 
         let src_data = image.as_raw();
 
@@ -140,10 +140,10 @@ impl YiqPlanar {
                 let src_offset = src_row_idx * width;
                 for pixel_idx in 0..width {
                     let yiq_pixel = YIQ_MATRIX
-                        * DVec3::new(
-                            (src_data[((pixel_idx + src_offset) * 3) + 0] as f64) / 255.0,
-                            (src_data[((pixel_idx + src_offset) * 3) + 1] as f64) / 255.0,
-                            (src_data[((pixel_idx + src_offset) * 3) + 2] as f64) / 255.0,
+                        * Vec3::new(
+                            (src_data[((pixel_idx + src_offset) * 3) + 0] as f32) / 255.0,
+                            (src_data[((pixel_idx + src_offset) * 3) + 1] as f32) / 255.0,
+                            (src_data[((pixel_idx + src_offset) * 3) + 2] as f32) / 255.0,
                         );
                     y[pixel_idx] = yiq_pixel[0];
                     i[pixel_idx] = yiq_pixel[1];
@@ -190,7 +190,7 @@ impl From<&YiqPlanar> for RgbImage {
                         let src_idx_lower = ((row_idx - 1) >> 1) * width + pix_idx;
                         let src_idx_upper = ((row_idx + 1) >> 1) * width + pix_idx;
 
-                        let interp_pixel = DVec3::new(
+                        let interp_pixel = Vec3::new(
                             (image.y[src_idx_lower] + image.y[src_idx_upper]) * 0.5,
                             (image.i[src_idx_lower] + image.i[src_idx_upper]) * 0.5,
                             (image.q[src_idx_lower] + image.q[src_idx_upper]) * 0.5,
@@ -206,7 +206,7 @@ impl From<&YiqPlanar> for RgbImage {
                     for (pix_idx, pixel) in dst_row.chunks_mut(3).enumerate() {
                         let src_idx = (row_idx >> row_rshift) * width + pix_idx;
                         let rgb = RGB_MATRIX
-                            * DVec3::new(image.y[src_idx], image.i[src_idx], image.q[src_idx]);
+                            * Vec3::new(image.y[src_idx], image.i[src_idx], image.q[src_idx]);
                         pixel[0] = (rgb[0] * 255.0).clamp(0.0, 255.0) as u8;
                         pixel[1] = (rgb[1] * 255.0).clamp(0.0, 255.0) as u8;
                         pixel[2] = (rgb[2] * 255.0).clamp(0.0, 255.0) as u8;
@@ -251,8 +251,8 @@ fn composite_chroma_lowpass_lite(frame: &mut YiqPlanar) {
     filter_plane(&mut frame.q, width, &filter, InitialCondition::Zero, 1.0, 1);
 }
 
-const I_MULT: [f64; 4] = [1.0, 0.0, -1.0, 0.0];
-const Q_MULT: [f64; 4] = [0.0, 1.0, 0.0, -1.0];
+const I_MULT: [f32; 4] = [1.0, 0.0, -1.0, 0.0];
+const Q_MULT: [f32; 4] = [0.0, 1.0, 0.0, -1.0];
 
 fn chroma_luma_line_offset(
     scanline_phase_shift: PhaseShift,
@@ -270,11 +270,11 @@ fn chroma_luma_line_offset(
 }
 
 fn chroma_into_luma_line(
-    y: &mut [f64],
-    i: &mut [f64],
-    q: &mut [f64],
+    y: &mut [f32],
+    i: &mut [f32],
+    q: &mut [f32],
     xi: usize,
-    subcarrier_amplitude: f64,
+    subcarrier_amplitude: f32,
 ) {
     y.into_iter()
         .zip(i.into_iter().zip(q.into_iter()))
@@ -288,18 +288,18 @@ fn chroma_into_luma_line(
 }
 
 fn luma_into_chroma_line(
-    y: &mut [f64],
-    i: &mut [f64],
-    q: &mut [f64],
+    y: &mut [f32],
+    i: &mut [f32],
+    q: &mut [f32],
     xi: usize,
-    subcarrier_amplitude: f64,
+    subcarrier_amplitude: f32,
 ) {
-    let mut delay = VecDeque::<f64>::with_capacity(4);
+    let mut delay = VecDeque::<f32>::with_capacity(4);
     delay.push_back(16.0 / 255.0);
     delay.push_back(16.0 / 255.0);
     delay.push_back(y[0]);
     delay.push_back(y[1]);
-    let mut sum: f64 = delay.iter().sum();
+    let mut sum: f32 = delay.iter().sum();
     let width = y.len();
 
     for index in 0..width {
@@ -334,28 +334,28 @@ fn luma_into_chroma_line(
     }
 }
 
-fn video_noise_line(row: &mut [f64], seeder: Seeder, index: usize, frequency: f64, intensity: f64) {
+fn video_noise_line(row: &mut [f32], seeder: Seeder, index: usize, frequency: f32, intensity: f32) {
     let width = row.len();
     let mut rng = SmallRng::seed_from_u64(seeder.mix(index as u64).finalize());
     let noise_seed = rng.next_u32();
-    let offset = rng.gen::<f64>() * width as f64;
+    let offset = rng.gen::<f32>() * width as f32;
 
-    let noise = NoiseBuilder::gradient_1d_offset(offset as f32, width)
+    let noise = NoiseBuilder::gradient_1d_offset(offset, width)
         .with_seed(noise_seed as i32)
-        .with_freq(frequency as f32)
+        .with_freq(frequency)
         .generate()
         .0;
 
     row.iter_mut().enumerate().for_each(|(x, pixel)| {
-        *pixel += noise[x] as f64 * 0.25 * intensity;
+        *pixel += noise[x] as f32 * 0.25 * intensity;
     });
 }
 
 fn composite_noise(
     yiq: &mut YiqPlanar,
     seed: u64,
-    frequency: f64,
-    intensity: f64,
+    frequency: f32,
+    intensity: f32,
     frame_num: usize,
 ) {
     let width = yiq.resolution.0;
@@ -382,7 +382,7 @@ mod noise_seeds {
     pub const CHROMA_LOSS: u64 = 7;
 }
 
-fn chroma_noise(yiq: &mut YiqPlanar, seed: u64, frequency: f64, intensity: f64, frame_num: usize) {
+fn chroma_noise(yiq: &mut YiqPlanar, seed: u64, frequency: f32, intensity: f32, frame_num: usize) {
     let width = yiq.resolution.0;
     let seeder = Seeder::new(seed)
         .mix(noise_seeds::VIDEO_CHROMA)
@@ -398,7 +398,7 @@ fn chroma_noise(yiq: &mut YiqPlanar, seed: u64, frequency: f64, intensity: f64, 
         });
 }
 
-fn chroma_phase_noise(yiq: &mut YiqPlanar, seed: u64, intensity: f64, frame_num: usize) {
+fn chroma_phase_noise(yiq: &mut YiqPlanar, seed: u64, intensity: f32, frame_num: usize) {
     let width = yiq.resolution.0;
     let seeder = Seeder::new(seed)
         .mix(noise_seeds::VIDEO_CHROMA_PHASE)
@@ -411,7 +411,7 @@ fn chroma_phase_noise(yiq: &mut YiqPlanar, seed: u64, intensity: f64, frame_num:
         .for_each(|(index, (i, q))| {
             // Phase shift angle in radians. Mapped so that an intensity of 1.0 is a phase shift ranging from a full
             // rotation to the left - a full rotation to the right.
-            let phase_shift = (seeder.mix(index).finalize::<f64>() - 0.5) * PI * 4.0 * intensity;
+            let phase_shift = (seeder.mix(index).finalize::<f32>() - 0.5) * PI * 4.0 * intensity;
             let (sin_angle, cos_angle) = phase_shift.sin_cos();
 
             for (i, q) in i.iter_mut().zip(q.iter_mut()) {
@@ -429,7 +429,7 @@ fn head_switching(
     yiq: &mut YiqPlanar,
     num_rows: usize,
     offset: usize,
-    shift: f64,
+    shift: f32,
     seed: u64,
     frame_num: usize,
 ) {
@@ -448,16 +448,16 @@ fn head_switching(
         .enumerate()
         .for_each(|(index, row)| {
             let index = num_affected_rows - index;
-            let row_shift = shift * ((index + offset) as f64 / num_rows as f64).powf(1.5);
+            let row_shift = shift * ((index + offset) as f32 / num_rows as f32).powf(1.5);
             shift_row(
                 row,
-                row_shift + (seeder.mix(index).finalize::<f64>() - 0.5),
+                row_shift + (seeder.mix(index).finalize::<f32>() - 0.5),
                 BoundaryHandling::Constant(0.0),
             );
         });
 }
 
-fn row_speckles<R: Rng>(row: &mut [f64], rng: &mut R, intensity: f64) {
+fn row_speckles<R: Rng>(row: &mut [f32], rng: &mut R, intensity: f32) {
     if intensity <= 0.0 {
         return;
     }
@@ -472,14 +472,14 @@ fn row_speckles<R: Rng>(row: &mut [f64], rng: &mut R, intensity: f64) {
             break;
         }
 
-        let transient_len: f64 = rng.gen_range(8.0..64.0);
+        let transient_len: f32 = rng.gen_range(8.0..64.0);
 
         for i in
             pixel_idx..(pixel_idx + transient_len.ceil() as usize).min(row.len())
         {
-            let x = (i - pixel_idx) as f64;
+            let x = (i - pixel_idx) as f32;
             // Quadratic decay to 0
-            row[i] += (1.0 - (x / transient_len as f64)).powi(2) * 2.0 * rng.gen::<f64>();
+            row[i] += (1.0 - (x / transient_len)).powi(2) * 2.0 * rng.gen::<f32>();
         }
 
         // Make sure we advance the pixel index each time. Our geometric distribution gives us the time between
@@ -492,9 +492,9 @@ fn tracking_noise(
     yiq: &mut YiqPlanar,
     seed: u64,
     num_rows: usize,
-    wave_intensity: f64,
-    snow_intensity: f64,
-    noise_intensity: f64,
+    wave_intensity: f32,
+    snow_intensity: f32,
+    noise_intensity: f32,
     frame_num: usize,
 ) {
     let (width, height) = yiq.resolution;
@@ -504,7 +504,7 @@ fn tracking_noise(
         .mix(frame_num);
     let noise_seed = seeder.finalize::<i32>();
     let offset = seeder.mix(1).finalize::<f32>() * yiq.resolution.1 as f32;
-    let shift_noise = NoiseBuilder::gradient_1d_offset(offset as f32, num_rows)
+    let shift_noise = NoiseBuilder::gradient_1d_offset(offset, num_rows)
         .with_seed(noise_seed)
         .with_freq(0.5)
         .generate()
@@ -518,10 +518,10 @@ fn tracking_noise(
         .enumerate()
         .for_each(|(index, row)| {
             // This iterates from the top down. Increase the intensity as we approach the bottom of the picture.
-            let intensity_scale = index as f64 / num_rows as f64;
+            let intensity_scale = index as f32 / num_rows as f32;
             shift_row(
                 row,
-                shift_noise[index] as f64 * intensity_scale * wave_intensity * 0.25,
+                shift_noise[index] * intensity_scale * wave_intensity * 0.25,
                 BoundaryHandling::Constant(0.0),
             );
 
@@ -538,7 +538,7 @@ fn tracking_noise(
         });
 }
 
-fn snow(yiq: &mut YiqPlanar, seed: u64, intensity: f64, frame_num: usize) {
+fn snow(yiq: &mut YiqPlanar, seed: u64, intensity: f32, frame_num: usize) {
     let seeder = Seeder::new(seed).mix(noise_seeds::SNOW).mix(frame_num);
 
     yiq.y
@@ -556,8 +556,8 @@ fn snow(yiq: &mut YiqPlanar, seed: u64, intensity: f64, frame_num: usize) {
         });
 }
 
-fn chroma_delay(yiq: &mut YiqPlanar, offset: (f64, isize)) {
-    let copy_or_shift = |src: &mut [f64], dst: &mut [f64]| {
+fn chroma_delay(yiq: &mut YiqPlanar, offset: (f32, isize)) {
+    let copy_or_shift = |src: &mut [f32], dst: &mut [f32]| {
         if offset.0.abs() == 0.0 {
             dst.copy_from_slice(src);
         } else {
@@ -620,19 +620,19 @@ fn chroma_delay(yiq: &mut YiqPlanar, offset: (f64, isize)) {
     }
 }
 
-fn vhs_edge_wave(yiq: &mut YiqPlanar, seed: u64, intensity: f64, speed: f64, frame_num: usize) {
+fn vhs_edge_wave(yiq: &mut YiqPlanar, seed: u64, intensity: f32, speed: f32, frame_num: usize) {
     let width = yiq.resolution.0;
 
     let seeder = Seeder::new(seed).mix(noise_seeds::EDGE_WAVE);
     let noise_seed: i32 = seeder.finalize();
     let offset = seeder.mix(1).finalize::<f32>() * yiq.resolution.1 as f32;
     let noise = NoiseBuilder::gradient_2d_offset(
-        offset as f32,
+        offset,
         width,
-        (frame_num as f64 * speed) as f32,
+        frame_num as f32 * speed,
         1,
     )
-    .with_seed(noise_seed as i32)
+    .with_seed(noise_seed)
     .with_freq(0.05)
     .generate()
     .0;
@@ -642,15 +642,15 @@ fn vhs_edge_wave(yiq: &mut YiqPlanar, seed: u64, intensity: f64, speed: f64, fra
             .chunks_mut(width)
             .enumerate()
             .for_each(|(index, row)| {
-                let shift = (noise[index] as f64 / 0.022) * intensity * 0.5;
-                shift_row(row, shift as f64, BoundaryHandling::Extend);
+                let shift = (noise[index] / 0.022) * intensity * 0.5;
+                shift_row(row, shift, BoundaryHandling::Extend);
             })
     }
 }
 
 fn chroma_loss(
     yiq: &mut YiqPlanar,
-    intensity: f64,
+    intensity: f32,
     seed: u64,
     frame_num: usize
 ) {
@@ -680,8 +680,8 @@ fn chroma_loss(
 
 fn chroma_vert_blend(yiq: &mut YiqPlanar) {
     let width = yiq.resolution.0;
-    let mut delay_i = vec![0f64; width];
-    let mut delay_q = vec![0f64; width];
+    let mut delay_i = vec![0f32; width];
+    let mut delay_q = vec![0f32; width];
 
     yiq.i
         .chunks_mut(width)
@@ -717,8 +717,8 @@ pub enum VHSTapeSpeed {
 }
 
 struct VHSTapeParams {
-    luma_cut: f64,
-    chroma_cut: f64,
+    luma_cut: f32,
+    chroma_cut: f32,
     chroma_delay: usize,
 }
 
@@ -748,10 +748,10 @@ impl VHSTapeSpeed {
 pub struct VHSSettings {
     pub tape_speed: Option<VHSTapeSpeed>,
     pub chroma_vert_blend: bool,
-    pub chroma_loss: f64,
-    pub sharpen: f64,
-    pub edge_wave: f64,
-    pub edge_wave_speed: f64,
+    pub chroma_loss: f32,
+    pub sharpen: f32,
+    pub edge_wave: f32,
+    pub edge_wave_speed: f32,
 }
 
 impl Default for VHSSettings {
@@ -778,7 +778,7 @@ pub enum ChromaLowpass {
 pub struct HeadSwitchingSettings {
     pub height: usize,
     pub offset: usize,
-    pub horiz_shift: f64,
+    pub horiz_shift: f32,
 }
 
 impl Default for HeadSwitchingSettings {
@@ -794,9 +794,9 @@ impl Default for HeadSwitchingSettings {
 #[derive(Clone, PartialEq)]
 pub struct HeadSwitchingNoiseSettings {
     pub height: usize,
-    pub wave_intensity: f64,
-    pub snow_intensity: f64,
-    pub noise_intensity: f64,
+    pub wave_intensity: f32,
+    pub snow_intensity: f32,
+    pub noise_intensity: f32,
 }
 
 impl Default for HeadSwitchingNoiseSettings {
@@ -812,9 +812,9 @@ impl Default for HeadSwitchingNoiseSettings {
 
 #[derive(Clone, PartialEq)]
 pub struct RingingSettings {
-    pub frequency: f64,
-    pub power: f64,
-    pub intensity: f64,
+    pub frequency: f32,
+    pub power: f32,
+    pub intensity: f32,
 }
 
 impl Default for RingingSettings {
@@ -885,20 +885,20 @@ impl<T: Default> Default for SettingsBlock<T> {
 #[derive(FullSettings)]
 pub struct NtscEffect {
     pub chroma_lowpass_in: ChromaLowpass,
-    pub composite_preemphasis: f64,
+    pub composite_preemphasis: f32,
     pub video_scanline_phase_shift: PhaseShift,
     pub video_scanline_phase_shift_offset: i32,
     #[settings_block]
     pub head_switching: Option<HeadSwitchingSettings>,
     #[settings_block]
     pub tracking_noise: Option<HeadSwitchingNoiseSettings>,
-    pub composite_noise_intensity: f64,
+    pub composite_noise_intensity: f32,
     #[settings_block]
     pub ringing: Option<RingingSettings>,
-    pub chroma_noise_intensity: f64,
-    pub snow_intensity: f64,
-    pub chroma_phase_noise_intensity: f64,
-    pub chroma_delay: (f64, isize),
+    pub chroma_noise_intensity: f32,
+    pub snow_intensity: f32,
+    pub chroma_phase_noise_intensity: f32,
+    pub chroma_delay: (f32, isize),
     #[settings_block]
     pub vhs_settings: Option<VHSSettings>,
     pub chroma_lowpass_out: ChromaLowpass,
@@ -1120,7 +1120,7 @@ impl NtscEffect {
     }
 
     // Modulate the chrominance signal into the luminance plane.
-    fn chroma_into_luma(&self, yiq: &mut YiqPlanar, subcarrier_amplitude: f64, fieldno: usize) {
+    fn chroma_into_luma(&self, yiq: &mut YiqPlanar, subcarrier_amplitude: f32, fieldno: usize) {
         let width = yiq.resolution.0;
 
         let y_lines = yiq.y.chunks_mut(width);
@@ -1142,7 +1142,7 @@ impl NtscEffect {
             });
     }
 
-    fn luma_into_chroma(&self, yiq: &mut YiqPlanar, subcarrier_amplitude: f64, fieldno: usize) {
+    fn luma_into_chroma(&self, yiq: &mut YiqPlanar, subcarrier_amplitude: f32, fieldno: usize) {
         let width = yiq.resolution.0;
 
         let y_lines = yiq.y.chunks_mut(width);
