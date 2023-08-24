@@ -17,6 +17,8 @@ siphasher = "0.3.10"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+
+[target.'cfg(not(windows))'.dev-dependencies]
 pprof = { version = "0.12.1", features = ["flamegraph", "criterion"] }
 
 [[bench]]
