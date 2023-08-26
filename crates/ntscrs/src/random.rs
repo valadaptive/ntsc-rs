@@ -61,7 +61,7 @@ impl FromSeeder for f64 {
 impl FromSeeder for f32 {
     #[inline(always)]
     fn from_seeder(input: u64) -> Self {
-        f32::from_bits(((input & 0xFFFFFFFF) as u32 >> 9) >> 9 | 0x3F800000) - 1.0
+        f32::from_bits(((input & 0xFFFFFFFF) as u32 >> 9) | 0x3F800000) - 1.0
     }
 }
 
