@@ -7,7 +7,10 @@ use std::{
 
 use eframe::egui;
 use image::{io::Reader as ImageReader, ImageError, RgbImage};
-use ntscrs::ntsc::{ChromaLowpass, NtscEffect, NtscEffectFullSettings, VHSTapeSpeed};
+use ntscrs::{
+    ntsc::{ChromaLowpass, NtscEffect, NtscEffectFullSettings, VHSTapeSpeed},
+    settings::{SettingDescriptor, SettingsList},
+};
 use snafu::prelude::*;
 
 fn main() -> Result<(), eframe::Error> {
@@ -109,6 +112,133 @@ impl NtscApp {
             ctx.request_repaint();
         }
     }
+
+    fn settings_from_descriptors(&mut self, ui: &mut egui::Ui, descriptors: &[SettingDescriptor]) {
+        for descriptor in descriptors {
+            match &descriptor.kind {
+                ntscrs::settings::SettingKind::Enumeration {
+                    options,
+                    default_value: _,
+                } => {
+                    let mut selected_index = descriptor.id.get_field_enum(&self.settings).unwrap();
+                    let selected_item = options.iter().find(|option| {option.index == selected_index}).unwrap();
+                    egui::ComboBox::from_label(descriptor.label)
+                        .selected_text(selected_item.label)
+                        .show_ui(ui, |ui| {
+                            for item in options {
+                                if ui
+                                    .selectable_value(
+                                        &mut selected_index,
+                                        item.index,
+                                        item.label,
+                                    )
+                                    .changed()
+                                {
+                                    descriptor.id.set_field_enum(&mut self.settings, selected_index);
+                                    self.update_effect(ui.ctx());
+                                };
+                            }
+                        });
+                },
+                ntscrs::settings::SettingKind::Percentage {
+                    logarithmic,
+                    default_value: _,
+                } => {
+                    if ui
+                        .add(
+                            egui::Slider::new(
+                                descriptor.id.get_field_ref::<f32>(&mut self.settings).unwrap(),
+                                0.0..=1.0,
+                            )
+                            .logarithmic(*logarithmic)
+                            .text(descriptor.label),
+                        )
+                        .changed()
+                    {
+                        self.update_effect(ui.ctx());
+                    }
+                },
+                ntscrs::settings::SettingKind::IntRange {
+                    range,
+                    default_value: _,
+                } => {
+                    let mut value = 0i32;
+                    if let Some(v) = descriptor.id.get_field_ref::<i32>(&mut self.settings) {
+                        value = *v;
+                    } else if let Some(v) = descriptor.id.get_field_ref::<u32>(&mut self.settings) {
+                        value = *v as i32;
+                    }
+                    if ui
+                        .add(
+                            egui::Slider::new(
+                                &mut value,
+                                range.clone(),
+                            )
+                            .text(descriptor.label),
+                        )
+                        .changed()
+                    {
+                        if let Some(v) = descriptor.id.get_field_ref::<i32>(&mut self.settings) {
+                            *v = value;
+                        } else if let Some(v) = descriptor.id.get_field_ref::<u32>(&mut self.settings) {
+                            *v = value as u32;
+                        }
+                        self.update_effect(ui.ctx());
+                    }
+                }
+                ntscrs::settings::SettingKind::FloatRange {
+                    range,
+                    logarithmic,
+                    default_value: _,
+                } => {
+                    if ui
+                        .add(
+                            egui::Slider::new(
+                                descriptor.id.get_field_ref::<f32>(&mut self.settings).unwrap(),
+                                range.clone(),
+                            )
+                            .logarithmic(*logarithmic)
+                            .text(descriptor.label),
+                        )
+                        .changed()
+                    {
+                        self.update_effect(ui.ctx());
+                    }
+                }
+                ntscrs::settings::SettingKind::Boolean { default_value: _ } => {
+                    if ui
+                        .checkbox(
+                            descriptor.id.get_field_ref::<bool>(&mut self.settings).unwrap(),
+                            descriptor.label,
+                        )
+                        .changed()
+                    {
+                        self.update_effect(ui.ctx());
+                    }
+                },
+                ntscrs::settings::SettingKind::Group {
+                    children,
+                    default_value: _,
+                } => {
+                    ui.group(|ui| {
+                        if ui
+                            .checkbox(
+                                descriptor.id.get_field_ref::<bool>(&mut self.settings).unwrap(),
+                                descriptor.label,
+                            )
+                            .changed()
+                        {
+                            self.update_effect(ui.ctx());
+                        }
+
+                        ui.set_enabled(*descriptor.id.get_field_ref::<bool>(&mut self.settings).unwrap());
+
+                        self.settings_from_descriptors(ui, &children);
+                    });
+                },
+            }
+        }
+    }
 }
 
 impl eframe::App for NtscApp {
@@ -145,9 +275,13 @@ impl eframe::App for NtscApp {
                         ui.heading("Controls");
                         ui.style_mut().spacing.slider_width = 200.0;
 
+                        let settings = SettingsList::new();
+
+                        self.settings_from_descriptors(ui, &settings.settings);
+
                         // ui.checkbox(&mut self.settings.chroma_lowpass_in, "Chroma low-pass in");
 
-                        egui::ComboBox::from_label("Chroma low-pass in")
+                        /*egui::ComboBox::from_label("Chroma low-pass in")
                             .selected_text(match &self.settings.chroma_lowpass_in {
                                 ChromaLowpass::Full => "Full",
                                 ChromaLowpass::Light => "Light",
@@ -623,7 +757,7 @@ impl eframe::App for NtscApp {
                                 {
                                     self.update_effect(ctx);
                                 };
-                            });
+                            });*/
                     });
             });
 

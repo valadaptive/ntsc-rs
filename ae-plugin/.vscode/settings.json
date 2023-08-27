@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "xiosbase": "cpp"
+    },
+    "mesonbuild.configureOnOpen": false,
+    "C_Cpp.default.compileCommands": "builddir\\compile_commands.json",
+    "cmake.configureOnOpen": false
+}
