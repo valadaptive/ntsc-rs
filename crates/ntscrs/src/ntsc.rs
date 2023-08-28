@@ -471,9 +471,9 @@ mod noise_seeds {
 }
 
 /// Helper function to apply gradient noise to a single row of a single plane.
-fn video_noise_line(row: &mut [f32], seeder: Seeder, index: usize, frequency: f32, intensity: f32) {
+fn video_noise_line(row: &mut [f32], seeder: &Seeder, index: usize, frequency: f32, intensity: f32) {
     let width = row.len();
-    let mut rng = Xoshiro256PlusPlus::seed_from_u64(seeder.mix(index as u64).finalize());
+    let mut rng = Xoshiro256PlusPlus::seed_from_u64(seeder.clone().mix(index as u64).finalize());
     let noise_seed = rng.next_u32();
     let offset = rng.gen::<f32>() * width as f32;
 
@@ -505,7 +505,7 @@ fn composite_noise(
         .chunks_mut(width)
         .enumerate()
         .for_each(|(index, row)| {
-            video_noise_line(row, seeder, index, frequency, intensity);
+            video_noise_line(row, &seeder, index, frequency, intensity);
         });
 }
 
@@ -521,8 +521,8 @@ fn chroma_noise(yiq: &mut YiqView, seed: u64, frequency: f32, intensity: f32, fr
         .zip(yiq.q.chunks_mut(width))
         .enumerate()
         .for_each(|(index, (i, q))| {
-            video_noise_line(i, seeder, index, frequency, intensity);
-            video_noise_line(q, seeder, index, frequency, intensity);
+            video_noise_line(i, &seeder, index, frequency, intensity);
+            video_noise_line(q, &seeder, index, frequency, intensity);
         });
 }
 
@@ -540,7 +540,7 @@ fn chroma_phase_noise(yiq: &mut YiqView, seed: u64, intensity: f32, frame_num: u
         .for_each(|(index, (i, q))| {
             // Phase shift angle in radians. Mapped so that an intensity of 1.0 is a phase shift ranging from a full
             // rotation to the left - a full rotation to the right.
-            let phase_shift = (seeder.mix(index).finalize::<f32>() - 0.5) * PI * 4.0 * intensity;
+            let phase_shift = (seeder.clone().mix(index).finalize::<f32>() - 0.5) * PI * 4.0 * intensity;
             let (sin_angle, cos_angle) = phase_shift.sin_cos();
 
             for (i, q) in i.iter_mut().zip(q.iter_mut()) {
@@ -572,8 +572,7 @@ fn head_switching(
     let start_row = height - num_affected_rows;
     let affected_rows = &mut yiq.y[start_row * width..];
 
-    let seeder = Seeder::new(seed)
-        .mix(noise_seeds::HEAD_SWITCHING)
+    let seeder = Seeder::new(seed).mix(noise_seeds::HEAD_SWITCHING)
         .mix(frame_num);
 
     affected_rows
@@ -584,7 +583,7 @@ fn head_switching(
             let row_shift = shift * ((index + offset) as f32 / num_rows as f32).powf(1.5);
             shift_row(
                 row,
-                row_shift + (seeder.mix(index).finalize::<f32>() - 0.5),
+                row_shift + (seeder.clone().mix(index).finalize::<f32>() - 0.5),
                 BoundaryHandling::Constant(0.0),
             );
         });
@@ -634,11 +633,12 @@ fn tracking_noise(
 ) {
     let (width, height) = yiq.resolution;
 
-    let seeder = Seeder::new(seed)
+    let mut seeder = Seeder::new(seed)
         .mix(noise_seeds::TRACKING_NOISE)
         .mix(frame_num);
-    let noise_seed = seeder.finalize::<i32>();
-    let offset = seeder.mix(1).finalize::<f32>() * yiq.resolution.1 as f32;
+    let noise_seed = seeder.clone().mix(0).finalize::<i32>();
+    let offset = seeder.clone().mix(1).finalize::<f32>() * yiq.resolution.1 as f32;
+    seeder = seeder.mix(2);
     let shift_noise = NoiseBuilder::gradient_1d_offset(offset, num_rows)
         .with_seed(noise_seed)
         .with_freq(0.5)
@@ -662,7 +662,7 @@ fn tracking_noise(
 
             video_noise_line(
                 row,
-                seeder,
+                &seeder,
                 index,
                 0.25,
                 intensity_scale.powi(2) * noise_intensity * 4.0,
@@ -673,7 +673,7 @@ fn tracking_noise(
             // loop over every pixel
             row_speckles(
                 row,
-                &mut Xoshiro256PlusPlus::seed_from_u64(seeder.mix(index).finalize()),
+                &mut Xoshiro256PlusPlus::seed_from_u64(seeder.clone().mix(index).finalize()),
                 snow_intensity * intensity_scale.powi(2),
             );
         });
@@ -692,7 +692,7 @@ fn snow(yiq: &mut YiqView, seed: u64, intensity: f32, frame_num: usize) {
             // loop over every pixel
             row_speckles(
                 row,
-                &mut Xoshiro256PlusPlus::seed_from_u64(seeder.mix(index).finalize()),
+                &mut Xoshiro256PlusPlus::seed_from_u64(seeder.clone().mix(index).finalize()),
                 intensity,
             );
         });
@@ -777,7 +777,7 @@ fn vhs_edge_wave(yiq: &mut YiqView, seed: u64, intensity: f32, speed: f32, frame
     let width = yiq.resolution.0;
 
     let seeder = Seeder::new(seed).mix(noise_seeds::EDGE_WAVE);
-    let noise_seed: i32 = seeder.finalize();
+    let noise_seed: i32 = seeder.clone().mix(0).finalize();
     let offset = seeder.mix(1).finalize::<f32>() * yiq.resolution.1 as f32;
     let noise = NoiseBuilder::gradient_2d_offset(offset, width, frame_num as f32 * speed, 1)
         .with_seed(noise_seed)
@@ -800,11 +800,12 @@ fn vhs_edge_wave(yiq: &mut YiqView, seed: u64, intensity: f32, speed: f32, frame
 fn chroma_loss(yiq: &mut YiqView, intensity: f32, seed: u64, frame_num: usize) {
     let (width, height) = yiq.resolution;
 
-    let seeder = Seeder::new(seed)
+    let seed = Seeder::new(seed)
         .mix(noise_seeds::CHROMA_LOSS)
-        .mix(frame_num);
+        .mix(frame_num)
+        .finalize();
 
-    let mut rng = Xoshiro256PlusPlus::seed_from_u64(seeder.finalize());
+    let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
     // We blank out each row with a probability of `intensity` (0 to 1). Instead of going over each row and checking
     // whether to blank out the chroma, use a geometric distribution to simulate that process and tell us which rows
     // to blank.

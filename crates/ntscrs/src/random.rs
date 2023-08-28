@@ -1,4 +1,4 @@
-use std::hash::Hasher;
+use std::hash::{Hasher, Hash};
 use rand::distributions::Distribution;
 use siphasher::sip::SipHasher;
 
@@ -24,13 +24,6 @@ impl Distribution<usize> for Geometric {
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> usize {
         (rng.gen::<f32>().ln() / self.lambda) as usize
     }
-}
-
-fn splitmix64(seed: u64) -> u64 {
-    let mut z = seed.wrapping_add(0x9e3779b97f4a7c15);
-    z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
-    z ^ (z >> 31)
 }
 
 pub trait FromSeeder {
@@ -67,20 +60,22 @@ impl FromSeeder for f32 {
 
 /// RNG seed generator which allows you to mix in as much of your own entropy as you want before generating the final
 /// seed.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Seeder {
     state: SipHasher,
 }
 
 impl Seeder {
-    pub fn new<T: Mix>(seed: T) -> Self {
+    pub fn new<T: Hash>(seed: T) -> Self {
+        let mut hasher = SipHasher::new_with_keys(0, 0);
+        seed.hash(&mut hasher);
         Seeder {
-            state: SipHasher::new_with_keys(seed.mix(), 0),
+            state: hasher,
         }
     }
 
-    pub fn mix<T: Mix>(mut self, input: T) -> Self {
-        self.state.write_u64(input.mix());
+    pub fn mix<T: Hash>(mut self, input: T) -> Self {
+        input.hash(&mut self.state);
         self
     }
 
@@ -88,43 +83,3 @@ impl Seeder {
         T::from_seeder(self.state.finish())
     }
 }
-
-pub trait Mix {
-    fn mix(&self) -> u64;
-}
-
-macro_rules! impl_mix_for {
-    ($ty: tt) => {
-        impl Mix for $ty {
-            #[inline(always)]
-            fn mix(&self) -> u64 {
-                splitmix64(*self as u64)
-            }
-        }
-    };
-}
-
-macro_rules! impl_mix_for_float {
-    ($ty: tt) => {
-        impl Mix for $ty {
-            #[inline(always)]
-            fn mix(&self) -> u64 {
-                splitmix64(self.to_bits() as u64)
-            }
-        }
-    };
-}
-
-impl_mix_for!(i8);
-impl_mix_for!(u8);
-impl_mix_for!(i16);
-impl_mix_for!(u16);
-impl_mix_for!(i32);
-impl_mix_for!(u32);
-impl_mix_for!(i64);
-impl_mix_for!(u64);
-impl_mix_for!(isize);
-impl_mix_for!(usize);
-
-impl_mix_for_float!(f32);
-impl_mix_for_float!(f64);
