@@ -1,4 +1,5 @@
-// Multiplies two polynomials (lowest coefficients first).
+/// Multiplies two polynomials (lowest coefficients first).
+/// Note that this function does not trim trailing zero coefficients--see below for that.
 pub fn polynomial_multiply(a: &[f32], b: &[f32]) -> Vec<f32> {
     let degree = a.len() + b.len() - 1;
 
@@ -13,9 +14,22 @@ pub fn polynomial_multiply(a: &[f32], b: &[f32]) -> Vec<f32> {
     out
 }
 
+/// Helper function to trim trailing zeros. Takes a slice and returns a sub-slice of it with no trailing zeros.
+fn trim_zeros(input: &[f32]) -> &[f32] {
+    let mut end = input.len() - 1;
+    while input[end].abs() == 0.0 {
+        end -= 1;
+    }
+    &input[0..=end]
+}
+
+/// Rational transfer function for an IIR filter in the z-transform domain.
 #[derive(Debug)]
 pub struct TransferFunction {
+    /// Coefficients for the numerator polynomial. Padded with trailing zeros to match the number of coefficients
+    /// in the denominator.
     pub num: Vec<f32>,
+    /// Coefficients for the denominator polynomial.
     pub den: Vec<f32>,
     _private: (),
 }
@@ -42,6 +56,8 @@ impl TransferFunction {
         }
     }
 
+    /// Return initial conditions for the filter that results in a given steady-state value (e.g. "start" the filter as
+    /// if every previous sample was the given value).
     fn initial_condition(&self, value: f32) -> Vec<f32> {
         // Adapted from scipy
         // https://github.com/scipy/scipy/blob/da82ac849a4ccade2d954a0998067e6aa706dd70/scipy/signal/_signaltools.py#L3609-L3742
@@ -98,10 +114,11 @@ impl TransferFunction {
     }
 
     #[inline(always)]
-    fn filter_sample(filter_len: usize, num: &Vec<f32>, den: &Vec<f32>, z: &mut Vec<f32>, sample: f32, scale: f32) -> f32 {
-            // Either the loop bound extending past items.len() or the min() call seems to prevent the optimizer from
-            // determining that we're in-bounds here. Since i.min(items.len() - 1) never exceeds items.len() - 1 by
-            // definition, this is safe.
+    fn filter_sample(filter_len: usize, num: &[f32], den: &[f32], z: &mut [f32], sample: f32, scale: f32) -> f32 {
+            // This function gets auto-vectorized by the compiler. All of my attempts to optimize it have backfired:
+            // - Special-casing a function for when there's only one nonzero coefficient in the numerator: slower.
+            // - Adding a trailing zero to the `z` array so we can get rid of the awkward if/else: slower.
+            // - Using a smallvec to store all the coefficients: slower.
             let filt_sample = z[0] + (num[0] * sample);
             for i in 0..filter_len - 2 {
                 z[i] = z[i + 1] + (num[i + 1] * sample) - (den[i + 1] * filt_sample);
@@ -113,15 +130,13 @@ impl TransferFunction {
             (filt_sample - sample) * scale + sample
     }
 
-    pub fn filter_signal<'a, I>(&self, items: I) -> Vec<f32>
-    where
-        I: IntoIterator<Item = &'a f32>,
-    {
-        let mut yout = items.into_iter().cloned().collect::<Vec<f32>>();
-        self.filter_signal_in_place(&mut yout, 0.0, 1.0, 0);
-        yout
-    }
-
+    /// Filter a signal, reading from one slice and writing into another.
+    /// # Arguments
+    /// - `src` - The slice containing the signal to be filtered.
+    /// - `dst` - The slice to place the filtered signal into. This must be the same size as `src`.
+    /// - `initial` - The initial steady-state value of the filter.
+    /// - `scale` - Scale the effect of the filter on the output by this amount.
+    /// - `delay` - Offset the filter output backwards (to the left) by this amount.
     pub fn filter_signal_into(
         &self,
         src: &[f32],
@@ -130,8 +145,8 @@ impl TransferFunction {
         scale: f32,
         delay: usize,
     ) {
-        if dst.len() < src.len() {
-            panic!("Destination array not big enough");
+        if dst.len() != src.len() {
+            panic!("Source slice is {} samples but destination is {} samples", src.len(), src.len());
         }
 
         let filter_len = usize::max(self.num.len(), self.den.len());
@@ -149,9 +164,16 @@ impl TransferFunction {
         }
     }
 
+    /// Filter a signal in-place, modifying the given slice.
+    /// # Arguments
+    /// - `signal` - The slice containing the signal to be filtered.
+    /// - `initial` - The initial steady-state value of the filter.
+    /// - `scale` - Scale the filter output by this amount. For example, a scale of -1 turns a lowpass filter into a
+    ///   highpass filter.
+    /// - `delay` - Offset the filter output backwards (to the left) by this amount.
     pub fn filter_signal_in_place(
         &self,
-        items: &mut [f32],
+        signal: &mut [f32],
         initial: f32,
         scale: f32,
         delay: usize,
@@ -159,25 +181,17 @@ impl TransferFunction {
         let filter_len = usize::max(self.num.len(), self.den.len());
         let mut z = self.initial_condition(initial);
 
-        for i in 0..(items.len() + delay) {
+        for i in 0..(signal.len() + delay) {
             // Either the loop bound extending past items.len() or the min() call seems to prevent the optimizer from
             // determining that we're in-bounds here. Since i.min(items.len() - 1) never exceeds items.len() - 1 by
             // definition, this is safe.
-            let sample = unsafe { items.get_unchecked(i.min(items.len() - 1)) };
+            let sample = unsafe { signal.get_unchecked(i.min(signal.len() - 1)) };
             let filt_sample = Self::filter_sample(filter_len, &self.num, &self.den, &mut z, *sample, scale);
             if i >= delay {
-                items[i - delay] = filt_sample;
+                signal[i - delay] = filt_sample;
             }
         }
     }
-}
-
-fn trim_zeros(input: &[f32]) -> &[f32] {
-    let mut end = input.len() - 1;
-    while input[end].abs() == 0.0 {
-        end -= 1;
-    }
-    &input[0..=end]
 }
 
 impl std::ops::Mul<&TransferFunction> for &TransferFunction {

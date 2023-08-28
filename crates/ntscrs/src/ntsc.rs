@@ -3,7 +3,8 @@ use std::collections::VecDeque;
 use core::f32::consts::PI;
 use glam::{Mat3, Vec3};
 use image::RgbImage;
-use rand::{rngs::SmallRng, Rng, RngCore, SeedableRng};
+use rand::{Rng, RngCore, SeedableRng};
+use rand_xoshiro::Xoshiro256PlusPlus;
 use simdnoise::NoiseBuilder;
 
 use crate::{
@@ -50,9 +51,12 @@ const RGB_MATRIX: Mat3 = Mat3 {
     },
 };
 
-const NTSC_RATE: f32 = (315000000.00 / 88.0) * 4.0; // 315/88 Mhz rate * 4
+// 315/88 Mhz rate * 4
+// TODO: why do we multiply by 4? composite-video-simulator does this for every filter and ntscqt defines NTSC_RATE the
+// same way as we do here.
+const NTSC_RATE: f32 = (315000000.00 / 88.0) * 4.0;
 
-/// Create a lowpass filter with the given parameters, which can then be used to filter a signal.
+/// Create a simple constant-k lowpass filter with the given frequency cutoff, which can then be used to filter a signal.
 pub fn make_lowpass(cutoff: f32, rate: f32) -> TransferFunction {
     let time_interval = 1.0 / rate;
     let tau = (cutoff * 2.0 * PI).recip();
@@ -61,8 +65,9 @@ pub fn make_lowpass(cutoff: f32, rate: f32) -> TransferFunction {
     TransferFunction::new(vec![alpha], vec![1.0, -(1.0 - alpha)])
 }
 
-/// Create a lowpass filter with the given parameters, which can then be used to filter a signal.
-/// This is equivalent to applying the same lowpass filter 3 times.
+/// Simulate three constant-k lowpass filters in a row by multiplying the coefficients. The original code
+/// (composite-video-simulator and ntscqt) applies a lowpass filter 3 times in a row, but it's more efficient to
+/// multiply the coefficients and just apply the filter once, which is mathematically equivalent.
 pub fn make_lowpass_triple(cutoff: f32, rate: f32) -> TransferFunction {
     let time_interval = 1.0 / rate;
     let tau = (cutoff * 2.0 * PI).recip();
@@ -73,7 +78,10 @@ pub fn make_lowpass_triple(cutoff: f32, rate: f32) -> TransferFunction {
     &(&tf * &tf) * &tf
 }
 
+/// Create an IIR notch filter.
 pub fn make_notch_filter(freq: f32, quality: f32) -> TransferFunction {
+    // Adapted from scipy and simplified
+    // https://github.com/scipy/scipy/blob/686422c4f0a71be1b4258309590fd3e9de102e18/scipy/signal/_filter_design.py#L5099-L5171
     if freq > 1.0 || freq < 0.0 {
         panic!("Frequency outside valid range");
     }
@@ -101,7 +109,14 @@ enum InitialCondition {
     FirstSample,
 }
 
-/// Apply a given filter to one color plane.
+/// Apply a given IIR filter to each row of one color plane.
+/// # Arguments
+/// - `plane` - The entire data (width * height) for the plane to be filtered.
+/// - `width` - The width of each row.
+/// - `filter` - The filter to apply to the plane.
+/// - `initial` - The initial steady-state value of the filter.
+/// - `scale` - Scale the effect of the filter on the signal by this amount.
+/// - `delay` - Offset the filter output backwards (to the left) by this amount.
 fn filter_plane(
     plane: &mut [f32],
     width: usize,
@@ -127,17 +142,28 @@ pub enum YiqField {
     Both,
 }
 
+/// Borrowed YIQ data in a planar format.
+/// Each plane is densely packed with regards to rows--if we skip fields, we just leave them out of these planes, which
+/// squashes them vertically.
 pub struct YiqView<'a> {
     pub y: &'a mut [f32],
     pub i: &'a mut [f32],
     pub q: &'a mut [f32],
+    /// This refers to the number of rendered rows. For instance, if the input frame is 480 pixels high but we're only
+    /// doing the effect on even-numbered fields, then resolution.1 will be 240.
     pub resolution: (usize, usize),
+    /// The source field that this data is for.
     pub field: YiqField,
 }
 
+/// Owned YIQ data.
 pub struct YiqOwned {
+    /// Densely-packed planar YUV data. The Y plane comes first in memory, then I, then Q.
     data: Box<[f32]>,
+    /// This refers to the number of rendered rows. For instance, if the input frame is 480 pixels high but we're only
+    /// doing the effect on even-numbered fields, then resolution.1 will be 240.
     resolution: (usize, usize),
+    /// The source field that this data is for.
     field: YiqField,
 }
 
@@ -149,6 +175,11 @@ impl YiqOwned {
             YiqField::Both => image.height(),
         } as usize;
 
+        // We write into the destination array differently depending on whether we're using the upper field, lower
+        // field, or both. row_lshift determines whether we left-shift the source row index (doubling it). When we use
+        // only one of the fields, the source row index needs to be double the destination row index so we take every
+        // other row. When we use both fields, we just use the source row index as-is.
+        // The row_offset determines whether we skip the first row (when using the lower field).
         let (row_lshift, row_offset): (usize, usize) = match field {
             YiqField::Upper => (1, 0),
             YiqField::Lower => (1, 1),
@@ -206,11 +237,12 @@ impl From<&YiqView<'_>> for RgbImage {
         let num_pixels = width * output_height;
         let mut dst = vec![0u8; num_pixels * 3];
 
-        // If the row index modulo 2 equals this number, skip that row.
+        // If the row index modulo 2 equals this number, that row was not rendered in the source data and we need to
+        // interpolate between the rows above and beneath it.
         let skip_field: usize = match image.field {
             YiqField::Upper => 1,
             YiqField::Lower => 0,
-            // The row index modulo 2 never reaches 2, meaning we don't skip any fields
+            // The row index modulo 2 never reaches 2, meaning we don't skip any rows
             YiqField::Both => 2,
         };
 
@@ -256,53 +288,9 @@ impl From<&YiqView<'_>> for RgbImage {
     }
 }
 
-// Modulate the chrominance signal into the luminance plane.
-fn chroma_into_luma(
-    phase_shift: PhaseShift,
-    phase_offset: i32,
-    yiq: &mut YiqView,
-    subcarrier_amplitude: f32,
-    frame_num: usize,
-) {
-    let width = yiq.resolution.0;
-
-    let y_lines = yiq.y.chunks_mut(width);
-    let i_lines = yiq.i.chunks_mut(width);
-    let q_lines = yiq.q.chunks_mut(width);
-
-    y_lines
-        .zip(i_lines.zip(q_lines))
-        .enumerate()
-        .for_each(|(index, (y, (i, q)))| {
-            let xi = chroma_luma_line_offset(phase_shift, phase_offset, frame_num, index * 2);
-
-            chroma_into_luma_line(y, i, q, xi, subcarrier_amplitude);
-        });
-}
-
-fn luma_into_chroma(
-    phase_shift: PhaseShift,
-    phase_offset: i32,
-    yiq: &mut YiqView,
-    subcarrier_amplitude: f32,
-    frame_num: usize,
-) {
-    let width = yiq.resolution.0;
-
-    let y_lines = yiq.y.chunks_mut(width);
-    let i_lines = yiq.i.chunks_mut(width);
-    let q_lines = yiq.q.chunks_mut(width);
-
-    y_lines
-        .zip(i_lines.zip(q_lines))
-        .enumerate()
-        .for_each(|(index, (y, (i, q)))| {
-            let xi = chroma_luma_line_offset(phase_shift, phase_offset, frame_num, index * 2);
-
-            luma_into_chroma_line(y, i, q, xi, subcarrier_amplitude);
-        });
-}
-
+/// Apply a lowpass filter to the input chroma, emulating broadcast NTSC's bandwidth cutoffs.
+/// (Well, almost--Wikipedia (https://en.wikipedia.org/wiki/YIQ) puts the Q bandwidth at 0.4 MHz, not 0.6. Although
+/// that statement seems unsourced and I can't find any info on it...
 fn composite_chroma_lowpass(frame: &mut YiqView) {
     let i_filter = make_lowpass_triple(1300000.0, NTSC_RATE);
     let q_filter = make_lowpass_triple(600000.0, NTSC_RATE);
@@ -327,6 +315,7 @@ fn composite_chroma_lowpass(frame: &mut YiqView) {
     );
 }
 
+/// Apply a less intense lowpass filter to the input chroma.
 fn composite_chroma_lowpass_lite(frame: &mut YiqView) {
     let filter = make_lowpass_triple(2600000.0, NTSC_RATE);
 
@@ -336,10 +325,8 @@ fn composite_chroma_lowpass_lite(frame: &mut YiqView) {
     filter_plane(&mut frame.q, width, &filter, InitialCondition::Zero, 1.0, 1);
 }
 
-const I_MULT: [f32; 4] = [1.0, 0.0, -1.0, 0.0];
-const Q_MULT: [f32; 4] = [0.0, 1.0, 0.0, -1.0];
-
-fn chroma_luma_line_offset(
+/// Calculate the chroma subcarrier phase for a given row/field
+fn chroma_phase_offset(
     scanline_phase_shift: PhaseShift,
     offset: i32,
     frame_num: usize,
@@ -354,6 +341,9 @@ fn chroma_luma_line_offset(
     } & 3) as usize
 }
 
+const I_MULT: [f32; 4] = [1.0, 0.0, -1.0, 0.0];
+const Q_MULT: [f32; 4] = [0.0, 1.0, 0.0, -1.0];
+
 fn chroma_into_luma_line(
     y: &mut [f32],
     i: &mut [f32],
@@ -365,10 +355,34 @@ fn chroma_into_luma_line(
         .zip(i.into_iter().zip(q.into_iter()))
         .enumerate()
         .for_each(|(index, (y, (i, q)))| {
-            let offset = (index + (xi & 3)) & 3;
-            *y += (*i * I_MULT[offset] + *q * Q_MULT[offset]) * subcarrier_amplitude / 50.0;
+            let phase = (index + (xi & 3)) & 3;
+            *y += (*i * I_MULT[phase] + *q * Q_MULT[phase]) * subcarrier_amplitude / 50.0;
             // *i = 0.0;
             // *q = 0.0;
+        });
+}
+
+/// Modulate the chrominance signal (I and Q planes) into the Y (luminance) plane.
+fn chroma_into_luma(
+    phase_shift: PhaseShift,
+    phase_offset: i32,
+    yiq: &mut YiqView,
+    subcarrier_amplitude: f32,
+    frame_num: usize,
+) {
+    let width = yiq.resolution.0;
+
+    let y_lines = yiq.y.chunks_mut(width);
+    let i_lines = yiq.i.chunks_mut(width);
+    let q_lines = yiq.q.chunks_mut(width);
+
+    y_lines
+        .zip(i_lines.zip(q_lines))
+        .enumerate()
+        .for_each(|(index, (y, (i, q)))| {
+            let xi = chroma_phase_offset(phase_shift, phase_offset, frame_num, index * 2);
+
+            chroma_into_luma_line(y, i, q, xi, subcarrier_amplitude);
         });
 }
 
@@ -388,8 +402,8 @@ fn luma_into_chroma_line(
     let width = y.len();
 
     for index in 0..width {
-        // box-blur the signal to get the luminance
-        // TODO: add an option to use a real lowpass filter here?
+        // Box-blur the signal to get the luminance.
+        // TODO: add an option to use a real lowpass filter or notch filter here?
         let c = y[usize::min(index + 2, width - 1)];
         sum -= delay.pop_front().unwrap();
         delay.push_back(c);
@@ -419,9 +433,47 @@ fn luma_into_chroma_line(
     }
 }
 
+/// Demodulate the chroma signal from the Y (luma) plane back into the I and Q planes.
+fn luma_into_chroma(
+    phase_shift: PhaseShift,
+    phase_offset: i32,
+    yiq: &mut YiqView,
+    subcarrier_amplitude: f32,
+    frame_num: usize,
+) {
+    let width = yiq.resolution.0;
+
+    let y_lines = yiq.y.chunks_mut(width);
+    let i_lines = yiq.i.chunks_mut(width);
+    let q_lines = yiq.q.chunks_mut(width);
+
+    y_lines
+        .zip(i_lines.zip(q_lines))
+        .enumerate()
+        .for_each(|(index, (y, (i, q)))| {
+            let xi = chroma_phase_offset(phase_shift, phase_offset, frame_num, index * 2);
+
+            luma_into_chroma_line(y, i, q, xi, subcarrier_amplitude);
+        });
+}
+
+/// We use a seeded RNG to generate random noise deterministically, but we don't want every pass which uses noise to use
+/// the *same* noise. Each pass gets its own random seed which is mixed into the RNG.
+mod noise_seeds {
+    pub const VIDEO_COMPOSITE: u64 = 0;
+    pub const VIDEO_CHROMA: u64 = 1;
+    pub const HEAD_SWITCHING: u64 = 2;
+    pub const TRACKING_NOISE: u64 = 3;
+    pub const VIDEO_CHROMA_PHASE: u64 = 4;
+    pub const EDGE_WAVE: u64 = 5;
+    pub const SNOW: u64 = 6;
+    pub const CHROMA_LOSS: u64 = 7;
+}
+
+/// Helper function to apply gradient noise to a single row of a single plane.
 fn video_noise_line(row: &mut [f32], seeder: Seeder, index: usize, frequency: f32, intensity: f32) {
     let width = row.len();
-    let mut rng = SmallRng::seed_from_u64(seeder.mix(index as u64).finalize());
+    let mut rng = Xoshiro256PlusPlus::seed_from_u64(seeder.mix(index as u64).finalize());
     let noise_seed = rng.next_u32();
     let offset = rng.gen::<f32>() * width as f32;
 
@@ -436,6 +488,7 @@ fn video_noise_line(row: &mut [f32], seeder: Seeder, index: usize, frequency: f3
     });
 }
 
+/// Add noise to an NTSC-encoded signal.
 fn composite_noise(
     yiq: &mut YiqView,
     seed: u64,
@@ -456,17 +509,7 @@ fn composite_noise(
         });
 }
 
-mod noise_seeds {
-    pub const VIDEO_COMPOSITE: u64 = 0;
-    pub const VIDEO_CHROMA: u64 = 1;
-    pub const HEAD_SWITCHING: u64 = 2;
-    pub const TRACKING_NOISE: u64 = 3;
-    pub const VIDEO_CHROMA_PHASE: u64 = 4;
-    pub const EDGE_WAVE: u64 = 5;
-    pub const SNOW: u64 = 6;
-    pub const CHROMA_LOSS: u64 = 7;
-}
-
+/// Add noise to the chrominance (I and Q) planes of a de-modulated signal.
 fn chroma_noise(yiq: &mut YiqView, seed: u64, frequency: f32, intensity: f32, frame_num: usize) {
     let width = yiq.resolution.0;
     let seeder = Seeder::new(seed)
@@ -483,6 +526,7 @@ fn chroma_noise(yiq: &mut YiqView, seed: u64, frequency: f32, intensity: f32, fr
         });
 }
 
+/// Add per-scanline chroma phase error.
 fn chroma_phase_noise(yiq: &mut YiqView, seed: u64, intensity: f32, frame_num: usize) {
     let width = yiq.resolution.0;
     let seeder = Seeder::new(seed)
@@ -510,6 +554,7 @@ fn chroma_phase_noise(yiq: &mut YiqView, seed: u64, intensity: f32, frame_num: u
         });
 }
 
+/// Emulate VHS head-switching at the bottom of the image.
 fn head_switching(
     yiq: &mut YiqView,
     num_rows: usize,
@@ -545,6 +590,7 @@ fn head_switching(
         });
 }
 
+/// Helper function for generating "snow".
 fn row_speckles<R: Rng>(row: &mut [f32], rng: &mut R, intensity: f32) {
     if intensity <= 0.0 {
         return;
@@ -560,7 +606,7 @@ fn row_speckles<R: Rng>(row: &mut [f32], rng: &mut R, intensity: f32) {
             break;
         }
 
-        let transient_len: f32 = rng.gen_range(8.0..64.0);
+        let transient_len: f32 = rng.gen_range(8.0..=64.0);
 
         for i in pixel_idx..(pixel_idx + transient_len.ceil() as usize).min(row.len()) {
             let x = (i - pixel_idx) as f32;
@@ -574,6 +620,9 @@ fn row_speckles<R: Rng>(row: &mut [f32], rng: &mut R, intensity: f32) {
     }
 }
 
+/// Emulate VHS tracking error/noise.
+/// TODO: this is inaccurate and doesn't let you control the position of the noise.
+/// I need to revamp this at some point.
 fn tracking_noise(
     yiq: &mut YiqView,
     seed: u64,
@@ -624,12 +673,13 @@ fn tracking_noise(
             // loop over every pixel
             row_speckles(
                 row,
-                &mut SmallRng::seed_from_u64(seeder.mix(index).finalize()),
+                &mut Xoshiro256PlusPlus::seed_from_u64(seeder.mix(index).finalize()),
                 snow_intensity * intensity_scale.powi(2),
             );
         });
 }
 
+/// Add random bits of "snow" to an NTSC-encoded signal.
 fn snow(yiq: &mut YiqView, seed: u64, intensity: f32, frame_num: usize) {
     let seeder = Seeder::new(seed).mix(noise_seeds::SNOW).mix(frame_num);
 
@@ -642,12 +692,15 @@ fn snow(yiq: &mut YiqView, seed: u64, intensity: f32, frame_num: usize) {
             // loop over every pixel
             row_speckles(
                 row,
-                &mut SmallRng::seed_from_u64(seeder.mix(index).finalize()),
+                &mut Xoshiro256PlusPlus::seed_from_u64(seeder.mix(index).finalize()),
                 intensity,
             );
         });
 }
 
+/// Offset the chrominance (I and Q) planes horizontally and/or vertically.
+/// Note how the horizontal shift is a float (the signal is continuous), but the vertical shift is an int (each scanline
+/// is discrete).
 fn chroma_delay(yiq: &mut YiqView, offset: (f32, isize)) {
     let copy_or_shift = |src: &mut [f32], dst: &mut [f32]| {
         if offset.0.abs() == 0.0 {
@@ -660,6 +713,7 @@ fn chroma_delay(yiq: &mut YiqView, offset: (f32, isize)) {
     let (width, height) = yiq.resolution;
 
     if offset.1 == 0 {
+        // Only a horizontal shift is necessary. We can do this in-place easily.
         yiq.i
             .chunks_mut(width)
             .zip(yiq.q.chunks_mut(width))
@@ -668,7 +722,9 @@ fn chroma_delay(yiq: &mut YiqView, offset: (f32, isize)) {
                 shift_row(q, offset.0, BoundaryHandling::Constant(0.0));
             });
     } else if offset.1 > 0 {
+        // Some finagling is required to shift vertically. This branch shifts the chroma planes downwards.
         let offset = offset.1 as usize;
+        // Starting from the bottom, copy (or write a horizontally-shifted copy of) each row downwards.
         for dst_row_idx in (0..height).rev() {
             let (i_src_part, i_dst_part) = yiq.i.split_at_mut(dst_row_idx * width);
             let (q_src_part, q_dst_part) = yiq.q.split_at_mut(dst_row_idx * width);
@@ -692,6 +748,7 @@ fn chroma_delay(yiq: &mut YiqView, offset: (f32, isize)) {
         }
     } else {
         let offset = (-offset.1) as usize;
+        // Starting from the top, copy (or write a horizontally-shifted copy of) each row upwards.
         for dst_row_idx in 0..height {
             let (i_dst_part, i_src_part) = yiq.i.split_at_mut((dst_row_idx + 1) * width);
             let (q_dst_part, q_src_part) = yiq.q.split_at_mut((dst_row_idx + 1) * width);
@@ -715,6 +772,7 @@ fn chroma_delay(yiq: &mut YiqView, offset: (f32, isize)) {
     }
 }
 
+/// Emulate VHS waviness / horizontal shift noise.
 fn vhs_edge_wave(yiq: &mut YiqView, seed: u64, intensity: f32, speed: f32, frame_num: usize) {
     let width = yiq.resolution.0;
 
@@ -738,6 +796,7 @@ fn vhs_edge_wave(yiq: &mut YiqView, seed: u64, intensity: f32, speed: f32, frame
     }
 }
 
+/// Drop out the chrominance signal from random lines.
 fn chroma_loss(yiq: &mut YiqView, intensity: f32, seed: u64, frame_num: usize) {
     let (width, height) = yiq.resolution;
 
@@ -745,7 +804,7 @@ fn chroma_loss(yiq: &mut YiqView, intensity: f32, seed: u64, frame_num: usize) {
         .mix(noise_seeds::CHROMA_LOSS)
         .mix(frame_num);
 
-    let mut rng = SmallRng::seed_from_u64(seeder.finalize());
+    let mut rng = Xoshiro256PlusPlus::seed_from_u64(seeder.finalize());
     // We blank out each row with a probability of `intensity` (0 to 1). Instead of going over each row and checking
     // whether to blank out the chroma, use a geometric distribution to simulate that process and tell us which rows
     // to blank.
@@ -765,6 +824,7 @@ fn chroma_loss(yiq: &mut YiqView, intensity: f32, seed: u64, frame_num: usize) {
     }
 }
 
+/// Vertically blend each chroma scanline with the one above it, as VHS does.
 fn chroma_vert_blend(yiq: &mut YiqView) {
     let width = yiq.resolution.0;
     let mut delay_i = vec![0f32; width];
@@ -966,6 +1026,8 @@ impl NtscEffect {
                 if let Some(tape_speed) = &vhs_settings.tape_speed {
                     let VHSTapeParams { luma_cut, .. } = tape_speed.filter_params();
                     let luma_sharpen_filter = make_lowpass_triple(luma_cut * 4.0, NTSC_RATE);
+                    // The composite-video-simulator code sharpens the chroma plane, but ntscqt and this effect do not.
+                    // I'm not sure if I'm implementing it wrong, but chroma sharpening looks awful.
                     // let chroma_sharpen_filter = make_lowpass_triple(chroma_cut * 4.0, 0.0, NTSC_RATE);
                     filter_plane(
                         &mut yiq.y,

@@ -6,9 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-image = { version = "0.24.7", features = [] }
+image = { version = "0.24.7", default-features = false }
 glam = "0.24.1"
-rand = { version = "0.8.5", features = ["small_rng"] }
+rand = { version = "0.8.5", default-features = false }
 rand_xoshiro = "0.6.0"
 simdnoise = "3.1.6"
 num-traits = "0.2"

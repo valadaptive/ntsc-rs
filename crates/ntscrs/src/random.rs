@@ -65,6 +65,8 @@ impl FromSeeder for f32 {
     }
 }
 
+/// RNG seed generator which allows you to mix in as much of your own entropy as you want before generating the final
+/// seed.
 #[derive(Clone, Copy)]
 pub struct Seeder {
     state: SipHasher,

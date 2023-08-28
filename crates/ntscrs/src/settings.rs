@@ -286,6 +286,7 @@ pub struct SettingDescriptor {
     pub id: SettingID,
 }
 
+/// These setting IDs uniquely identify each setting. They are all unique and cannot be reused.
 #[allow(non_camel_case_types)]
 #[derive(Debug, FromPrimitive, ToPrimitive, Clone, Copy)]
 pub enum SettingID {
