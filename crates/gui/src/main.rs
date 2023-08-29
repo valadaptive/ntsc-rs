@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
+pub mod expression_parser;
+
 use std::{
     path::{Path, PathBuf},
     time::SystemTime,
@@ -12,6 +14,7 @@ use ntscrs::{
     settings::{SettingDescriptor, SettingsList},
 };
 use snafu::prelude::*;
+use crate::expression_parser::eval_expression_string;
 
 fn main() -> Result<(), eframe::Error> {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
@@ -114,6 +117,7 @@ impl NtscApp {
     }
 
     fn settings_from_descriptors(&mut self, ui: &mut egui::Ui, descriptors: &[SettingDescriptor]) {
+        let parser = |input: &str| eval_expression_string(input).ok();
         for descriptor in descriptors {
             match &descriptor.kind {
                 ntscrs::settings::SettingKind::Enumeration {
@@ -150,6 +154,7 @@ impl NtscApp {
                                 descriptor.id.get_field_ref::<f32>(&mut self.settings).unwrap(),
                                 0.0..=1.0,
                             )
+                            .custom_parser(parser)
                             .logarithmic(*logarithmic)
                             .text(descriptor.label),
                         )
@@ -174,6 +179,7 @@ impl NtscApp {
                                 &mut value,
                                 range.clone(),
                             )
+                            .custom_parser(parser)
                             .text(descriptor.label),
                         )
                         .changed()
@@ -197,6 +203,7 @@ impl NtscApp {
                                 descriptor.id.get_field_ref::<f32>(&mut self.settings).unwrap(),
                                 range.clone(),
                             )
+                            .custom_parser(parser)
                             .logarithmic(*logarithmic)
                             .text(descriptor.label),
                         )
