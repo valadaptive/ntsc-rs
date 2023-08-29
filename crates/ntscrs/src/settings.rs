@@ -199,6 +199,7 @@ impl<T: Default> Default for SettingsBlock<T> {
 }
 
 #[derive(FullSettings)]
+#[non_exhaustive]
 pub struct NtscEffect {
     pub use_field: UseField,
     pub chroma_lowpass_in: ChromaLowpass,
@@ -219,6 +220,7 @@ pub struct NtscEffect {
     #[settings_block]
     pub vhs_settings: Option<VHSSettings>,
     pub chroma_lowpass_out: ChromaLowpass,
+    pub bandwidth_scale: f32,
 }
 
 impl Default for NtscEffect {
@@ -239,6 +241,7 @@ impl Default for NtscEffect {
             chroma_phase_noise_intensity: 0.001,
             chroma_delay: (0.0, 0),
             vhs_settings: Some(VHSSettings::default()),
+            bandwidth_scale: 1.0,
         }
     }
 }
@@ -289,6 +292,7 @@ pub struct SettingDescriptor {
 /// These setting IDs uniquely identify each setting. They are all unique and cannot be reused.
 #[allow(non_camel_case_types)]
 #[derive(Debug, FromPrimitive, ToPrimitive, Clone, Copy)]
+#[non_exhaustive]
 pub enum SettingID {
     CHROMA_LOWPASS_IN,
     COMPOSITE_PREEMPHASIS,
@@ -327,6 +331,7 @@ pub enum SettingID {
 
     USE_FIELD,
     TRACKING_NOISE_NOISE_INTENSITY,
+    BANDWIDTH_SCALE,
 }
 
 impl SettingID {
@@ -417,6 +422,8 @@ impl SettingID {
             SettingID::VHS_SHARPEN => &mut settings.vhs_settings.settings.sharpen,
             SettingID::VHS_EDGE_WAVE => &mut settings.vhs_settings.settings.edge_wave,
             SettingID::VHS_EDGE_WAVE_SPEED => &mut settings.vhs_settings.settings.edge_wave_speed,
+
+            SettingID::BANDWIDTH_SCALE => &mut settings.bandwidth_scale,
         };
 
         field_ref.downcast_mut::<T>()
@@ -450,6 +457,12 @@ impl SettingsList {
         let default_settings = NtscEffectFullSettings::default();
 
         let v = vec![
+            SettingDescriptor {
+                label: "Bandwidth scale",
+                description: None,
+                kind: SettingKind::FloatRange { range: 0.125..=8.0, logarithmic: false, default_value: default_settings.bandwidth_scale },
+                id: SettingID::BANDWIDTH_SCALE,
+            },
             SettingDescriptor {
                 label: "Use field",
                 description: None,
