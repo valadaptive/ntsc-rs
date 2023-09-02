@@ -90,6 +90,14 @@ pub enum ChromaLowpass {
     Full,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+pub enum ChromaDemodulationFilter {
+    Box,
+    Notch,
+    OneLineComb,
+    TwoLineComb,
+}
+
 #[derive(Clone, PartialEq)]
 pub struct HeadSwitchingSettings {
     pub height: u32,
@@ -203,6 +211,7 @@ impl<T: Default> Default for SettingsBlock<T> {
 pub struct NtscEffect {
     pub use_field: UseField,
     pub chroma_lowpass_in: ChromaLowpass,
+    pub chroma_demodulation: ChromaDemodulationFilter,
     pub composite_preemphasis: f32,
     pub video_scanline_phase_shift: PhaseShift,
     pub video_scanline_phase_shift_offset: i32,
@@ -228,6 +237,7 @@ impl Default for NtscEffect {
         Self {
             use_field: UseField::Alternating,
             chroma_lowpass_in: ChromaLowpass::Full,
+            chroma_demodulation: ChromaDemodulationFilter::Box,
             chroma_lowpass_out: ChromaLowpass::Full,
             composite_preemphasis: 1.0,
             video_scanline_phase_shift: PhaseShift::Degrees180,
@@ -332,6 +342,7 @@ pub enum SettingID {
     USE_FIELD,
     TRACKING_NOISE_NOISE_INTENSITY,
     BANDWIDTH_SCALE,
+    CHROMA_DEMODULATION,
 }
 
 impl SettingID {
@@ -352,6 +363,9 @@ impl SettingID {
             }
             SettingID::USE_FIELD => {
                 settings.use_field = UseField::from_u32(value).unwrap()
+            }
+            SettingID::CHROMA_DEMODULATION => {
+                settings.chroma_demodulation = ChromaDemodulationFilter::from_u32(value).unwrap()
             }
             _ => {}
         }
@@ -378,6 +392,9 @@ impl SettingID {
             SettingID::USE_FIELD => {
                 Some(settings.use_field.to_u32().unwrap())
             }
+            SettingID::CHROMA_DEMODULATION => {
+                Some(settings.chroma_demodulation.to_u32().unwrap())
+            }
             _ => None
         }
     }
@@ -394,6 +411,7 @@ impl SettingID {
             SettingID::COMPOSITE_NOISE_INTENSITY => &mut settings.composite_noise_intensity,
             SettingID::CHROMA_NOISE_INTENSITY => &mut settings.chroma_noise_intensity,
             SettingID::SNOW_INTENSITY => &mut settings.snow_intensity,
+            SettingID::CHROMA_DEMODULATION => &mut settings.chroma_demodulation,
             SettingID::CHROMA_PHASE_NOISE_INTENSITY => &mut settings.chroma_phase_noise_intensity,
             SettingID::CHROMA_DELAY_HORIZONTAL => &mut settings.chroma_delay.0,
             SettingID::CHROMA_DELAY_VERTICAL => &mut settings.chroma_delay.1,
@@ -587,6 +605,36 @@ impl SettingsList {
                 id: SettingID::VIDEO_SCANLINE_PHASE_SHIFT_OFFSET,
             },
             SettingDescriptor {
+                label: "Chroma demodulation filter",
+                description: None,
+                kind: SettingKind::Enumeration {
+                    options: vec![
+                        MenuItem {
+                            label: "Box",
+                            description: None,
+                            index: ChromaDemodulationFilter::Box.to_u32().unwrap()
+                        },
+                        MenuItem {
+                            label: "Notch",
+                            description: None,
+                            index: ChromaDemodulationFilter::Notch.to_u32().unwrap()
+                        },
+                        MenuItem {
+                            label: "1-line comb",
+                            description: None,
+                            index: ChromaDemodulationFilter::OneLineComb.to_u32().unwrap()
+                        },
+                        MenuItem {
+                            label: "2-line comb",
+                            description: None,
+                            index: ChromaDemodulationFilter::TwoLineComb.to_u32().unwrap()
+                        }
+                    ],
+                    default_value: default_settings.chroma_demodulation.to_u32().unwrap(),
+                },
+                id: SettingID::CHROMA_DEMODULATION,
+            },
+            SettingDescriptor {
                 label: "Head switching",
                 description: None,
                 kind: SettingKind::Group {
@@ -662,7 +710,7 @@ impl SettingsList {
                         SettingDescriptor {
                             label: "Power",
                             description: None,
-                            kind: SettingKind::FloatRange { range: 0.0..=10.0, logarithmic: false, default_value: default_settings.ringing.settings.power },
+                            kind: SettingKind::FloatRange { range: 1.0..=10.0, logarithmic: false, default_value: default_settings.ringing.settings.power },
                             id: SettingID::RINGING_POWER
                         },
                         SettingDescriptor {

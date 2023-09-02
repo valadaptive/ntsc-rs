@@ -1,3 +1,4 @@
+use std::cell::OnceCell;
 use std::collections::VecDeque;
 
 use core::f32::consts::PI;
@@ -107,6 +108,26 @@ enum InitialCondition {
     Constant(f32),
     /// Set the initial filter condition to that of the first sample to be filtered.
     FirstSample,
+}
+
+struct ScratchBuffer {
+    cell: OnceCell<Box<[f32]>>,
+    len: usize,
+}
+
+impl ScratchBuffer {
+    pub fn new(len: usize) -> Self {
+        ScratchBuffer {
+            cell: OnceCell::new(),
+            len: len,
+        }
+    }
+    pub fn get(&mut self) -> &mut [f32] {
+        _ = self
+            .cell
+            .get_or_init(|| vec![0f32; self.len].into_boxed_slice());
+        self.cell.get_mut().unwrap()
+    }
 }
 
 /// Apply a given IIR filter to each row of one color plane.
@@ -400,7 +421,39 @@ fn chroma_into_luma(
         });
 }
 
-fn luma_into_chroma_line(
+#[inline]
+fn demodulate_chroma(
+    chroma: f32,
+    index: usize,
+    xi: usize,
+    subcarrier_amplitude: f32,
+    i: &mut [f32],
+    q: &mut [f32],
+) {
+    let width = i.len();
+    let chroma = (chroma * 50.0) / subcarrier_amplitude;
+
+    let offset = (index + (xi & 3)) & 3;
+
+    let i_modulated = -(chroma * I_MULT[offset]);
+    let q_modulated = -(chroma * Q_MULT[offset]);
+
+    // TODO: ntscQT seems to mess this up, giving chroma a "jagged" look reminiscent of the "dot crawl" artifact.
+    // Is that worth trying to replicate, or should it just be left like this?
+    if index < width - 1 {
+        i[index + 1] = i_modulated * 0.5;
+        q[index + 1] = q_modulated * 0.5;
+    }
+    i[index] += i_modulated;
+    q[index] += q_modulated;
+    if index > 0 {
+        i[index - 1] += i_modulated * 0.5;
+        q[index - 1] += q_modulated * 0.5;
+    }
+}
+
+/// Demodulate the chrominance signal using a box filter to separate it out.
+fn luma_into_chroma_line_box(
     y: &mut [f32],
     i: &mut [f32],
     q: &mut [f32],
@@ -417,33 +470,34 @@ fn luma_into_chroma_line(
 
     for index in 0..width {
         // Box-blur the signal to get the luminance.
-        // TODO: add an option to use a real lowpass filter or notch filter here?
         let c = y[usize::min(index + 2, width - 1)];
         sum -= delay.pop_front().unwrap();
         delay.push_back(c);
         sum += c;
         y[index] = sum * 0.25;
-        let mut chroma = c - y[index];
 
-        chroma = (chroma * 50.0) / subcarrier_amplitude;
+        let chroma = c - y[index];
+        demodulate_chroma(chroma, index, xi, subcarrier_amplitude, i, q);
+    }
+}
 
-        let offset = (index + (xi & 3)) & 3;
+fn luma_into_chroma_line_iir(
+    y: &mut [f32],
+    scratch: &mut [f32],
+    i: &mut [f32],
+    q: &mut [f32],
+    filter: &TransferFunction,
+    delay: usize,
+    xi: usize,
+    subcarrier_amplitude: f32,
+) {
+    let width = y.len();
+    filter.filter_signal_into(y, scratch, 0.0, 1.0, delay);
 
-        let i_modulated = -(chroma * I_MULT[offset]);
-        let q_modulated = -(chroma * Q_MULT[offset]);
-
-        // TODO: ntscQT seems to mess this up, giving chroma a "jagged" look reminiscent of the "dot crawl" artifact.
-        // Is that worth trying to replicate, or should it just be left like this?
-        if index < width - 1 {
-            i[index + 1] = i_modulated * 0.5;
-            q[index + 1] = q_modulated * 0.5;
-        }
-        i[index] += i_modulated;
-        q[index] += q_modulated;
-        if index > 0 {
-            i[index - 1] += i_modulated * 0.5;
-            q[index - 1] += q_modulated * 0.5;
-        }
+    for index in 0..width {
+        let chroma = scratch[index] - y[index];
+        y[index] = scratch[index];
+        demodulate_chroma(chroma, index, xi, subcarrier_amplitude, i, q);
     }
 }
 
@@ -452,24 +506,121 @@ fn luma_into_chroma_line(
 fn luma_into_chroma(
     yiq: &mut YiqView,
     info: &CommonInfo,
+    filter_mode: ChromaDemodulationFilter,
+    scratch_buffer: &mut ScratchBuffer,
     phase_shift: PhaseShift,
     phase_offset: i32,
     subcarrier_amplitude: f32,
 ) {
     let width = yiq.resolution.0;
 
-    let y_lines = yiq.y.chunks_mut(width);
-    let i_lines = yiq.i.chunks_mut(width);
-    let q_lines = yiq.q.chunks_mut(width);
+    match filter_mode {
+        ChromaDemodulationFilter::Box
+        | ChromaDemodulationFilter::Notch
+        | ChromaDemodulationFilter::OneLineComb => {
+            let y_lines = yiq.y.chunks_mut(width);
+            let i_lines = yiq.i.chunks_mut(width);
+            let q_lines = yiq.q.chunks_mut(width);
 
-    y_lines
-        .zip(i_lines.zip(q_lines))
-        .enumerate()
-        .for_each(|(index, (y, (i, q)))| {
-            let xi = chroma_phase_offset(phase_shift, phase_offset, info.frame_num, index * 2);
+            match filter_mode {
+                ChromaDemodulationFilter::Box => {
+                    y_lines.zip(i_lines.zip(q_lines)).enumerate().for_each(
+                        |(index, (y, (i, q)))| {
+                            let xi = chroma_phase_offset(
+                                phase_shift,
+                                phase_offset,
+                                info.frame_num,
+                                index * 2,
+                            );
 
-            luma_into_chroma_line(y, i, q, xi, subcarrier_amplitude);
-        });
+                            luma_into_chroma_line_box(y, i, q, xi, subcarrier_amplitude);
+                        },
+                    );
+                }
+                ChromaDemodulationFilter::Notch => {
+                    let scratch = scratch_buffer.get();
+                    let filter: TransferFunction = make_notch_filter(0.5, 2.0);
+                    (y_lines.zip(scratch.chunks_mut(width)))
+                        .zip(i_lines.zip(q_lines))
+                        .enumerate()
+                        .for_each(|(index, ((y, scratch), (i, q)))| {
+                            let xi = chroma_phase_offset(
+                                phase_shift,
+                                phase_offset,
+                                info.frame_num,
+                                index * 2,
+                            );
+
+                            luma_into_chroma_line_iir(
+                                y,
+                                scratch,
+                                i,
+                                q,
+                                &filter,
+                                1,
+                                xi,
+                                subcarrier_amplitude,
+                            );
+                        });
+                }
+                ChromaDemodulationFilter::OneLineComb => {
+                    let mut delay = vec![0f32; width];
+                    y_lines.zip(i_lines.zip(q_lines)).enumerate().for_each(
+                        |(line_index, (y, (i, q)))| {
+                            for index in 0..width {
+                                let blended = (y[index] + delay[index]) * 0.5;
+                                delay[index] = y[index];
+                                let chroma = blended - y[index];
+                                y[index] = blended;
+                                let xi = chroma_phase_offset(
+                                    phase_shift,
+                                    phase_offset,
+                                    info.frame_num,
+                                    line_index * 2,
+                                );
+                                demodulate_chroma(chroma, index, xi, subcarrier_amplitude, i, q);
+                            }
+                        },
+                    );
+                }
+                _ => unreachable!(),
+            }
+        }
+        ChromaDemodulationFilter::TwoLineComb => {
+            let mut delay = vec![0f32; width];
+
+            for line_index in 0..yiq.resolution.1 {
+                for sample_index in 0..width {
+                    let prev_line = delay[sample_index];
+                    let next_line = *yiq
+                        .y
+                        .get((line_index + 1) * width + sample_index)
+                        .unwrap_or(&0.0);
+                    let cur_line = &mut yiq.y[line_index * width + sample_index];
+
+                    let blended = (*cur_line * 0.5) + (prev_line * 0.25) + (next_line * 0.25);
+                    let chroma = blended - *cur_line;
+                    delay[sample_index] = *cur_line;
+                    *cur_line = blended;
+
+                    let xi = chroma_phase_offset(
+                        phase_shift,
+                        phase_offset,
+                        info.frame_num,
+                        line_index * 2,
+                    );
+                    demodulate_chroma(
+                        chroma,
+                        sample_index,
+                        xi,
+                        subcarrier_amplitude,
+                        &mut yiq.i[line_index * width..(line_index + 1) * width],
+                        &mut yiq.q[line_index * width..(line_index + 1) * width],
+                    );
+                }
+            }
+        }
+    };
 }
 
 /// We use a seeded RNG to generate random noise deterministically, but we don't want every pass which uses noise to use
@@ -899,6 +1050,8 @@ impl NtscEffect {
             bandwidth_scale: self.bandwidth_scale,
         };
 
+        let mut scratch_buffer = ScratchBuffer::new(yiq.y.len());
+
         match self.chroma_lowpass_in {
             ChromaLowpass::Full => {
                 composite_chroma_lowpass(yiq, &info);
@@ -969,6 +1122,8 @@ impl NtscEffect {
         luma_into_chroma(
             yiq,
             &info,
+            self.chroma_demodulation,
+            &mut scratch_buffer,
             self.video_scanline_phase_shift,
             self.video_scanline_phase_shift_offset,
             50.0,

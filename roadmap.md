@@ -10,3 +10,4 @@
   previews)
 - OpenFX plugin
 - Blender plugin
+- Wave digital filters to more accurately model analog circuitry?

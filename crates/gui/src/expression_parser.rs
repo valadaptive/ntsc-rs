@@ -1,5 +1,6 @@
-use std::mem;
+//! This is a simple parser for math expressions so that users can enter them into the GUI's slider numeric inputs.
 
+use std::mem;
 use logos::{Lexer, Logos};
 
 fn parse_num(lex: &mut Lexer<Token>) -> Option<f64> {
