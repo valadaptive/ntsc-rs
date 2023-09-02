@@ -4,7 +4,7 @@ pub mod expression_parser;
 
 use std::{
     path::{Path, PathBuf},
-    time::SystemTime,
+    time::SystemTime, ops::RangeInclusive,
 };
 
 use eframe::egui;
@@ -75,6 +75,10 @@ enum LoadImageError {
     IO { source: std::io::Error },
     #[snafu()]
     Image { source: ImageError },
+}
+
+fn format_percentage(n: f64, prec: RangeInclusive<usize>) -> String {
+    format!("{:.*}%", prec.start().max(&2) - 2, n * 100.0)
 }
 
 impl NtscApp {
@@ -155,6 +159,7 @@ impl NtscApp {
                                 0.0..=1.0,
                             )
                             .custom_parser(parser)
+                            .custom_formatter(format_percentage)
                             .logarithmic(*logarithmic)
                             .text(descriptor.label),
                         )

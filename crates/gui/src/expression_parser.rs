@@ -1,7 +1,7 @@
 //! This is a simple parser for math expressions so that users can enter them into the GUI's slider numeric inputs.
 
-use std::mem;
 use logos::{Lexer, Logos};
+use std::mem;
 
 fn parse_num(lex: &mut Lexer<Token>) -> Option<f64> {
     lex.slice().parse::<f64>().ok()
@@ -27,6 +27,9 @@ enum Token {
 
     #[token("**")]
     Power,
+
+    #[token("%")]
+    Percent,
 
     #[token("(")]
     LParen,
@@ -87,7 +90,14 @@ impl<'a> LexerWrapper<'a> {
 fn prefix_binding_power(op: &Token) -> usize {
     match op {
         Token::Plus | Token::Minus => 7,
-        _ => panic!("not a prefix operator"),
+        _ => panic!("not a prefix operator: {op:?}"),
+    }
+}
+
+fn postfix_binding_power(op: &Token) -> Option<usize> {
+    match op {
+        Token::Percent => Some(9),
+        _ => None,
     }
 }
 
@@ -128,15 +138,30 @@ fn eval_expr(lexer: &mut LexerWrapper, min_binding_power: usize) -> Result<f64, 
 
     loop {
         let op = match lexer.cur {
-            Some(token) => {
-                match token {
-                    Token::Plus | Token::Minus | Token::Multiply | Token::Divide | Token::Power => Ok(token),
-                    Token::RParen => break Ok(lhs),
-                    _ => Err(ParseError::new("Expected operator"))
-                }
+            Some(token) => match token {
+                Token::Plus
+                | Token::Minus
+                | Token::Multiply
+                | Token::Divide
+                | Token::Power
+                | Token::Percent => Ok(token),
+                Token::RParen => break Ok(lhs),
+                _ => Err(ParseError::new("Expected operator")),
             },
             None => break Ok(lhs),
         }?;
+
+        if let Some(left_bp) = postfix_binding_power(&op) {
+            if left_bp < min_binding_power {
+                break Ok(lhs);
+            }
+            lexer.advance()?;
+            lhs = match op {
+                Token::Percent => lhs * 0.01,
+                _ => panic!("unhandled op: {op:?}"),
+            };
+            continue;
+        }
 
         if let Some((left_bp, right_bp)) = infix_binding_power(&op) {
             if left_bp < min_binding_power {
@@ -152,12 +177,12 @@ fn eval_expr(lexer: &mut LexerWrapper, min_binding_power: usize) -> Result<f64, 
                 Token::Multiply => lhs * rhs,
                 Token::Divide => lhs / rhs,
                 Token::Power => lhs.powf(rhs),
-                _ => panic!("unhandled op"),
+                _ => panic!("unhandled op: {op:?}"),
             };
             continue;
         }
 
-        break Ok(lhs)
+        break Ok(lhs);
     }
 }
 
