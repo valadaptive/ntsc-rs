@@ -776,15 +776,32 @@ fn head_switching(
 }
 
 /// Helper function for generating "snow".
-fn row_speckles<R: Rng>(row: &mut [f32], rng: &mut R, intensity: f32, bandwidth_scale: f32) {
-    let intensity = intensity / bandwidth_scale;
+fn row_speckles<R: Rng>(row: &mut [f32], rng: &mut R, intensity: f32, anisotropy: f32, bandwidth_scale: f32) {
+    let intensity = (intensity / bandwidth_scale).clamp(0.0, 1.0);
     if intensity <= 0.0 {
         return;
     }
+
+    let intensity = intensity as f64;
+    let anisotropy = anisotropy as f64;
+
+    // Transition smoothly from a flat function that always returns `intensity`, to a step function that returns
+    // 1.0 with a probability of `intensity` and 0.0 with a probability of `1.0 - intensity`. In-between states
+    // look like S-curves with increasing sharpness.
+    let logistic_factor = ((rng.gen::<f64>() - intensity) / (intensity * (1.0 - intensity) * (1.0 - anisotropy))).exp();
+    let mut line_snow_intensity = anisotropy / (1.0 + logistic_factor) + intensity * (1.0 - anisotropy);
+
+    // At maximum intensity (1.0), the line just gets completely whited out. 0.125 intensity looks more reasonable.
+    line_snow_intensity *= 0.125;
+    line_snow_intensity = line_snow_intensity.clamp(0.0, 1.0);
+    if line_snow_intensity <= 0.0 {
+        return;
+    }
+
     // Turn each pixel into "snow" with probability snow_intensity * intensity_scale
     // We can simulate the distance between each "snow" pixel with a geometric distribution which avoids having to
     // loop over every pixel
-    let dist = Geometric::new(intensity as f64);
+    let dist = Geometric::new(line_snow_intensity);
     let mut pixel_idx = 0usize;
     loop {
         pixel_idx += rng.sample(&dist);
@@ -793,11 +810,14 @@ fn row_speckles<R: Rng>(row: &mut [f32], rng: &mut R, intensity: f32, bandwidth_
         }
 
         let transient_len: f32 = rng.gen_range(8.0..=64.0) * bandwidth_scale;
+        let transient_freq = rng.gen_range(transient_len * 3.0..=transient_len * 5.0);
 
         for i in pixel_idx..(pixel_idx + transient_len.ceil() as usize).min(row.len()) {
             let x = (i - pixel_idx) as f32;
-            // Quadratic decay to 0
-            row[i] += (1.0 - (x / transient_len)).powi(2) * 2.0 * rng.gen::<f32>();
+            // Simulate transient with sin(pi*x / 4) * (1 - x/len)^2
+            row[i] += ((x * PI) / transient_freq).cos()
+                * (1.0 - x / transient_len).powi(2)
+                * rng.gen_range(-1.0..2.0);
         }
 
         // Make sure we advance the pixel index each time. Our geometric distribution gives us the time between
@@ -815,6 +835,7 @@ fn tracking_noise(
     num_rows: usize,
     wave_intensity: f32,
     snow_intensity: f32,
+    snow_anisotropy: f32,
     noise_intensity: f32,
 ) {
     let (width, height) = yiq.resolution;
@@ -854,20 +875,18 @@ fn tracking_noise(
                 intensity_scale.powi(2) * noise_intensity * 4.0,
             );
 
-            // Turn each pixel into "snow" with probability snow_intensity * intensity_scale
-            // We can simulate the distance between each "snow" pixel with a geometric distribution which avoids having to
-            // loop over every pixel
             row_speckles(
                 row,
                 &mut Xoshiro256PlusPlus::seed_from_u64(seeder.clone().mix(index).finalize()),
                 snow_intensity * intensity_scale.powi(2),
+                snow_anisotropy,
                 info.bandwidth_scale,
             );
         });
 }
 
 /// Add random bits of "snow" to an NTSC-encoded signal.
-fn snow(yiq: &mut YiqView, info: &CommonInfo, intensity: f32) {
+fn snow(yiq: &mut YiqView, info: &CommonInfo, intensity: f32, anisotropy: f32) {
     let seeder = Seeder::new(info.seed)
         .mix(noise_seeds::SNOW)
         .mix(info.frame_num);
@@ -876,13 +895,13 @@ fn snow(yiq: &mut YiqView, info: &CommonInfo, intensity: f32) {
         .chunks_mut(yiq.resolution.0)
         .enumerate()
         .for_each(|(index, row)| {
-            // Turn each pixel into "snow" with probability snow_intensity * intensity_scale
-            // We can simulate the distance between each "snow" pixel with a geometric distribution which avoids having to
-            // loop over every pixel
+            let line_seed = seeder.clone().mix(index);
+
             row_speckles(
                 row,
-                &mut Xoshiro256PlusPlus::seed_from_u64(seeder.clone().mix(index).finalize()),
+                &mut Xoshiro256PlusPlus::seed_from_u64(line_seed.finalize()),
                 intensity,
+                anisotropy,
                 info.bandwidth_scale,
             );
         });
@@ -1090,7 +1109,7 @@ impl NtscEffect {
         }
 
         if self.snow_intensity > 0.0 && self.bandwidth_scale > 0.0 {
-            snow(yiq, &info, self.snow_intensity * 0.01);
+            snow(yiq, &info, self.snow_intensity * 0.01, self.snow_anisotropy);
         }
 
         if let Some(HeadSwitchingSettings {
@@ -1106,6 +1125,7 @@ impl NtscEffect {
             height,
             wave_intensity,
             snow_intensity,
+            snow_anisotropy,
             noise_intensity,
         }) = self.tracking_noise
         {
@@ -1115,6 +1135,7 @@ impl NtscEffect {
                 height as usize,
                 wave_intensity,
                 snow_intensity,
+                snow_anisotropy,
                 noise_intensity,
             );
         }

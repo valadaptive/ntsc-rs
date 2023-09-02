@@ -120,6 +120,7 @@ pub struct TrackingNoiseSettings {
     pub height: u32,
     pub wave_intensity: f32,
     pub snow_intensity: f32,
+    pub snow_anisotropy: f32,
     pub noise_intensity: f32,
 }
 
@@ -128,7 +129,8 @@ impl Default for TrackingNoiseSettings {
         Self {
             height: 24,
             wave_intensity: 5.0,
-            snow_intensity: 0.005,
+            snow_intensity: 0.05,
+            snow_anisotropy: 0.5,
             noise_intensity: 0.005,
         }
     }
@@ -224,6 +226,7 @@ pub struct NtscEffect {
     pub ringing: Option<RingingSettings>,
     pub chroma_noise_intensity: f32,
     pub snow_intensity: f32,
+    pub snow_anisotropy: f32,
     pub chroma_phase_noise_intensity: f32,
     pub chroma_delay: (f32, i32),
     #[settings_block]
@@ -245,7 +248,8 @@ impl Default for NtscEffect {
             head_switching: Some(HeadSwitchingSettings::default()),
             tracking_noise: Some(TrackingNoiseSettings::default()),
             ringing: Some(RingingSettings::default()),
-            snow_intensity: 0.00001,
+            snow_intensity: 0.003,
+            snow_anisotropy: 0.5,
             composite_noise_intensity: 0.01,
             chroma_noise_intensity: 0.1,
             chroma_phase_noise_intensity: 0.001,
@@ -343,6 +347,8 @@ pub enum SettingID {
     TRACKING_NOISE_NOISE_INTENSITY,
     BANDWIDTH_SCALE,
     CHROMA_DEMODULATION,
+    SNOW_ANISOTROPY,
+    TRACKING_NOISE_SNOW_ANISOTROPY,
 }
 
 impl SettingID {
@@ -411,6 +417,7 @@ impl SettingID {
             SettingID::COMPOSITE_NOISE_INTENSITY => &mut settings.composite_noise_intensity,
             SettingID::CHROMA_NOISE_INTENSITY => &mut settings.chroma_noise_intensity,
             SettingID::SNOW_INTENSITY => &mut settings.snow_intensity,
+            SettingID::SNOW_ANISOTROPY => &mut settings.snow_anisotropy,
             SettingID::CHROMA_DEMODULATION => &mut settings.chroma_demodulation,
             SettingID::CHROMA_PHASE_NOISE_INTENSITY => &mut settings.chroma_phase_noise_intensity,
             SettingID::CHROMA_DELAY_HORIZONTAL => &mut settings.chroma_delay.0,
@@ -426,6 +433,7 @@ impl SettingID {
             SettingID::TRACKING_NOISE_HEIGHT => &mut settings.tracking_noise.settings.height,
             SettingID::TRACKING_NOISE_WAVE_INTENSITY => &mut settings.tracking_noise.settings.wave_intensity,
             SettingID::TRACKING_NOISE_SNOW_INTENSITY => &mut settings.tracking_noise.settings.snow_intensity,
+            SettingID::TRACKING_NOISE_SNOW_ANISOTROPY => &mut settings.tracking_noise.settings.snow_anisotropy,
             SettingID::TRACKING_NOISE_NOISE_INTENSITY => &mut settings.tracking_noise.settings.noise_intensity,
 
             SettingID::RINGING => &mut settings.ringing.enabled,
@@ -566,6 +574,15 @@ impl SettingsList {
                 id: SettingID::SNOW_INTENSITY,
             },
             SettingDescriptor {
+                label: "Snow anisotropy",
+                description: None,
+                kind: SettingKind::Percentage {
+                    logarithmic: false,
+                    default_value: default_settings.snow_anisotropy,
+                },
+                id: SettingID::SNOW_ANISOTROPY,
+            },
+            SettingDescriptor {
                 label: "Scanline phase shift",
                 description: None,
                 kind: SettingKind::Enumeration {
@@ -682,8 +699,14 @@ impl SettingsList {
                         SettingDescriptor {
                             label: "Snow intensity",
                             description: None,
-                            kind: SettingKind::FloatRange { range: 0.0..=0.25, logarithmic: true, default_value: default_settings.tracking_noise.settings.snow_intensity },
+                            kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: true, default_value: default_settings.tracking_noise.settings.snow_intensity },
                             id: SettingID::TRACKING_NOISE_SNOW_INTENSITY
+                        },
+                        SettingDescriptor {
+                            label: "Snow anisotropy",
+                            description: None,
+                            kind: SettingKind::Percentage { logarithmic: false, default_value: default_settings.tracking_noise.settings.snow_intensity },
+                            id: SettingID::TRACKING_NOISE_SNOW_ANISOTROPY
                         },
                         SettingDescriptor {
                             label: "Noise intensity",
