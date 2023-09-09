@@ -163,6 +163,16 @@ struct CommonInfo {
     bandwidth_scale: f32,
 }
 
+#[inline(always)]
+pub fn rgb_to_yiq(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
+    (YIQ_MATRIX * Vec3::new(r, g, b)).into()
+}
+
+#[inline(always)]
+pub fn yiq_to_rgb(y: f32, i: f32, q: f32) -> (f32, f32, f32) {
+    (RGB_MATRIX * Vec3::new(y, i, q)).into()
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum YiqField {
     Upper,
@@ -777,17 +787,14 @@ fn head_switching(
 
 /// Helper function for generating "snow".
 fn row_speckles<R: Rng>(row: &mut [f32], rng: &mut R, intensity: f32, anisotropy: f32, bandwidth_scale: f32) {
-    let intensity = (intensity / bandwidth_scale).clamp(0.0, 1.0);
-    if intensity <= 0.0 {
-        return;
-    }
-
     let intensity = intensity as f64;
     let anisotropy = anisotropy as f64;
 
     // Transition smoothly from a flat function that always returns `intensity`, to a step function that returns
     // 1.0 with a probability of `intensity` and 0.0 with a probability of `1.0 - intensity`. In-between states
     // look like S-curves with increasing sharpness.
+    // As a bonus, the integral of this function over (0, 1) as we transition from 0% to 100% anisotropy is *almost*
+    // constant, meaning there's approximately the same amount of snow each time.
     let logistic_factor = ((rng.gen::<f64>() - intensity) / (intensity * (1.0 - intensity) * (1.0 - anisotropy))).exp();
     let mut line_snow_intensity = anisotropy / (1.0 + logistic_factor) + intensity * (1.0 - anisotropy);
 
@@ -984,12 +991,12 @@ fn chroma_delay(yiq: &mut YiqView, info: &CommonInfo, offset: (f32, isize)) {
 
 /// Emulate VHS waviness / horizontal shift noise.
 fn vhs_edge_wave(yiq: &mut YiqView, info: &CommonInfo, intensity: f32, speed: f32) {
-    let width = yiq.resolution.0;
+    let (width, height) = yiq.resolution;
 
     let seeder = Seeder::new(info.seed).mix(noise_seeds::EDGE_WAVE);
     let noise_seed: i32 = seeder.clone().mix(0).finalize();
     let offset = seeder.mix(1).finalize::<f32>() * yiq.resolution.1 as f32;
-    let noise = NoiseBuilder::gradient_2d_offset(offset, width, info.frame_num as f32 * speed, 1)
+    let noise = NoiseBuilder::gradient_2d_offset(offset, height, info.frame_num as f32 * speed, 1)
         .with_seed(noise_seed)
         .with_freq(0.05)
         .generate()
@@ -1152,7 +1159,7 @@ impl NtscEffect {
 
         if let Some(ringing) = &self.ringing {
             let notch_filter = make_notch_filter(
-                (ringing.frequency / self.bandwidth_scale).min(1.0),
+                (ringing.frequency / self.bandwidth_scale).clamp(0.0, 1.0),
                 ringing.power,
             );
             filter_plane(
