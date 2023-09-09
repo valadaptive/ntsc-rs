@@ -49,7 +49,6 @@ struct NtscApp {
     image_path: Option<String>,
     image: Option<RgbImage>,
     preview: Option<egui::TextureHandle>,
-    seed: u64,
     frame: usize,
     play_info: Option<PlayInfo>,
     settings: NtscEffectFullSettings,
@@ -61,7 +60,6 @@ impl Default for NtscApp {
             image_path: None,
             image: None,
             preview: None,
-            seed: 0,
             frame: 0,
             play_info: None,
             settings: NtscEffectFullSettings::default(),
@@ -300,11 +298,6 @@ impl eframe::App for NtscApp {
             }
 
             ui.horizontal(|ui| {
-                ui.label("Seed:");
-                if ui.add(egui::DragValue::new(&mut self.seed)).changed() {
-                    self.update_effect(ctx);
-                }
-                ui.separator();
                 ui.label("Frame:");
                 if ui.add(egui::DragValue::new(&mut self.frame)).changed() {
                     self.update_effect(ctx);
