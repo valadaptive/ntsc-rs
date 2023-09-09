@@ -364,7 +364,6 @@ pub unsafe extern "C" fn ntscrs_process_yiq(
     height: usize,
     settings: &Configurator,
     frame_num: usize,
-    seed: u64,
 ) {
     let len = width * height;
     let mut yiq = YiqView {
@@ -374,5 +373,5 @@ pub unsafe extern "C" fn ntscrs_process_yiq(
         resolution: (width, height),
         field: ntscrs::ntsc::YiqField::Both,
     };
-    NtscEffect::from(&settings.0).apply_effect_to_yiq(&mut yiq, frame_num, seed);
+    NtscEffect::from(&settings.0).apply_effect_to_yiq(&mut yiq, frame_num);
 }

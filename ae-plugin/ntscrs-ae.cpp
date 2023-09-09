@@ -561,8 +561,7 @@ ActuallyRender(
 						out_buf, // y plane
 						&out_buf[output_plane_size], // i plane
 						&out_buf[output_plane_size * 2], // q plane
-						// TODO: allow user to set seed
-						output->width, out_buf_height, configurator, frame_num, 0);
+						output->width, out_buf_height, configurator, frame_num);
 
 					switch (format) {
 						case PF_PixelFormat_ARGB128: {

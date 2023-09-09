@@ -97,7 +97,7 @@ impl NtscApp {
     fn update_effect(&mut self, ctx: &egui::Context) {
         if let Some(image) = &self.image {
             let result =
-                NtscEffect::from(&self.settings).apply_effect(image, self.frame, self.seed);
+                NtscEffect::from(&self.settings).apply_effect(image, self.frame);
             let egui_image = egui::ColorImage::from_rgb(
                 [result.width() as usize, result.height() as usize],
                 result.as_raw(),

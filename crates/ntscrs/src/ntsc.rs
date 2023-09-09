@@ -101,6 +101,7 @@ pub fn make_notch_filter(freq: f32, quality: f32) -> TransferFunction {
 }
 
 /// Filter initial condition.
+#[allow(dead_code)]
 enum InitialCondition {
     /// Convenience value--just use 0.
     Zero,
@@ -763,8 +764,14 @@ fn head_switching(
     }
     let num_affected_rows = num_rows - offset;
 
-    let start_row = height - num_affected_rows;
+    // Handle cases where the number of affected rows exceeds the number of actual rows in the image
+    let start_row = height.max(num_affected_rows) - num_affected_rows;
     let affected_rows = &mut yiq.y[start_row * width..];
+    let cut_off_rows = if num_affected_rows > height {
+        num_affected_rows - height
+    } else {
+        0
+    };
 
     let seeder = Seeder::new(info.seed)
         .mix(noise_seeds::HEAD_SWITCHING)
@@ -774,7 +781,7 @@ fn head_switching(
         .chunks_mut(width)
         .enumerate()
         .for_each(|(index, row)| {
-            let index = num_affected_rows - index;
+            let index = num_affected_rows - (index + cut_off_rows);
             let row_shift = shift * ((index + offset) as f32 / num_rows as f32).powf(1.5);
             shift_row(
                 row,
@@ -859,13 +866,20 @@ fn tracking_noise(
         .generate()
         .0;
 
-    let start_row = height - num_rows;
+    // Handle cases where the number of affected rows exceeds the number of actual rows in the image
+    let start_row = height.max(num_rows) - num_rows;
     let affected_rows = &mut yiq.y[start_row * width..];
+    let cut_off_rows = if num_rows > height {
+        num_rows - height
+    } else {
+        0
+    };
 
     affected_rows
         .chunks_mut(width)
         .enumerate()
         .for_each(|(index, row)| {
+            let index = index + cut_off_rows;
             // This iterates from the top down. Increase the intensity as we approach the bottom of the picture.
             let intensity_scale = index as f32 / num_rows as f32;
             shift_row(
@@ -974,7 +988,7 @@ fn chroma_delay(yiq: &mut YiqView, info: &CommonInfo, offset: (f32, isize)) {
             let dst_i = &mut i_dst_part[dst_row_range.clone()];
             let dst_q = &mut q_dst_part[dst_row_range.clone()];
 
-            if dst_row_idx >= height - offset {
+            if dst_row_idx >= height.max(offset) - offset {
                 dst_i.fill(0.0);
                 dst_q.fill(0.0);
             } else {
@@ -1067,8 +1081,10 @@ fn chroma_vert_blend(yiq: &mut YiqView) {
 }
 
 impl NtscEffect {
-    pub fn apply_effect_to_yiq(&self, yiq: &mut YiqView, frame_num: usize, seed: u64) {
+    pub fn apply_effect_to_yiq(&self, yiq: &mut YiqView, frame_num: usize) {
         let (width, _) = yiq.resolution;
+
+        let seed = self.random_seed as u32 as u64;
 
         let info = CommonInfo {
             seed,
@@ -1287,7 +1303,7 @@ impl NtscEffect {
         };
     }
 
-    pub fn apply_effect(&self, input_frame: &RgbImage, frame_num: usize, seed: u64) -> RgbImage {
+    pub fn apply_effect(&self, input_frame: &RgbImage, frame_num: usize) -> RgbImage {
         let field = match self.use_field {
             UseField::Alternating => {
                 if frame_num & 1 == 0 {
@@ -1302,7 +1318,7 @@ impl NtscEffect {
         };
         let mut yiq = YiqOwned::from_image(input_frame, field);
         let mut view = YiqView::from(&mut yiq);
-        self.apply_effect_to_yiq(&mut view, frame_num, seed);
+        self.apply_effect_to_yiq(&mut view, frame_num);
         RgbImage::from(&view)
     }
 }

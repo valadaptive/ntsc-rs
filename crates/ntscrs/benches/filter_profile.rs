@@ -13,7 +13,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     let img = img.to_rgb8();
     c.bench_function("full effect", |b| {
         b.iter(|| {
-            NtscEffect::default().apply_effect(&img, 0, 0);
+            NtscEffect::default().apply_effect(&img, 0);
         })
     });
 }

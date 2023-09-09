@@ -33,11 +33,17 @@ fn shift_row_initial_conditions(row: &[f32], shift: f32, boundary_handling: Boun
 pub fn shift_row(row: &mut [f32], shift: f32, boundary_handling: BoundaryHandling) {
     let width = row.len();
     let (shift_int, shift_frac, boundary_value) = shift_row_initial_conditions(row, shift, boundary_handling);
+    // TODO: handle this properly
+    if width as i64 <= shift_int {
+        return;
+    }
 
     let mut prev = if shift_int >= 0 {
-        row[width - shift_int as usize - 1]
-    } else {
+        row[(width - shift_int as usize) - 1]
+    } else if shift_int >= width as i64 {
         row[-shift_int as usize - 1]
+    } else {
+        boundary_value
     };
 
     if shift_int >= 0 {
@@ -71,11 +77,17 @@ pub fn shift_row(row: &mut [f32], shift: f32, boundary_handling: BoundaryHandlin
 pub fn shift_row_to(src: &[f32], dst: &mut [f32], shift: f32, boundary_handling: BoundaryHandling) {
     let width = src.len();
     let (shift_int, shift_frac, boundary_value) = shift_row_initial_conditions(src, shift, boundary_handling);
+    // TODO: handle this properly
+    if width as i64 <= shift_int {
+        return;
+    }
 
     let mut prev = if shift_int >= 0 {
-        boundary_value
-    } else {
+        src[(width - shift_int as usize) - 1]
+    } else if shift_int >= width as i64 {
         src[-shift_int as usize - 1]
+    } else {
+        boundary_value
     };
 
     for i in 0..width {

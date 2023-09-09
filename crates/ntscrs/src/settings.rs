@@ -9,7 +9,7 @@ use crate::{FromPrimitive, ToPrimitive};
 
 // TODO: replace with a bunch of metaprogramming macro magic?
 
-#[derive(Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
 pub enum UseField {
     Alternating = 0,
     Upper,
@@ -17,7 +17,7 @@ pub enum UseField {
     Both,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
 pub enum PhaseShift {
     Degrees0,
     Degrees90,
@@ -25,7 +25,7 @@ pub enum PhaseShift {
     Degrees270,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
 pub enum VHSTapeSpeed {
     SP = 1,
     LP,
@@ -60,7 +60,7 @@ impl VHSTapeSpeed {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct VHSSettings {
     pub tape_speed: Option<VHSTapeSpeed>,
     pub chroma_vert_blend: bool,
@@ -83,14 +83,14 @@ impl Default for VHSSettings {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
 pub enum ChromaLowpass {
     None,
     Light,
     Full,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
 pub enum ChromaDemodulationFilter {
     Box,
     Notch,
@@ -98,7 +98,7 @@ pub enum ChromaDemodulationFilter {
     TwoLineComb,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HeadSwitchingSettings {
     pub height: u32,
     pub offset: u32,
@@ -115,7 +115,7 @@ impl Default for HeadSwitchingSettings {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TrackingNoiseSettings {
     pub height: u32,
     pub wave_intensity: f32,
@@ -136,7 +136,7 @@ impl Default for TrackingNoiseSettings {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RingingSettings {
     pub frequency: f32,
     pub power: f32,
@@ -208,9 +208,10 @@ impl<T: Default> Default for SettingsBlock<T> {
     }
 }
 
-#[derive(FullSettings)]
+#[derive(Debug, FullSettings)]
 #[non_exhaustive]
 pub struct NtscEffect {
+    pub random_seed: i32,
     pub use_field: UseField,
     pub chroma_lowpass_in: ChromaLowpass,
     pub chroma_demodulation: ChromaDemodulationFilter,
@@ -238,6 +239,7 @@ pub struct NtscEffect {
 impl Default for NtscEffect {
     fn default() -> Self {
         Self {
+            random_seed: 0,
             use_field: UseField::Alternating,
             chroma_lowpass_in: ChromaLowpass::Full,
             chroma_demodulation: ChromaDemodulationFilter::Box,
@@ -349,6 +351,8 @@ pub enum SettingID {
     CHROMA_DEMODULATION,
     SNOW_ANISOTROPY,
     TRACKING_NOISE_SNOW_ANISOTROPY,
+
+    RANDOM_SEED,
 }
 
 impl SettingID {
@@ -450,6 +454,7 @@ impl SettingID {
             SettingID::VHS_EDGE_WAVE_SPEED => &mut settings.vhs_settings.settings.edge_wave_speed,
 
             SettingID::BANDWIDTH_SCALE => &mut settings.bandwidth_scale,
+            SettingID::RANDOM_SEED => &mut settings.random_seed,
         };
 
         field_ref.downcast_mut::<T>()
@@ -483,6 +488,12 @@ impl SettingsList {
         let default_settings = NtscEffectFullSettings::default();
 
         let v = vec![
+            SettingDescriptor {
+                label: "Random seed",
+                description: None,
+                kind: SettingKind::IntRange { range: i32::MIN..=i32::MAX, default_value: default_settings.random_seed },
+                id: SettingID::RANDOM_SEED,
+            },
             SettingDescriptor {
                 label: "Bandwidth scale",
                 description: None,
