@@ -989,6 +989,15 @@ struct RowInfo {
 }
 
 fn getRowInfo(cur_field: YiqField, src_height: usize) -> RowInfo {
+    // Always be sure to render at least 1 row
+    if src_height == 1 {
+        return RowInfo {
+            row_lshift: 0,
+            row_offset: 0,
+            num_rows: 1
+        }
+    }
+
     // We write into the destination array differently depending on whether we're using the upper field, lower
     // field, or both. row_lshift determines whether we left-shift the source row index (doubling it). When we use
     // only one of the fields, the source row index needs to be double the destination row index so we take every
@@ -1042,6 +1051,9 @@ unsafe fn pixel_processing<S: Normalize + Sized, D: Normalize + Sized>(
     let dstHeight = (dstBounds.y2 - dstBounds.y1) as usize;
     let srcWidth = (srcBounds.x2 - srcBounds.x1) as usize;
     let srcHeight = (srcBounds.y2 - srcBounds.y1) as usize;
+
+    dbg!(&srcBounds);
+    dbg!(&dstBounds);
 
     let cur_field = match effect.use_field {
         UseField::Alternating => {
