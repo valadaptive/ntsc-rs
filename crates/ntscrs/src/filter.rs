@@ -63,7 +63,9 @@ impl TransferFunction {
         // https://github.com/scipy/scipy/blob/da82ac849a4ccade2d954a0998067e6aa706dd70/scipy/signal/_signaltools.py#L3609-L3742
 
         let filter_len = usize::max(self.num.len(), self.den.len());
-        let mut zi = vec![0f32; filter_len - 1];
+        // The last element here will always be 0--in the loop below, we intentionally do not initialize the last
+        // element of zi.
+        let mut zi = vec![0f32; filter_len];
         if value.abs() == 0.0 {
             return zi;
         }
@@ -115,17 +117,12 @@ impl TransferFunction {
 
     #[inline(always)]
     fn filter_sample(filter_len: usize, num: &[f32], den: &[f32], z: &mut [f32], sample: f32, scale: f32) -> f32 {
-            // This function gets auto-vectorized by the compiler. All of my attempts to optimize it have backfired:
+            // This function gets auto-vectorized by the compiler. The following attempts to optimize it have backfired:
             // - Special-casing a function for when there's only one nonzero coefficient in the numerator: slower.
-            // - Adding a trailing zero to the `z` array so we can get rid of the awkward if/else: slower.
             // - Using a smallvec to store all the coefficients: slower.
             let filt_sample = z[0] + (num[0] * sample);
-            for i in 0..filter_len - 2 {
+            for i in 0..filter_len - 1 {
                 z[i] = z[i + 1] + (num[i + 1] * sample) - (den[i + 1] * filt_sample);
-            }
-            if filter_len > 1 {
-                z[filter_len - 2] = (num[filter_len - 1] * sample)
-                    - (den[filter_len - 1] * filt_sample);
             }
             (filt_sample - sample) * scale + sample
     }
@@ -196,8 +193,7 @@ impl TransferFunction {
         scale: f32,
         delay: usize,
     ) {
-        let mut z = self.initial_condition(initial);
-        z.push(0.0);
+        let z = self.initial_condition(initial);
 
         let mut num_fixed: [f32; SIZE] = [0f32; SIZE];
         num_fixed.copy_from_slice(&self.num);
