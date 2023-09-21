@@ -164,6 +164,53 @@ impl TransferFunction {
         }
     }
 
+    #[inline(always)]
+    fn filter_signal_in_place_impl(
+        &self,
+        signal: &mut [f32],
+        num: &[f32],
+        den: &[f32],
+        z: &mut [f32],
+        scale: f32,
+        delay: usize,
+    ) {
+        let filter_len = num.len();
+        for i in 0..(signal.len() + delay) {
+            // Either the loop bound extending past items.len() or the min() call seems to prevent the optimizer from
+            // determining that we're in-bounds here. Since i.min(items.len() - 1) never exceeds items.len() - 1 by
+            // definition, this is safe.
+            let sample = unsafe { signal.get_unchecked(i.min(signal.len() - 1)) };
+            let filt_sample = Self::filter_sample(filter_len, num, den, z, *sample, scale);
+            if i >= delay {
+                signal[i - delay] = filt_sample;
+            }
+        }
+    }
+
+    /// Specialized version of filter_signal_in_place for fixed-size arrays. About 15% faster than the dynamic-size
+    /// version. All we need to do is specify the size as a const generic param--the compiler specializes the rest.
+    fn filter_signal_in_place_fixed_size<const SIZE: usize>(
+        &self,
+        signal: &mut [f32],
+        initial: f32,
+        scale: f32,
+        delay: usize,
+    ) {
+        let mut z = self.initial_condition(initial);
+        z.push(0.0);
+
+        let mut num_fixed: [f32; SIZE] = [0f32; SIZE];
+        num_fixed.copy_from_slice(&self.num);
+
+        let mut den_fixed: [f32; SIZE] = [0f32; SIZE];
+        den_fixed.copy_from_slice(&self.den);
+
+        let mut z_fixed: [f32; SIZE] = [0f32; SIZE];
+        z_fixed.copy_from_slice(&z);
+
+        self.filter_signal_in_place_impl(signal, &num_fixed, &den_fixed, &mut z_fixed, scale, delay);
+    }
+
     /// Filter a signal in-place, modifying the given slice.
     /// # Arguments
     /// - `signal` - The slice containing the signal to be filtered.
@@ -179,16 +226,20 @@ impl TransferFunction {
         delay: usize,
     ) {
         let filter_len = usize::max(self.num.len(), self.den.len());
-        let mut z = self.initial_condition(initial);
 
-        for i in 0..(signal.len() + delay) {
-            // Either the loop bound extending past items.len() or the min() call seems to prevent the optimizer from
-            // determining that we're in-bounds here. Since i.min(items.len() - 1) never exceeds items.len() - 1 by
-            // definition, this is safe.
-            let sample = unsafe { signal.get_unchecked(i.min(signal.len() - 1)) };
-            let filt_sample = Self::filter_sample(filter_len, &self.num, &self.den, &mut z, *sample, scale);
-            if i >= delay {
-                signal[i - delay] = filt_sample;
+        match filter_len {
+            // Specialize fixed-size implementations for filter sizes 1-8
+            1 => self.filter_signal_in_place_fixed_size::<1>(signal, initial, scale, delay),
+            2 => self.filter_signal_in_place_fixed_size::<2>(signal, initial, scale, delay),
+            3 => self.filter_signal_in_place_fixed_size::<3>(signal, initial, scale, delay),
+            4 => self.filter_signal_in_place_fixed_size::<4>(signal, initial, scale, delay),
+            5 => self.filter_signal_in_place_fixed_size::<5>(signal, initial, scale, delay),
+            6 => self.filter_signal_in_place_fixed_size::<6>(signal, initial, scale, delay),
+            7 => self.filter_signal_in_place_fixed_size::<7>(signal, initial, scale, delay),
+            8 => self.filter_signal_in_place_fixed_size::<8>(signal, initial, scale, delay),
+            _ => {
+                let mut z = self.initial_condition(initial);
+                self.filter_signal_in_place_impl(signal, &self.num, &self.den, &mut z, scale, delay);
             }
         }
     }
