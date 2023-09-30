@@ -1,0 +1,11 @@
+- Render-to-file: pause and resume; better errors; display errors in creating pipeline
+- Error handling!
+- Presets list
+- Video scaling
+- FPS display?
+- Show input framerate
+- Framerate doubler for 25/30fps
+- Effect enable/disable toggle and splitscreen view
+- ctrl+scroll to zoom?
+- tooltips for all buttons!
+- Save single frame button

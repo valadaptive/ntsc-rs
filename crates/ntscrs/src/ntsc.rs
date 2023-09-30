@@ -2,7 +2,6 @@ use std::cell::OnceCell;
 use std::collections::VecDeque;
 
 use core::f32::consts::PI;
-use glam::{Mat3, Vec3};
 use image::RgbImage;
 use rand::{Rng, RngCore, SeedableRng};
 use rand_xoshiro::Xoshiro256PlusPlus;
@@ -12,45 +11,10 @@ use crate::{
     filter::TransferFunction,
     random::{Geometric, Seeder},
     shift::{shift_row, shift_row_to, BoundaryHandling},
+    yiq_fielding::{YiqView, YiqField, YiqOwned}
 };
 
 pub use crate::settings::*;
-
-const YIQ_MATRIX: Mat3 = Mat3 {
-    x_axis: Vec3 {
-        x: 0.299,
-        y: 0.5959,
-        z: 0.2115,
-    },
-    y_axis: Vec3 {
-        x: 0.587,
-        y: -0.2746,
-        z: -0.5227,
-    },
-    z_axis: Vec3 {
-        x: 0.114,
-        y: -0.3213,
-        z: 0.3112,
-    },
-};
-
-const RGB_MATRIX: Mat3 = Mat3 {
-    x_axis: Vec3 {
-        x: 1.0,
-        y: 1.0,
-        z: 1.0,
-    },
-    y_axis: Vec3 {
-        x: 0.956,
-        y: -0.272,
-        z: -1.106,
-    },
-    z_axis: Vec3 {
-        x: 0.619,
-        y: -0.647,
-        z: 1.703,
-    },
-};
 
 // 315/88 Mhz rate * 4
 // TODO: why do we multiply by 4? composite-video-simulator does this for every filter and ntscqt defines NTSC_RATE the
@@ -164,175 +128,6 @@ struct CommonInfo {
     bandwidth_scale: f32,
 }
 
-#[inline(always)]
-pub fn rgb_to_yiq(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
-    (YIQ_MATRIX * Vec3::new(r, g, b)).into()
-}
-
-#[inline(always)]
-pub fn yiq_to_rgb(y: f32, i: f32, q: f32) -> (f32, f32, f32) {
-    (RGB_MATRIX * Vec3::new(y, i, q)).into()
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum YiqField {
-    Upper,
-    Lower,
-    Both,
-}
-
-/// Borrowed YIQ data in a planar format.
-/// Each plane is densely packed with regards to rows--if we skip fields, we just leave them out of these planes, which
-/// squashes them vertically.
-pub struct YiqView<'a> {
-    pub y: &'a mut [f32],
-    pub i: &'a mut [f32],
-    pub q: &'a mut [f32],
-    /// This refers to the number of rendered rows. For instance, if the input frame is 480 pixels high but we're only
-    /// doing the effect on even-numbered fields, then resolution.1 will be 240.
-    pub resolution: (usize, usize),
-    /// The source field that this data is for.
-    pub field: YiqField,
-}
-
-/// Owned YIQ data.
-pub struct YiqOwned {
-    /// Densely-packed planar YUV data. The Y plane comes first in memory, then I, then Q.
-    data: Box<[f32]>,
-    /// This refers to the number of rendered rows. For instance, if the input frame is 480 pixels high but we're only
-    /// doing the effect on even-numbered fields, then resolution.1 will be 240.
-    resolution: (usize, usize),
-    /// The source field that this data is for.
-    field: YiqField,
-}
-
-impl YiqOwned {
-    pub fn from_image(image: &RgbImage, field: YiqField) -> YiqOwned {
-        let width = image.width() as usize;
-        let height = match field {
-            YiqField::Upper | YiqField::Lower => (image.height() + 1) / 2,
-            YiqField::Both => image.height(),
-        } as usize;
-
-        // We write into the destination array differently depending on whether we're using the upper field, lower
-        // field, or both. row_lshift determines whether we left-shift the source row index (doubling it). When we use
-        // only one of the fields, the source row index needs to be double the destination row index so we take every
-        // other row. When we use both fields, we just use the source row index as-is.
-        // The row_offset determines whether we skip the first row (when using the lower field).
-        let (row_lshift, row_offset): (usize, usize) = match field {
-            YiqField::Upper => (1, 0),
-            YiqField::Lower => (1, 1),
-            YiqField::Both => (0, 0),
-        };
-
-        let num_pixels = width * height;
-
-        let mut data = vec![0f32; num_pixels * 3];
-        let (y, iq) = data.split_at_mut(num_pixels);
-        let (i, q) = iq.split_at_mut(num_pixels);
-
-        let src_data = image.as_raw();
-
-        y.chunks_mut(width)
-            .zip(i.chunks_mut(width).zip(q.chunks_mut(width)))
-            .enumerate()
-            .for_each(|(row_idx, (y, (i, q)))| {
-                let src_row_idx = (row_idx << row_lshift) + row_offset;
-                let src_offset = src_row_idx * width;
-                for pixel_idx in 0..width {
-                    let yiq_pixel = YIQ_MATRIX
-                        * Vec3::new(
-                            (src_data[((pixel_idx + src_offset) * 3) + 0] as f32) / 255.0,
-                            (src_data[((pixel_idx + src_offset) * 3) + 1] as f32) / 255.0,
-                            (src_data[((pixel_idx + src_offset) * 3) + 2] as f32) / 255.0,
-                        );
-                    y[pixel_idx] = yiq_pixel[0];
-                    i[pixel_idx] = yiq_pixel[1];
-                    q[pixel_idx] = yiq_pixel[2];
-                }
-            });
-
-        YiqOwned {
-            data: data.into_boxed_slice(),
-            resolution: (width, height),
-            field,
-        }
-    }
-}
-
-impl<'a> From<&'a mut YiqOwned> for YiqView<'a> {
-    fn from(value: &'a mut YiqOwned) -> Self {
-        let num_pixels = value.resolution.0 * value.resolution.1;
-        let (y, iq) = value.data.split_at_mut(num_pixels);
-        let (i, q) = iq.split_at_mut(num_pixels);
-        YiqView {
-            y,
-            i,
-            q,
-            resolution: value.resolution,
-            field: value.field,
-        }
-    }
-}
-
-impl From<&YiqView<'_>> for RgbImage {
-    fn from(image: &YiqView) -> Self {
-        let width = image.resolution.0;
-        let output_height = image.resolution.1 * if image.field == YiqField::Both { 1 } else { 2 };
-        let num_pixels = width * output_height;
-        let mut dst = vec![0u8; num_pixels * 3];
-
-        // If the row index modulo 2 equals this number, that row was not rendered in the source data and we need to
-        // interpolate between the rows above and beneath it.
-        let skip_field: usize = match image.field {
-            YiqField::Upper => 1,
-            YiqField::Lower => 0,
-            // The row index modulo 2 never reaches 2, meaning we don't skip any rows
-            YiqField::Both => 2,
-        };
-
-        let row_rshift = match image.field {
-            YiqField::Both => 0,
-            YiqField::Upper | YiqField::Lower => 1,
-        };
-
-        dst.chunks_mut(width * 3)
-            .enumerate()
-            .for_each(|(row_idx, dst_row)| {
-                // Inner fields with lines above and below them. Interpolate between those fields
-                if (row_idx & 1) == skip_field && row_idx != 0 && row_idx != output_height - 1 {
-                    for (pix_idx, pixel) in dst_row.chunks_mut(3).enumerate() {
-                        let src_idx_lower = ((row_idx - 1) >> 1) * width + pix_idx;
-                        let src_idx_upper = ((row_idx + 1) >> 1) * width + pix_idx;
-
-                        let interp_pixel = Vec3::new(
-                            (image.y[src_idx_lower] + image.y[src_idx_upper]) * 0.5,
-                            (image.i[src_idx_lower] + image.i[src_idx_upper]) * 0.5,
-                            (image.q[src_idx_lower] + image.q[src_idx_upper]) * 0.5,
-                        );
-
-                        let rgb = RGB_MATRIX * interp_pixel;
-                        pixel[0] = (rgb[0] * 255.0).clamp(0.0, 255.0) as u8;
-                        pixel[1] = (rgb[1] * 255.0).clamp(0.0, 255.0) as u8;
-                        pixel[2] = (rgb[2] * 255.0).clamp(0.0, 255.0) as u8;
-                    }
-                } else {
-                    // Copy the field directly
-                    for (pix_idx, pixel) in dst_row.chunks_mut(3).enumerate() {
-                        let src_idx = (row_idx >> row_rshift) * width + pix_idx;
-                        let rgb = RGB_MATRIX
-                            * Vec3::new(image.y[src_idx], image.i[src_idx], image.q[src_idx]);
-                        pixel[0] = (rgb[0] * 255.0).clamp(0.0, 255.0) as u8;
-                        pixel[1] = (rgb[1] * 255.0).clamp(0.0, 255.0) as u8;
-                        pixel[2] = (rgb[2] * 255.0).clamp(0.0, 255.0) as u8;
-                    }
-                }
-            });
-
-        RgbImage::from_raw(width as u32, output_height as u32, dst).unwrap()
-    }
-}
-
 /// Apply a lowpass filter to the input chroma, emulating broadcast NTSC's bandwidth cutoffs.
 /// (Well, almost--Wikipedia (https://en.wikipedia.org/wiki/YIQ) puts the Q bandwidth at 0.4 MHz, not 0.6. Although
 /// that statement seems unsourced and I can't find any info on it...
@@ -340,7 +135,7 @@ fn composite_chroma_lowpass(frame: &mut YiqView, info: &CommonInfo) {
     let i_filter = make_lowpass_triple(1300000.0, NTSC_RATE * info.bandwidth_scale);
     let q_filter = make_lowpass_triple(600000.0, NTSC_RATE * info.bandwidth_scale);
 
-    let width = frame.resolution.0;
+    let width = frame.dimensions.0;
 
     filter_plane(
         &mut frame.i,
@@ -364,7 +159,7 @@ fn composite_chroma_lowpass(frame: &mut YiqView, info: &CommonInfo) {
 fn composite_chroma_lowpass_lite(frame: &mut YiqView, info: &CommonInfo) {
     let filter = make_lowpass_triple(2600000.0, NTSC_RATE * info.bandwidth_scale);
 
-    let width = frame.resolution.0;
+    let width = frame.dimensions.0;
 
     filter_plane(&mut frame.i, width, &filter, InitialCondition::Zero, 1.0, 1);
     filter_plane(&mut frame.q, width, &filter, InitialCondition::Zero, 1.0, 1);
@@ -416,7 +211,7 @@ fn chroma_into_luma(
     phase_offset: i32,
     subcarrier_amplitude: f32,
 ) {
-    let width = yiq.resolution.0;
+    let width = yiq.dimensions.0;
 
     let y_lines = yiq.y.chunks_mut(width);
     let i_lines = yiq.i.chunks_mut(width);
@@ -523,7 +318,7 @@ fn luma_into_chroma(
     phase_offset: i32,
     subcarrier_amplitude: f32,
 ) {
-    let width = yiq.resolution.0;
+    let width = yiq.dimensions.0;
 
     match filter_mode {
         ChromaDemodulationFilter::Box
@@ -600,7 +395,7 @@ fn luma_into_chroma(
         ChromaDemodulationFilter::TwoLineComb => {
             let mut delay = vec![0f32; width];
 
-            for line_index in 0..yiq.resolution.1 {
+            for line_index in 0..yiq.num_rows() {
                 for sample_index in 0..width {
                     let prev_line = delay[sample_index];
                     let next_line = *yiq
@@ -673,7 +468,7 @@ fn video_noise_line(
 
 /// Add noise to an NTSC-encoded signal.
 fn composite_noise(yiq: &mut YiqView, info: &CommonInfo, frequency: f32, intensity: f32) {
-    let width = yiq.resolution.0;
+    let width = yiq.dimensions.0;
     let seeder = Seeder::new(info.seed)
         .mix(noise_seeds::VIDEO_COMPOSITE)
         .mix(info.frame_num);
@@ -694,7 +489,7 @@ fn composite_noise(yiq: &mut YiqView, info: &CommonInfo, frequency: f32, intensi
 
 /// Add noise to the chrominance (I and Q) planes of a de-modulated signal.
 fn chroma_noise(yiq: &mut YiqView, info: &CommonInfo, frequency: f32, intensity: f32) {
-    let width = yiq.resolution.0;
+    let width = yiq.dimensions.0;
     let seeder = Seeder::new(info.seed)
         .mix(noise_seeds::VIDEO_CHROMA)
         .mix(info.frame_num);
@@ -723,7 +518,7 @@ fn chroma_noise(yiq: &mut YiqView, info: &CommonInfo, frequency: f32, intensity:
 
 /// Add per-scanline chroma phase error.
 fn chroma_phase_noise(yiq: &mut YiqView, info: &CommonInfo, intensity: f32) {
-    let width = yiq.resolution.0;
+    let width = yiq.dimensions.0;
     let seeder = Seeder::new(info.seed)
         .mix(noise_seeds::VIDEO_CHROMA_PHASE)
         .mix(info.frame_num);
@@ -758,12 +553,13 @@ fn head_switching(
     offset: usize,
     shift: f32,
 ) {
-    let (width, height) = yiq.resolution;
     if offset > num_rows {
         return;
     }
     let num_affected_rows = num_rows - offset;
 
+    let width = yiq.dimensions.0;
+    let height = yiq.num_rows();
     // Handle cases where the number of affected rows exceeds the number of actual rows in the image
     let start_row = height.max(num_affected_rows) - num_affected_rows;
     let affected_rows = &mut yiq.y[start_row * width..];
@@ -852,13 +648,14 @@ fn tracking_noise(
     snow_anisotropy: f32,
     noise_intensity: f32,
 ) {
-    let (width, height) = yiq.resolution;
+    let width = yiq.dimensions.0;
+    let height = yiq.num_rows();
 
     let mut seeder = Seeder::new(info.seed)
         .mix(noise_seeds::TRACKING_NOISE)
         .mix(info.frame_num);
     let noise_seed = seeder.clone().mix(0).finalize::<i32>();
-    let offset = seeder.clone().mix(1).finalize::<f32>() * yiq.resolution.1 as f32;
+    let offset = seeder.clone().mix(1).finalize::<f32>() * yiq.num_rows() as f32;
     seeder = seeder.mix(2);
     let shift_noise = NoiseBuilder::gradient_1d_offset(offset, num_rows)
         .with_seed(noise_seed)
@@ -913,7 +710,7 @@ fn snow(yiq: &mut YiqView, info: &CommonInfo, intensity: f32, anisotropy: f32) {
         .mix(info.frame_num);
 
     yiq.y
-        .chunks_mut(yiq.resolution.0)
+        .chunks_mut(yiq.dimensions.0)
         .enumerate()
         .for_each(|(index, row)| {
             let line_seed = seeder.clone().mix(index);
@@ -941,7 +738,8 @@ fn chroma_delay(yiq: &mut YiqView, info: &CommonInfo, offset: (f32, isize)) {
         }
     };
 
-    let (width, height) = yiq.resolution;
+    let width = yiq.dimensions.0;
+    let height = yiq.num_rows();
 
     if offset.1 == 0 {
         // Only a horizontal shift is necessary. We can do this in-place easily.
@@ -1005,11 +803,12 @@ fn chroma_delay(yiq: &mut YiqView, info: &CommonInfo, offset: (f32, isize)) {
 
 /// Emulate VHS waviness / horizontal shift noise.
 fn vhs_edge_wave(yiq: &mut YiqView, info: &CommonInfo, intensity: f32, speed: f32) {
-    let (width, height) = yiq.resolution;
+    let width = yiq.dimensions.0;
+    let height = yiq.num_rows();
 
     let seeder = Seeder::new(info.seed).mix(noise_seeds::EDGE_WAVE);
     let noise_seed: i32 = seeder.clone().mix(0).finalize();
-    let offset = seeder.mix(1).finalize::<f32>() * yiq.resolution.1 as f32;
+    let offset = seeder.mix(1).finalize::<f32>() * yiq.num_rows() as f32;
     let noise = NoiseBuilder::gradient_2d_offset(offset, height, info.frame_num as f32 * speed, 1)
         .with_seed(noise_seed)
         .with_freq(0.05)
@@ -1029,7 +828,8 @@ fn vhs_edge_wave(yiq: &mut YiqView, info: &CommonInfo, intensity: f32, speed: f3
 
 /// Drop out the chrominance signal from random lines.
 fn chroma_loss(yiq: &mut YiqView, info: &CommonInfo, intensity: f32) {
-    let (width, height) = yiq.resolution;
+    let width = yiq.dimensions.0;
+    let height = yiq.num_rows();
 
     let seed = Seeder::new(info.seed)
         .mix(noise_seeds::CHROMA_LOSS)
@@ -1058,7 +858,7 @@ fn chroma_loss(yiq: &mut YiqView, info: &CommonInfo, intensity: f32) {
 
 /// Vertically blend each chroma scanline with the one above it, as VHS does.
 fn chroma_vert_blend(yiq: &mut YiqView) {
-    let width = yiq.resolution.0;
+    let width = yiq.dimensions.0;
     let mut delay_i = vec![0f32; width];
     let mut delay_q = vec![0f32; width];
 
@@ -1082,7 +882,7 @@ fn chroma_vert_blend(yiq: &mut YiqView) {
 
 impl NtscEffect {
     pub fn apply_effect_to_yiq(&self, yiq: &mut YiqView, frame_num: usize) {
-        let (width, _) = yiq.resolution;
+        let width = yiq.dimensions.0;
 
         let seed = self.random_seed as u32 as u64;
 

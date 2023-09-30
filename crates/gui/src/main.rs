@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
 pub mod expression_parser;
+pub mod gst_utils;
 
 use std::{
     path::{Path, PathBuf},
@@ -294,7 +295,7 @@ impl eframe::App for NtscApp {
             ui.heading("Preview");
 
             if let Some(preview_texture) = &self.preview {
-                ui.image(preview_texture, preview_texture.size_vec2());
+                ui.image((preview_texture.id(), preview_texture.size_vec2()));
             }
 
             ui.horizontal(|ui| {

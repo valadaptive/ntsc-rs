@@ -3,7 +3,7 @@ use std::ffi::CString;
 use std::ptr::addr_of;
 use std::{ffi::c_char, mem::ManuallyDrop, ptr};
 
-use ntscrs::ntsc::{NtscEffect, YiqView};
+use ntscrs::{ntsc::NtscEffect, yiq_fielding::YiqView};
 use ntscrs::settings::{
     NtscEffectFullSettings, SettingDescriptor as RsSettingDescriptor,
     SettingID as RsSettingID, SettingKind as RsSettingKind, SettingsList as RsSettingsList,
@@ -370,8 +370,8 @@ pub unsafe extern "C" fn ntscrs_process_yiq(
         y: slice::from_raw_parts_mut(y, len),
         i: slice::from_raw_parts_mut(i, len),
         q: slice::from_raw_parts_mut(q, len),
-        resolution: (width, height),
-        field: ntscrs::ntsc::YiqField::Both,
+        dimensions: (width, height),
+        field: ntscrs::yiq_fielding::YiqField::Both,
     };
     NtscEffect::from(&settings.0).apply_effect_to_yiq(&mut yiq, frame_num);
 }

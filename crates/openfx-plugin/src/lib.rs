@@ -14,7 +14,8 @@ use std::{
 use ntscrs::settings::{NtscEffectFullSettings, SettingDescriptor, SettingKind, SettingsList};
 use ntscrs::ToPrimitive;
 use ntscrs::{
-    ntsc::{rgb_to_yiq, yiq_to_rgb, NtscEffect, YiqField, YiqView},
+    ntsc::NtscEffect,
+    yiq_fielding::{rgb_to_yiq, yiq_to_rgb, YiqField, YiqView},
     settings::UseField,
 };
 
@@ -1052,9 +1053,6 @@ unsafe fn pixel_processing<S: Normalize + Sized, D: Normalize + Sized>(
     let srcWidth = (srcBounds.x2 - srcBounds.x1) as usize;
     let srcHeight = (srcBounds.y2 - srcBounds.y1) as usize;
 
-    dbg!(&srcBounds);
-    dbg!(&dstBounds);
-
     let cur_field = match effect.use_field {
         UseField::Alternating => {
             if frame_num & 1 == 0 {
@@ -1117,7 +1115,7 @@ unsafe fn pixel_processing<S: Normalize + Sized, D: Normalize + Sized>(
         y,
         i,
         q,
-        resolution: (srcWidth, numRows),
+        dimensions: (srcWidth, srcHeight),
         field: cur_field,
     };
 

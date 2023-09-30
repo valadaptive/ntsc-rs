@@ -1,4 +1,3 @@
-use std::ffi::OsStr;
 use std::process::Command;
 use std::env::args;
 use std::path::{Path, PathBuf};

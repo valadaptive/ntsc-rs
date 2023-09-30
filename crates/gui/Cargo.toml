@@ -8,9 +8,20 @@ default-run = "gui"
 
 [dependencies]
 ntscrs = { path = "../ntscrs" }
-eframe = { version = "0.22.0", features=["persistence"] }
+eframe = { version = "0.23.0", features=["persistence"] }
 env_logger = "0.10"
 image = "0.24.7"
-rfd = "0.11.4"
+rfd = { path = "../../../rfd" }
 snafu = "0.7.5"
 logos = "0.13"
+gstreamer = "0.21.0"
+gstreamer-base = "0.21.0"
+gstreamer-video = "0.21.0"
+gstreamer-controller = "0.21.0"
+futures-lite = "1.13.0"
+async-executor = "1.5.1"
+async-task = "4.4.0"
+waker-fn = "1.1.0"
+
+[[bin]]
+name = "gst-test"
