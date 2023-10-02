@@ -1,6 +1,7 @@
-- Render-to-file: pause and resume; better errors; display errors in creating pipeline
-- Error handling!
-- Presets list
+- Render-to-file: pause and resume; better errors
+- Ensure error coverage
+- Error when an audio-only file is loaded
+- Randomize seed button
 - Video scaling
 - FPS display?
 - Show input framerate

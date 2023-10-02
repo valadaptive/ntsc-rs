@@ -154,7 +154,7 @@ impl NtscApp {
                     if ui
                         .add(
                             egui::Slider::new(
-                                descriptor.id.get_field_ref::<f32>(&mut self.settings).unwrap(),
+                                descriptor.id.get_field_mut::<f32>(&mut self.settings).unwrap(),
                                 0.0..=1.0,
                             )
                             .custom_parser(parser)
@@ -172,9 +172,9 @@ impl NtscApp {
                     default_value: _,
                 } => {
                     let mut value = 0i32;
-                    if let Some(v) = descriptor.id.get_field_ref::<i32>(&mut self.settings) {
+                    if let Some(v) = descriptor.id.get_field_mut::<i32>(&mut self.settings) {
                         value = *v;
-                    } else if let Some(v) = descriptor.id.get_field_ref::<u32>(&mut self.settings) {
+                    } else if let Some(v) = descriptor.id.get_field_mut::<u32>(&mut self.settings) {
                         value = *v as i32;
                     }
                     if ui
@@ -188,9 +188,9 @@ impl NtscApp {
                         )
                         .changed()
                     {
-                        if let Some(v) = descriptor.id.get_field_ref::<i32>(&mut self.settings) {
+                        if let Some(v) = descriptor.id.get_field_mut::<i32>(&mut self.settings) {
                             *v = value;
-                        } else if let Some(v) = descriptor.id.get_field_ref::<u32>(&mut self.settings) {
+                        } else if let Some(v) = descriptor.id.get_field_mut::<u32>(&mut self.settings) {
                             *v = value as u32;
                         }
                         self.update_effect(ui.ctx());
@@ -204,7 +204,7 @@ impl NtscApp {
                     if ui
                         .add(
                             egui::Slider::new(
-                                descriptor.id.get_field_ref::<f32>(&mut self.settings).unwrap(),
+                                descriptor.id.get_field_mut::<f32>(&mut self.settings).unwrap(),
                                 range.clone(),
                             )
                             .custom_parser(parser)
@@ -219,7 +219,7 @@ impl NtscApp {
                 ntscrs::settings::SettingKind::Boolean { default_value: _ } => {
                     if ui
                         .checkbox(
-                            descriptor.id.get_field_ref::<bool>(&mut self.settings).unwrap(),
+                            descriptor.id.get_field_mut::<bool>(&mut self.settings).unwrap(),
                             descriptor.label,
                         )
                         .changed()
@@ -234,7 +234,7 @@ impl NtscApp {
                     ui.group(|ui| {
                         if ui
                             .checkbox(
-                                descriptor.id.get_field_ref::<bool>(&mut self.settings).unwrap(),
+                                descriptor.id.get_field_mut::<bool>(&mut self.settings).unwrap(),
                                 descriptor.label,
                             )
                             .changed()
@@ -242,7 +242,7 @@ impl NtscApp {
                             self.update_effect(ui.ctx());
                         }
 
-                        ui.set_enabled(*descriptor.id.get_field_ref::<bool>(&mut self.settings).unwrap());
+                        ui.set_enabled(*descriptor.id.get_field_mut::<bool>(&mut self.settings).unwrap());
 
                         self.settings_from_descriptors(ui, &children);
                     });

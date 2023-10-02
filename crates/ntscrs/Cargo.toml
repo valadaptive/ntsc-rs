@@ -15,6 +15,7 @@ num-traits = "0.2"
 macros = {path = "../macros"}
 siphasher = "0.3.10"
 num-derive = "0.4"
+tinyjson = "2.5.1"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

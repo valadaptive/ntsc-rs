@@ -87,7 +87,7 @@ impl Configurator {
     #[no_mangle]
     pub extern "C" fn ntscrs_settings_set_field_float(&mut self, id: u32, value: f32) {
         let id = RsSettingID::from_u32(id).unwrap();
-        if let Some(field_ref) = id.get_field_ref::<f32>(&mut self.0) {
+        if let Some(field_ref) = id.get_field_mut::<f32>(&mut self.0) {
             *field_ref = value;
         }
     }
@@ -95,9 +95,9 @@ impl Configurator {
     #[no_mangle]
     pub extern "C" fn ntscrs_settings_set_field_int(&mut self, id: u32, value: i32) {
         let id = RsSettingID::from_u32(id).unwrap();
-        if let Some(field_ref) = id.get_field_ref::<i32>(&mut self.0) {
+        if let Some(field_ref) = id.get_field_mut::<i32>(&mut self.0) {
             *field_ref = value;
-        } else if let Some(field_ref) = id.get_field_ref::<u32>(&mut self.0) {
+        } else if let Some(field_ref) = id.get_field_mut::<u32>(&mut self.0) {
             *field_ref = value as u32;
         } else {
             id.set_field_enum(&mut self.0, value as u32);
@@ -107,7 +107,7 @@ impl Configurator {
     #[no_mangle]
     pub extern "C" fn ntscrs_settings_set_field_bool(&mut self, id: u32, value: bool) {
         let id = RsSettingID::from_u32(id).unwrap();
-        if let Some(field_ref) = id.get_field_ref::<bool>(&mut self.0) {
+        if let Some(field_ref) = id.get_field_mut::<bool>(&mut self.0) {
             *field_ref = value;
         }
     }
@@ -115,7 +115,7 @@ impl Configurator {
     #[no_mangle]
     pub extern "C" fn ntscrs_settings_get_field_float(&mut self, id: u32) -> f32 {
         let rs_id = RsSettingID::from_u32(id).unwrap();
-        match rs_id.get_field_ref::<f32>(&mut self.0) {
+        match rs_id.get_field_mut::<f32>(&mut self.0) {
             Some(value) => *value,
             None => panic!("Descriptor field {id} is invalid or not a float"),
         }
@@ -124,9 +124,9 @@ impl Configurator {
     #[no_mangle]
     pub extern "C" fn ntscrs_settings_get_field_int(&mut self, id: u32) -> i32 {
         let rs_id = RsSettingID::from_u32(id).unwrap();
-        if let Some(field_ref) = rs_id.get_field_ref::<i32>(&mut self.0) {
+        if let Some(field_ref) = rs_id.get_field_mut::<i32>(&mut self.0) {
             *field_ref
-        } else if let Some(field_ref) = rs_id.get_field_ref::<u32>(&mut self.0) {
+        } else if let Some(field_ref) = rs_id.get_field_mut::<u32>(&mut self.0) {
             *field_ref as i32
         } else if let Some(enum_value) = rs_id.get_field_enum(&self.0) {
             enum_value as i32
@@ -138,7 +138,7 @@ impl Configurator {
     #[no_mangle]
     pub extern "C" fn ntscrs_settings_get_field_bool(&mut self, id: u32) -> bool {
         let rs_id = RsSettingID::from_u32(id).unwrap();
-        match rs_id.get_field_ref::<bool>(&mut self.0) {
+        match rs_id.get_field_mut::<bool>(&mut self.0) {
             Some(value) => *value,
             None => panic!("Descriptor field {id} is invalid or not a bool"),
         }

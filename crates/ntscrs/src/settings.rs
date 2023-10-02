@@ -1,7 +1,15 @@
-use std::{any::Any, ops::RangeInclusive};
+use std::{
+    any::Any,
+    borrow::{Borrow, BorrowMut, Cow},
+    collections::HashMap,
+    error::Error,
+    fmt::Display,
+    ops::RangeInclusive,
+};
 
 use crate::{FromPrimitive, ToPrimitive};
 use macros::FullSettings;
+use tinyjson::JsonValue;
 
 /// This is used to dynamically inform API consumers of the settings that can be passed to ntsc-rs. This lets various
 /// UIs and effect plugins to query this set of settings and display them in their preferred format without having to
@@ -209,8 +217,7 @@ impl<T: Default> Default for SettingsBlock<T> {
     }
 }
 
-#[derive(FullSettings)]
-#[derive(Clone, Debug)]
+#[derive(FullSettings, Clone, Debug)]
 #[non_exhaustive]
 pub struct NtscEffect {
     pub random_seed: i32,
@@ -357,28 +364,142 @@ pub enum SettingID {
     RANDOM_SEED,
 }
 
+macro_rules! impl_get_field_ref {
+    ($self:ident, $settings:ident, $borrow_op:ident) => {
+        match $self {
+            SettingID::USE_FIELD => $settings.use_field.$borrow_op(),
+            SettingID::CHROMA_LOWPASS_IN => $settings.chroma_lowpass_in.$borrow_op(),
+            SettingID::COMPOSITE_PREEMPHASIS => $settings.composite_preemphasis.$borrow_op(),
+            SettingID::VIDEO_SCANLINE_PHASE_SHIFT => {
+                $settings.video_scanline_phase_shift.$borrow_op()
+            }
+            SettingID::VIDEO_SCANLINE_PHASE_SHIFT_OFFSET => {
+                $settings.video_scanline_phase_shift_offset.$borrow_op()
+            }
+            SettingID::COMPOSITE_NOISE_INTENSITY => {
+                $settings.composite_noise_intensity.$borrow_op()
+            }
+            SettingID::CHROMA_NOISE_INTENSITY => $settings.chroma_noise_intensity.$borrow_op(),
+            SettingID::SNOW_INTENSITY => $settings.snow_intensity.$borrow_op(),
+            SettingID::SNOW_ANISOTROPY => $settings.snow_anisotropy.$borrow_op(),
+            SettingID::CHROMA_DEMODULATION => $settings.chroma_demodulation.$borrow_op(),
+            SettingID::CHROMA_PHASE_NOISE_INTENSITY => {
+                $settings.chroma_phase_noise_intensity.$borrow_op()
+            }
+            SettingID::CHROMA_DELAY_HORIZONTAL => $settings.chroma_delay.0.$borrow_op(),
+            SettingID::CHROMA_DELAY_VERTICAL => $settings.chroma_delay.1.$borrow_op(),
+            SettingID::CHROMA_LOWPASS_OUT => $settings.chroma_lowpass_out.$borrow_op(),
+
+            SettingID::HEAD_SWITCHING => $settings.head_switching.enabled.$borrow_op(),
+            SettingID::HEAD_SWITCHING_HEIGHT => {
+                $settings.head_switching.settings.height.$borrow_op()
+            }
+            SettingID::HEAD_SWITCHING_OFFSET => {
+                $settings.head_switching.settings.offset.$borrow_op()
+            }
+            SettingID::HEAD_SWITCHING_HORIZONTAL_SHIFT => {
+                $settings.head_switching.settings.horiz_shift.$borrow_op()
+            }
+
+            SettingID::TRACKING_NOISE => $settings.tracking_noise.enabled.$borrow_op(),
+            SettingID::TRACKING_NOISE_HEIGHT => {
+                $settings.tracking_noise.settings.height.$borrow_op()
+            }
+            SettingID::TRACKING_NOISE_WAVE_INTENSITY => $settings
+                .tracking_noise
+                .settings
+                .wave_intensity
+                .$borrow_op(),
+            SettingID::TRACKING_NOISE_SNOW_INTENSITY => $settings
+                .tracking_noise
+                .settings
+                .snow_intensity
+                .$borrow_op(),
+            SettingID::TRACKING_NOISE_SNOW_ANISOTROPY => $settings
+                .tracking_noise
+                .settings
+                .snow_anisotropy
+                .$borrow_op(),
+            SettingID::TRACKING_NOISE_NOISE_INTENSITY => $settings
+                .tracking_noise
+                .settings
+                .noise_intensity
+                .$borrow_op(),
+
+            SettingID::RINGING => $settings.ringing.enabled.$borrow_op(),
+            SettingID::RINGING_FREQUENCY => $settings.ringing.settings.frequency.$borrow_op(),
+            SettingID::RINGING_POWER => $settings.ringing.settings.power.$borrow_op(),
+            SettingID::RINGING_SCALE => $settings.ringing.settings.intensity.$borrow_op(),
+
+            SettingID::VHS_SETTINGS => $settings.vhs_settings.enabled.$borrow_op(),
+            SettingID::VHS_TAPE_SPEED => $settings.vhs_settings.settings.tape_speed.$borrow_op(),
+            SettingID::VHS_CHROMA_VERT_BLEND => $settings
+                .vhs_settings
+                .settings
+                .chroma_vert_blend
+                .$borrow_op(),
+            SettingID::VHS_CHROMA_LOSS => $settings.vhs_settings.settings.chroma_loss.$borrow_op(),
+            SettingID::VHS_SHARPEN => $settings.vhs_settings.settings.sharpen.$borrow_op(),
+            SettingID::VHS_EDGE_WAVE => $settings.vhs_settings.settings.edge_wave.$borrow_op(),
+            SettingID::VHS_EDGE_WAVE_SPEED => {
+                $settings.vhs_settings.settings.edge_wave_speed.$borrow_op()
+            }
+
+            SettingID::BANDWIDTH_SCALE => $settings.bandwidth_scale.$borrow_op(),
+            SettingID::RANDOM_SEED => $settings.random_seed.$borrow_op(),
+        }
+    };
+}
+
+#[derive(Debug)]
+pub struct ParseSettingsError {
+    message: Cow<'static, str>,
+}
+
+impl ParseSettingsError {
+    pub fn new<T: Into<Cow<'static, str>>>(message: T) -> Self {
+        ParseSettingsError {
+            message: message.into(),
+        }
+    }
+}
+
+impl Display for ParseSettingsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)?;
+        Ok(())
+    }
+}
+
+impl Error for ParseSettingsError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        None
+    }
+}
+
 impl SettingID {
-    pub fn set_field_enum(&self, settings: &mut NtscEffectFullSettings, value: u32) {
+    pub fn set_field_enum(&self, settings: &mut NtscEffectFullSettings, value: u32) -> Result<(), ()> {
         // We have to handle each enum manually since FromPrimitive isn't object-safe
         match self {
             SettingID::CHROMA_LOWPASS_IN => {
-                settings.chroma_lowpass_in = ChromaLowpass::from_u32(value).unwrap()
+                settings.chroma_lowpass_in = ChromaLowpass::from_u32(value).ok_or(())?
             }
             SettingID::VIDEO_SCANLINE_PHASE_SHIFT => {
-                settings.video_scanline_phase_shift = PhaseShift::from_u32(value).unwrap()
+                settings.video_scanline_phase_shift = PhaseShift::from_u32(value).ok_or(())?
             }
             SettingID::CHROMA_LOWPASS_OUT => {
-                settings.chroma_lowpass_out = ChromaLowpass::from_u32(value).unwrap()
+                settings.chroma_lowpass_out = ChromaLowpass::from_u32(value).ok_or(())?
             }
             SettingID::VHS_TAPE_SPEED => {
                 settings.vhs_settings.settings.tape_speed = VHSTapeSpeed::from_u32(value)
             }
-            SettingID::USE_FIELD => settings.use_field = UseField::from_u32(value).unwrap(),
+            SettingID::USE_FIELD => settings.use_field = UseField::from_u32(value).ok_or(())?,
             SettingID::CHROMA_DEMODULATION => {
-                settings.chroma_demodulation = ChromaDemodulationFilter::from_u32(value).unwrap()
+                settings.chroma_demodulation = ChromaDemodulationFilter::from_u32(value).ok_or(())?
             }
             _ => {}
         }
+        Ok(())
     }
 
     pub fn get_field_enum(&self, settings: &NtscEffectFullSettings) -> Option<u32> {
@@ -401,68 +522,83 @@ impl SettingID {
 
     pub fn get_field_ref<'a, T: 'static>(
         &self,
+        settings: &'a NtscEffectFullSettings,
+    ) -> Option<&'a T> {
+        let field_ref: &dyn Any = impl_get_field_ref!(self, settings, borrow);
+
+        field_ref.downcast_ref::<T>()
+    }
+
+    pub fn get_field_mut<'a, T: 'static>(
+        &self,
         settings: &'a mut NtscEffectFullSettings,
     ) -> Option<&'a mut T> {
-        let field_ref: &mut dyn Any = match self {
-            SettingID::USE_FIELD => &mut settings.use_field,
-            SettingID::CHROMA_LOWPASS_IN => &mut settings.chroma_lowpass_in,
-            SettingID::COMPOSITE_PREEMPHASIS => &mut settings.composite_preemphasis,
-            SettingID::VIDEO_SCANLINE_PHASE_SHIFT => &mut settings.video_scanline_phase_shift,
-            SettingID::VIDEO_SCANLINE_PHASE_SHIFT_OFFSET => {
-                &mut settings.video_scanline_phase_shift_offset
-            }
-            SettingID::COMPOSITE_NOISE_INTENSITY => &mut settings.composite_noise_intensity,
-            SettingID::CHROMA_NOISE_INTENSITY => &mut settings.chroma_noise_intensity,
-            SettingID::SNOW_INTENSITY => &mut settings.snow_intensity,
-            SettingID::SNOW_ANISOTROPY => &mut settings.snow_anisotropy,
-            SettingID::CHROMA_DEMODULATION => &mut settings.chroma_demodulation,
-            SettingID::CHROMA_PHASE_NOISE_INTENSITY => &mut settings.chroma_phase_noise_intensity,
-            SettingID::CHROMA_DELAY_HORIZONTAL => &mut settings.chroma_delay.0,
-            SettingID::CHROMA_DELAY_VERTICAL => &mut settings.chroma_delay.1,
-            SettingID::CHROMA_LOWPASS_OUT => &mut settings.chroma_lowpass_out,
-
-            SettingID::HEAD_SWITCHING => &mut settings.head_switching.enabled,
-            SettingID::HEAD_SWITCHING_HEIGHT => &mut settings.head_switching.settings.height,
-            SettingID::HEAD_SWITCHING_OFFSET => &mut settings.head_switching.settings.offset,
-            SettingID::HEAD_SWITCHING_HORIZONTAL_SHIFT => {
-                &mut settings.head_switching.settings.horiz_shift
-            }
-
-            SettingID::TRACKING_NOISE => &mut settings.tracking_noise.enabled,
-            SettingID::TRACKING_NOISE_HEIGHT => &mut settings.tracking_noise.settings.height,
-            SettingID::TRACKING_NOISE_WAVE_INTENSITY => {
-                &mut settings.tracking_noise.settings.wave_intensity
-            }
-            SettingID::TRACKING_NOISE_SNOW_INTENSITY => {
-                &mut settings.tracking_noise.settings.snow_intensity
-            }
-            SettingID::TRACKING_NOISE_SNOW_ANISOTROPY => {
-                &mut settings.tracking_noise.settings.snow_anisotropy
-            }
-            SettingID::TRACKING_NOISE_NOISE_INTENSITY => {
-                &mut settings.tracking_noise.settings.noise_intensity
-            }
-
-            SettingID::RINGING => &mut settings.ringing.enabled,
-            SettingID::RINGING_FREQUENCY => &mut settings.ringing.settings.frequency,
-            SettingID::RINGING_POWER => &mut settings.ringing.settings.power,
-            SettingID::RINGING_SCALE => &mut settings.ringing.settings.intensity,
-
-            SettingID::VHS_SETTINGS => &mut settings.vhs_settings.enabled,
-            SettingID::VHS_TAPE_SPEED => &mut settings.vhs_settings.settings.tape_speed,
-            SettingID::VHS_CHROMA_VERT_BLEND => {
-                &mut settings.vhs_settings.settings.chroma_vert_blend
-            }
-            SettingID::VHS_CHROMA_LOSS => &mut settings.vhs_settings.settings.chroma_loss,
-            SettingID::VHS_SHARPEN => &mut settings.vhs_settings.settings.sharpen,
-            SettingID::VHS_EDGE_WAVE => &mut settings.vhs_settings.settings.edge_wave,
-            SettingID::VHS_EDGE_WAVE_SPEED => &mut settings.vhs_settings.settings.edge_wave_speed,
-
-            SettingID::BANDWIDTH_SCALE => &mut settings.bandwidth_scale,
-            SettingID::RANDOM_SEED => &mut settings.random_seed,
-        };
+        let field_ref: &mut dyn Any = impl_get_field_ref!(self, settings, borrow_mut);
 
         field_ref.downcast_mut::<T>()
+    }
+
+    /// Get the fixed name for a setting ID. These are unique and will not be reused, and will not change.
+    pub fn name(&self) -> &'static str {
+        match self {
+            SettingID::CHROMA_LOWPASS_IN => "chroma_lowpass_in",
+            SettingID::COMPOSITE_PREEMPHASIS => "composite_preemphasis",
+            SettingID::VIDEO_SCANLINE_PHASE_SHIFT => "video_scanline_phase_shift",
+            SettingID::VIDEO_SCANLINE_PHASE_SHIFT_OFFSET => "video_scanline_phase_shift_offset",
+            SettingID::COMPOSITE_NOISE_INTENSITY => "composite_noise_intensity",
+            SettingID::CHROMA_NOISE_INTENSITY => "chroma_noise_intensity",
+            SettingID::SNOW_INTENSITY => "snow_intensity",
+            SettingID::CHROMA_PHASE_NOISE_INTENSITY => "chroma_phase_noise_intensity",
+            SettingID::CHROMA_DELAY_HORIZONTAL => "chroma_delay_horizontal",
+            SettingID::CHROMA_DELAY_VERTICAL => "chroma_delay_vertical",
+            SettingID::CHROMA_LOWPASS_OUT => "chroma_lowpass_out",
+            SettingID::HEAD_SWITCHING => "head_switching",
+            SettingID::HEAD_SWITCHING_HEIGHT => "head_switching_height",
+            SettingID::HEAD_SWITCHING_OFFSET => "head_switching_offset",
+            SettingID::HEAD_SWITCHING_HORIZONTAL_SHIFT => "head_switching_horizontal_shift",
+            SettingID::TRACKING_NOISE => "tracking_noise",
+            SettingID::TRACKING_NOISE_HEIGHT => "tracking_noise_height",
+            SettingID::TRACKING_NOISE_WAVE_INTENSITY => "tracking_noise_wave_intensity",
+            SettingID::TRACKING_NOISE_SNOW_INTENSITY => "tracking_noise_snow_intensity",
+            SettingID::RINGING => "ringing",
+            SettingID::RINGING_FREQUENCY => "ringing_frequency",
+            SettingID::RINGING_POWER => "ringing_power",
+            SettingID::RINGING_SCALE => "ringing_scale",
+            SettingID::VHS_SETTINGS => "vhs_settings",
+            SettingID::VHS_TAPE_SPEED => "vhs_tape_speed",
+            SettingID::VHS_CHROMA_VERT_BLEND => "vhs_chroma_vert_blend",
+            SettingID::VHS_CHROMA_LOSS => "vhs_chroma_loss",
+            SettingID::VHS_SHARPEN => "vhs_sharpen",
+            SettingID::VHS_EDGE_WAVE => "vhs_edge_wave",
+            SettingID::VHS_EDGE_WAVE_SPEED => "vhs_edge_wave_speed",
+            SettingID::USE_FIELD => "use_field",
+            SettingID::TRACKING_NOISE_NOISE_INTENSITY => "tracking_noise_noise_intensity",
+            SettingID::BANDWIDTH_SCALE => "bandwidth_scale",
+            SettingID::CHROMA_DEMODULATION => "chroma_demodulation",
+            SettingID::SNOW_ANISOTROPY => "snow_anisotropy",
+            SettingID::TRACKING_NOISE_SNOW_ANISOTROPY => "tracking_noise_snow_anisotropy",
+            SettingID::RANDOM_SEED => "random_seed",
+        }
+    }
+}
+
+trait Expect {
+    fn expect_bool(&self) -> Result<bool, ParseSettingsError>;
+    fn expect_number(&self) -> Result<f64, ParseSettingsError>;
+    fn expect_object(&self) -> Result<&HashMap<String, JsonValue>, ParseSettingsError>;
+}
+
+impl Expect for JsonValue {
+    fn expect_bool(&self) -> Result<bool, ParseSettingsError> {
+        self.get::<bool>().ok_or_else(|| ParseSettingsError::new("Expected a bool")).cloned()
+    }
+
+    fn expect_number(&self) -> Result<f64, ParseSettingsError> {
+        self.get::<f64>().ok_or_else(|| ParseSettingsError::new("Expected a number")).cloned()
+    }
+
+    fn expect_object(&self) -> Result<&HashMap<String, JsonValue>, ParseSettingsError> {
+        self.get::<HashMap<_, _>>().ok_or_else(|| ParseSettingsError::new("Expected an object"))
     }
 }
 
@@ -909,5 +1045,105 @@ impl SettingsList {
             settings: v.into_boxed_slice(),
             by_id: by_id.into_boxed_slice(),
         }
+    }
+
+    fn settings_to_json(
+        &self,
+        dst: &mut HashMap<String, JsonValue>,
+        descriptors: &[SettingDescriptor],
+        settings: &NtscEffectFullSettings,
+    ) {
+        for descriptor in descriptors {
+            let value = match &descriptor.kind {
+                SettingKind::Enumeration { .. } => {
+                    JsonValue::Number(descriptor.id.get_field_enum(settings).unwrap() as f64)
+                }
+                SettingKind::Percentage { .. } | SettingKind::FloatRange { .. } => {
+                    JsonValue::Number(
+                        *descriptor.id.get_field_ref::<f32>(settings).unwrap() as f64
+                    )
+                }
+                SettingKind::IntRange { .. } => JsonValue::Number(
+                    if let Some(n) = descriptor.id.get_field_ref::<u32>(settings) {
+                        *n as f64
+                    } else if let Some(n) = descriptor.id.get_field_ref::<i32>(settings) {
+                        *n as f64
+                    } else {
+                        panic!("int setting descriptor is not an i32 or u32")
+                    },
+                ),
+                SettingKind::Boolean { .. } => {
+                    JsonValue::Boolean(*descriptor.id.get_field_ref::<bool>(settings).unwrap())
+                },
+                SettingKind::Group { children, .. } => {
+                    self.settings_to_json(dst, children, settings);
+                    JsonValue::Boolean(*descriptor.id.get_field_ref::<bool>(settings).unwrap())
+                }
+            };
+
+            dst.insert(
+                descriptor.id.name().to_string(),
+                value
+            );
+        }
+    }
+
+    pub fn to_json(&self, settings: &NtscEffectFullSettings) -> JsonValue {
+        let mut dst_map = HashMap::<String, JsonValue>::new();
+        self.settings_to_json(&mut dst_map, &self.settings, settings);
+
+        dst_map.insert("version".to_string(), JsonValue::Number(1.0));
+
+        JsonValue::Object(dst_map)
+    }
+
+    fn settings_from_json(json: &HashMap<String, JsonValue>, descriptors: &[SettingDescriptor], settings: &mut NtscEffectFullSettings) -> Result<(), ParseSettingsError> {
+        for descriptor in descriptors {
+            let setting_value = match json.get(descriptor.id.name()) {
+                Some(value) => value,
+                None => continue
+            };
+            match &descriptor.kind {
+                SettingKind::Enumeration { .. } => {
+                    descriptor.id.set_field_enum(settings, setting_value.expect_number()? as u32).map_err(|_| ParseSettingsError::new("Invalid enum value"))?;
+                },
+                SettingKind::Percentage { .. } | SettingKind::FloatRange { .. } => {
+                    *descriptor.id.get_field_mut::<f32>(settings).unwrap() = setting_value.expect_number()? as f32;
+                },
+                SettingKind::IntRange { .. } => {
+                    if let Some(field) = descriptor.id.get_field_mut::<u32>(settings) {
+                        *field = setting_value.expect_number()? as u32;
+                    } else if let Some(field) = descriptor.id.get_field_mut::<i32>(settings) {
+                        *field = setting_value.expect_number()? as i32;
+                    }
+                },
+                SettingKind::Boolean { .. } => {
+                    *descriptor.id.get_field_mut::<bool>(settings).unwrap() = setting_value.expect_bool()?;
+                },
+                SettingKind::Group { children, .. } => {
+                    *descriptor.id.get_field_mut::<bool>(settings).unwrap() = setting_value.expect_bool()?;
+                    Self::settings_from_json(json, &children, settings)?;
+                },
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn from_json(&self, json: &str) -> Result<NtscEffectFullSettings, ParseSettingsError> {
+        let parsed = json
+            .parse::<JsonValue>().map_err(|_| ParseSettingsError::new("Cound not parse JSON"))?;
+
+        let parsed_map = parsed.expect_object()?;
+
+        let version = parsed_map.get("version").ok_or_else(|| ParseSettingsError::new("No version field"))?.expect_number()?;
+        if version != 1.0 {
+            return Err(ParseSettingsError::new(format!("Unsupported version: {version}")).into());
+        }
+
+        let mut dst_settings = NtscEffectFullSettings::default();
+        Self::settings_from_json(&parsed_map, &self.settings, &mut dst_settings)?;
+
+        Ok(dst_settings)
     }
 }

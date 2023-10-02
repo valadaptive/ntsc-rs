@@ -564,9 +564,9 @@ unsafe fn apply_params(
             SettingKind::IntRange { .. } => {
                 let mut int_value: i32 = 0;
                 ofx_err(paramGetValueAtTime(param, time, &mut int_value))?;
-                if let Some(field_ref) = descriptor.id.get_field_ref::<i32>(dst) {
+                if let Some(field_ref) = descriptor.id.get_field_mut::<i32>(dst) {
                     *field_ref = int_value;
-                } else if let Some(field_ref) = descriptor.id.get_field_ref::<u32>(dst) {
+                } else if let Some(field_ref) = descriptor.id.get_field_mut::<u32>(dst) {
                     *field_ref = int_value as u32;
                 }
             }
@@ -575,7 +575,7 @@ unsafe fn apply_params(
                 ofx_err(paramGetValueAtTime(param, time, &mut float_value))?;
                 let field_ref = descriptor
                     .id
-                    .get_field_ref::<f32>(dst)
+                    .get_field_mut::<f32>(dst)
                     .ok_or(OfxStat::kOfxStatFailed)?;
                 *field_ref = float_value as f32;
             }
@@ -584,7 +584,7 @@ unsafe fn apply_params(
                 ofx_err(paramGetValueAtTime(param, time, &mut bool_value))?;
                 let field_ref = descriptor
                     .id
-                    .get_field_ref::<bool>(dst)
+                    .get_field_mut::<bool>(dst)
                     .ok_or(OfxStat::kOfxStatFailed)?;
                 *field_ref = bool_value != 0;
             }
@@ -594,7 +594,7 @@ unsafe fn apply_params(
                 ofx_err(paramGetValueAtTime(param, time, &mut bool_value))?;
                 let field_ref = descriptor
                     .id
-                    .get_field_ref::<bool>(dst)
+                    .get_field_mut::<bool>(dst)
                     .ok_or(OfxStat::kOfxStatFailed)?;
                 *field_ref = bool_value != 0;
 
