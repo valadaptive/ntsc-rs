@@ -2,7 +2,6 @@
 - Ensure error coverage
 - Error when an audio-only file is loaded
 - Randomize seed button
-- Video scaling
 - FPS display?
 - Show input framerate
 - Framerate doubler for 25/30fps

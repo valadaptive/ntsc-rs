@@ -115,9 +115,6 @@ pub struct YiqView<'a> {
     pub y: &'a mut [f32],
     pub i: &'a mut [f32],
     pub q: &'a mut [f32],
-    /// This refers to the number of rendered rows. For instance, if the input frame is 480 pixels high but we're only
-    /// doing the effect on even-numbered fields, then resolution.1 will be 240.
-    // pub resolution: (usize, usize),
     pub dimensions: (usize, usize),
     /// The source field that this data is for.
     pub field: YiqField,
@@ -191,6 +188,8 @@ impl<'a> YiqView<'a> {
             YiqField::Upper | YiqField::Lower => 1,
         };
 
+        let num_rows = self.num_rows();
+
         dst.chunks_exact_mut(row_bytes / std::mem::size_of::<S::DataFormat>())
             .enumerate()
             .for_each(|(row_idx, dst_row)| {
@@ -214,7 +213,7 @@ impl<'a> YiqView<'a> {
                 } else {
                     // Copy the field directly
                     for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
-                        let src_idx = (row_idx >> row_rshift) * width + pix_idx;
+                        let src_idx = (row_idx >> row_rshift).min(num_rows - 1) * width + pix_idx;
                         let rgb = RGB_MATRIX
                             * Vec3::new(self.y[src_idx], self.i[src_idx], self.q[src_idx]);
                         pixel[r_idx] = S::DataFormat::from_norm(rgb[0]);

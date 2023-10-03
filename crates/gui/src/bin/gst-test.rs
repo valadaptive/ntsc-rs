@@ -47,6 +47,7 @@ use gstreamer::prelude::*;
 use gstreamer::subclass::prelude::ObjectSubclass;
 use gstreamer::PadLinkError;
 use gstreamer_controller::prelude::*;
+use gstreamer_video::VideoCapsBuilder;
 use gstreamer_video::subclass::prelude::*;
 use gstreamer_video::VideoFormat;
 use gui::expression_parser::eval_expression_string;
@@ -239,9 +240,16 @@ impl PipelineInfo {
     }
 }
 
+#[derive(Debug)]
 struct VideoZoom {
     scale: f64,
     fit: bool,
+}
+
+#[derive(Debug)]
+struct VideoScale {
+    scale: usize,
+    enabled: bool,
 }
 
 #[derive(Debug)]
@@ -481,6 +489,7 @@ struct NtscApp {
     executor: Arc<Mutex<AppExecutor>>,
     pipeline: Option<PipelineInfo>,
     video_zoom: VideoZoom,
+    video_scale: VideoScale,
     left_panel_state: LeftPanelState,
     effect_settings: NtscEffectFullSettings,
     render_settings: RenderSettings,
@@ -498,6 +507,10 @@ impl NtscApp {
             video_zoom: VideoZoom {
                 scale: 1.0,
                 fit: true,
+            },
+            video_scale: VideoScale {
+                scale: 480,
+                enabled: false,
             },
             left_panel_state: LeftPanelState::default(),
             effect_settings: NtscEffectFullSettings::default(),
@@ -560,8 +573,14 @@ impl NtscApp {
     }
 
     fn create_pipeline<
-        F1: FnOnce(gstreamer::Pipeline) -> gstreamer::Element + Send + Sync + 'static,
-        F2: FnOnce(gstreamer::Pipeline) -> gstreamer::Element + Send + Sync + 'static,
+        F1: FnOnce(gstreamer::Pipeline) -> Result<gstreamer::Element, GstreamerError>
+            + Send
+            + Sync
+            + 'static,
+        F2: FnOnce(gstreamer::Pipeline) -> Result<gstreamer::Element, GstreamerError>
+            + Send
+            + Sync
+            + 'static,
         CB: FnOnce() + Send + Sync + 'static,
         G: Fn(&gstreamer::Bus, &gstreamer::Message) -> gstreamer::BusSyncReply + Send + Sync + 'static,
     >(
@@ -570,6 +589,7 @@ impl NtscApp {
         video_sink: F2,
         bus_handler: G,
         duration: Option<gstreamer::ClockTime>,
+        initial_scale: Option<usize>,
         callback: Option<CB>,
     ) -> Result<gstreamer::Pipeline, GstreamerError> {
         let pipeline = gstreamer::Pipeline::default();
@@ -582,14 +602,20 @@ impl NtscApp {
             .build()?;
         let video_convert = gstreamer::ElementFactory::make("videoconvert").build()?;
         let video_rate = gstreamer::ElementFactory::make("videorate").build()?;
-        let video_scale = gstreamer::ElementFactory::make("videoscale").build()?;
+        let video_scale = gstreamer::ElementFactory::make("videoscale")
+            .name("video_scale")
+            .build()?;
+        let caps_filter = gstreamer::ElementFactory::make("capsfilter")
+            .name("caps_filter")
+            .build()?;
 
         let video_elements = &[
             &video_queue,
             &video_convert,
             &video_rate,
             &video_scale,
-            &video_sink(pipeline.clone()),
+            &caps_filter,
+            &video_sink(pipeline.clone())?,
         ];
         pipeline.add_many(video_elements)?;
         gstreamer::Element::link_many(video_elements)?;
@@ -656,7 +682,7 @@ impl NtscApp {
                             dbg!("added many audio");
                             gstreamer::Element::link_many(audio_elements)?;
 
-                            let sink = audio_sink(pipeline.clone());
+                            let sink = audio_sink(pipeline.clone())?;
                             audio_resample.link(&sink)?;
                             sink.sync_state_with_parent()?;
 
@@ -700,7 +726,11 @@ impl NtscApp {
                         None => false,
                     };
 
-                    dbg!(&caps, framerate, is_still_image);
+                    if caps.is_some() && initial_scale.is_some() {
+                        if let Some((width, height)) = Self::scale_from_caps(&caps.unwrap(), initial_scale.unwrap()) {
+                            caps_filter.set_property("caps", gstreamer_video::VideoCapsBuilder::default().width(width).height(height).build());
+                        }
+                    }
 
                     if is_still_image {
                         let image_freeze = gstreamer::ElementFactory::make("imagefreeze")
@@ -817,6 +847,58 @@ impl NtscApp {
         Ok(pipeline)
     }
 
+    fn scale_from_caps(caps: &gstreamer::Caps, scanlines: usize) -> Option<(i32, i32)> {
+        let caps_structure = caps.structure(0)?;
+        let src_width = caps_structure.get::<i32>("width").ok()?;
+        let src_height = caps_structure.get::<i32>("height").ok()?;
+
+        let scale_factor = scanlines as f32 / src_height as f32;
+        let dst_width = (src_width as f32 * scale_factor).round() as i32;
+
+        Some((dst_width, scanlines as i32))
+    }
+
+    fn rescale_video(
+        pipeline: &gstreamer::Pipeline,
+        scanlines: Option<usize>,
+    ) -> Result<(), GstreamerError> {
+        let caps_filter = pipeline.by_name("caps_filter").unwrap();
+
+        if let Some(scanlines) = scanlines {
+            let scale_caps = pipeline
+                .by_name("video_scale")
+                .and_then(|elem| elem.static_pad("src"))
+                .and_then(|pad| pad.current_caps());
+            let scale_caps = match scale_caps {
+                Some(caps) => caps,
+                None => return Ok(()),
+            };
+
+            if let Some((dst_width, dst_height)) = Self::scale_from_caps(&scale_caps, scanlines) {
+                dbg!(dst_width);
+                dbg!(scanlines);
+
+                caps_filter.set_property(
+                    "caps",
+                    gstreamer_video::VideoCapsBuilder::default()
+                        .width(dst_width)
+                        .height(dst_height)
+                        .build(),
+                );
+            }
+        } else {
+            caps_filter.set_property("caps", gstreamer_video::VideoCapsBuilder::default().build());
+            pipeline.send_event(gstreamer::event::Reconfigure::new());
+        }
+
+        pipeline.seek_simple(
+            gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
+            pipeline.query_position::<gstreamer::ClockTime>().unwrap(),
+        )?;
+
+        Ok(())
+    }
+
     fn create_preview_pipeline(
         &mut self,
         ctx: &egui::Context,
@@ -854,10 +936,10 @@ impl NtscApp {
         let pipeline = NtscApp::create_pipeline(
             src.clone(),
             |pipeline| {
-                pipeline.add(&audio_sink_for_closure);
-                audio_sink_for_closure
+                pipeline.add(&audio_sink_for_closure)?;
+                Ok(audio_sink_for_closure)
             },
-            |_| video_sink_for_closure,
+            |_| Ok(video_sink_for_closure),
             move |bus, msg| {
                 dbg!(msg);
                 let at_eos = &at_eos_for_handler;
@@ -912,6 +994,11 @@ impl NtscApp {
                 gstreamer::BusSyncReply::Drop
             },
             None,
+            if self.video_scale.enabled {
+                Some(self.video_scale.scale)
+            } else {
+                None
+            },
             Some(|| {
                 dbg!("got pipeline!");
             }),
@@ -1065,11 +1152,11 @@ impl NtscApp {
         let pipeline = Self::create_pipeline(
             src,
             move |pipeline| {
-                pipeline.add(&audio_enc_for_closure);
-                audio_enc_for_closure.link(&video_mux_for_closure);
-                audio_enc_for_closure
+                pipeline.add(&audio_enc_for_closure)?;
+                audio_enc_for_closure.link(&video_mux_for_closure)?;
+                Ok(audio_enc_for_closure)
             },
-            |_| video_ntsc_for_closure,
+            |_| Ok(video_ntsc_for_closure),
             move |bus, msg| {
                 let job_state = &job_state_for_handler;
                 let exec = &exec;
@@ -1125,6 +1212,11 @@ impl NtscApp {
                 gstreamer::BusSyncReply::Drop
             },
             Some(self.render_settings.duration),
+            if self.video_scale.enabled {
+                Some(self.video_scale.scale)
+            } else {
+                None
+            },
             None::<fn()>,
         )?;
 
@@ -1158,22 +1250,11 @@ impl NtscApp {
             &video_enc,
             &video_mux,
         ])?;
-        //gstreamer::Element::link(&video_enc, &video_mux)?;
 
         gstreamer::Element::link(&video_mux, &dst)?;
 
         video_mux.sync_state_with_parent()?;
         dst.sync_state_with_parent()?;
-
-        /*dbg!(pipeline.seek(
-            1.0,
-            //gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
-            gstreamer::SeekFlags::empty(),
-            gstreamer::SeekType::Set,
-            gstreamer::ClockTime::ZERO,
-            gstreamer::SeekType::None,
-            gstreamer::ClockTime::NONE
-        ));*/
 
         dbg!(pipeline.set_state(gstreamer::State::Playing))?;
 
@@ -1365,13 +1446,11 @@ impl NtscApp {
                                 None => return None,
                             };
 
-                            let mut file = match File::create(handle.path()) {
-                                Ok(f) => f,
-                                Err(_) => return None,
-                            };
-
-                            Some(Box::new(move |app: &mut NtscApp| {
-                                json.write_to(&mut file).context(JSONSaveSnafu)
+                            Some(Box::new(move |_: &mut NtscApp| {
+                                let mut file =
+                                    File::create(handle.path()).context(JSONSaveSnafu)?;
+                                json.write_to(&mut file).context(JSONSaveSnafu)?;
+                                Ok(())
                             }) as _)
                         });
                     }
@@ -1672,11 +1751,10 @@ impl NtscApp {
                     src_path.unwrap().clone(),
                     self.render_settings.clone(),
                 );
-                dbg!(&render_job);
                 match render_job {
                     Ok(render_job) => {
                         self.render_jobs.push(render_job);
-                    },
+                    }
                     Err(err) => {
                         self.handle_error(&err);
                     }
@@ -2160,9 +2238,27 @@ impl eframe::App for NtscApp {
 
                             ui.separator();
 
-                            if ui.button("Close").clicked() {
-                                self.handle_result_with(|app| app.remove_pipeline());
+                            let scale_checkbox =
+                                ui.checkbox(&mut self.video_scale.enabled, "Scale to");
+                            ui.set_enabled(self.video_scale.enabled);
+                            let drag_resp = ui.add(
+                                egui::DragValue::new(&mut self.video_scale.scale)
+                                    .clamp_range(1..=usize::MAX),
+                            );
+                            if drag_resp.changed() || scale_checkbox.changed() {
+                                if let Some(pipeline) = &self.pipeline {
+                                    let res = Self::rescale_video(
+                                        &pipeline.pipeline,
+                                        if self.video_scale.enabled {
+                                            Some(self.video_scale.scale)
+                                        } else {
+                                            None
+                                        },
+                                    );
+                                    self.handle_result(res);
+                                }
                             }
+                            ui.label("scanlines");
                         });
                     });
 
@@ -2205,7 +2301,19 @@ impl eframe::App for NtscApp {
                                             if let Some(PipelineInfo { preview, .. }) =
                                                 &mut self.pipeline
                                             {
-                                                let texture_size = preview.size_vec2();
+                                                let texture_size = if self.video_scale.enabled {
+                                                    let texture_actual_size = preview.size_vec2();
+                                                    let scale_factor = self.video_scale.scale
+                                                        as f32
+                                                        / texture_actual_size.y;
+                                                    vec2(
+                                                        (texture_actual_size.x * scale_factor)
+                                                            .round(),
+                                                        self.video_scale.scale as f32,
+                                                    )
+                                                } else {
+                                                    preview.size_vec2()
+                                                };
                                                 let scale_factor = if self.video_zoom.fit {
                                                     // Due to floating-point error, a scrollbar may appear even if we scale down. To
                                                     // avoid the scrollbar popping in and out of existence, subtract a constant value
