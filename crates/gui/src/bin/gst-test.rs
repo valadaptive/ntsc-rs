@@ -13,6 +13,7 @@ use std::io::Read;
 use std::io::Write;
 use std::marker::PhantomData;
 use std::ops::RangeInclusive;
+use std::path::Path;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -264,7 +265,7 @@ enum RenderJobState {
 
 #[derive(Debug)]
 struct RenderJob {
-    settings: RenderSettings,
+    settings: RenderPipelineSettings,
     pipeline: gstreamer::Pipeline,
     state: Arc<Mutex<RenderJobState>>,
     last_progress: f64,
@@ -356,6 +357,20 @@ impl OutputCodec {
     }
 }
 
+#[derive(Debug, Clone)]
+enum RenderPipelineCodec {
+    H264(H264Settings),
+    Ffv1(Ffv1Settings),
+    Png,
+}
+
+#[derive(Debug, Clone)]
+struct RenderPipelineSettings {
+    codec_settings: RenderPipelineCodec,
+    output_path: PathBuf,
+    duration: gstreamer::ClockTime,
+}
+
 #[derive(Default, Debug, Clone)]
 struct RenderSettings {
     output_codec: OutputCodec,
@@ -365,6 +380,19 @@ struct RenderSettings {
     ffv1_settings: Ffv1Settings,
     output_path: PathBuf,
     duration: gstreamer::ClockTime,
+}
+
+impl From<&RenderSettings> for RenderPipelineSettings {
+    fn from(value: &RenderSettings) -> Self {
+        RenderPipelineSettings {
+            codec_settings: match value.output_codec {
+                OutputCodec::H264 => RenderPipelineCodec::H264(value.h264_settings.clone()),
+                OutputCodec::Ffv1 => RenderPipelineCodec::Ffv1(value.ffv1_settings.clone()),
+            },
+            output_path: value.output_path.clone(),
+            duration: value.duration,
+        }
+    }
 }
 
 #[derive(Default, PartialEq, Eq)]
@@ -574,7 +602,7 @@ impl NtscApp {
     }
 
     fn create_pipeline<
-        F1: FnOnce(gstreamer::Pipeline) -> Result<gstreamer::Element, GstreamerError>
+        F1: FnOnce(gstreamer::Pipeline) -> Result<Option<gstreamer::Element>, GstreamerError>
             + Send
             + Sync
             + 'static,
@@ -582,15 +610,17 @@ impl NtscApp {
             + Send
             + Sync
             + 'static,
-        CB: FnOnce() + Send + Sync + 'static,
+        CB: FnOnce(gstreamer::Pipeline) + Send + Sync + 'static,
         G: Fn(&gstreamer::Bus, &gstreamer::Message) -> gstreamer::BusSyncReply + Send + Sync + 'static,
     >(
+        &self,
         src_pad: gstreamer::Element,
         audio_sink: F1,
         video_sink: F2,
         bus_handler: G,
         duration: Option<gstreamer::ClockTime>,
         initial_scale: Option<usize>,
+        initial_still_image_framerate: gstreamer::Fraction,
         callback: Option<CB>,
     ) -> Result<gstreamer::Pipeline, GstreamerError> {
         let pipeline = gstreamer::Pipeline::default();
@@ -615,6 +645,8 @@ impl NtscApp {
             .name("framerate_caps_filter")
             .build()?;
 
+        let video_sink = video_sink(pipeline.clone())?;
+
         let video_elements = &[
             &video_queue,
             &video_convert,
@@ -622,7 +654,7 @@ impl NtscApp {
             &video_scale,
             &caps_filter,
             &framerate_caps_filter,
-            &video_sink(pipeline.clone())?,
+            &video_sink,
         ];
         pipeline.add_many(video_elements)?;
         gstreamer::Element::link_many(video_elements)?;
@@ -674,35 +706,39 @@ impl NtscApp {
                 if is_audio && !*has_audio {
                     dbg!("connected audio");
 
-                    let audio_sink = audio_sink.lock().unwrap().take();
-                    if let Some(audio_sink) = audio_sink {
-                        if let Some(pipeline) = pipeline.upgrade() {
-                            let audio_queue = gstreamer::ElementFactory::make("queue").build()?;
-                            let audio_convert =
-                                gstreamer::ElementFactory::make("audioconvert").build()?;
-                            let audio_resample =
-                                gstreamer::ElementFactory::make("audioresample").build()?;
+                    if let Some(pipeline) = pipeline.upgrade() {
+                        let audio_sink = audio_sink.lock().unwrap().take();
+                        if let Some(sink) = audio_sink.and_then(|sink| Some(sink(pipeline.clone())))
+                        {
+                            if let Some(sink) = sink? {
+                                let audio_queue =
+                                    gstreamer::ElementFactory::make("queue").build()?;
+                                let audio_convert =
+                                    gstreamer::ElementFactory::make("audioconvert").build()?;
+                                let audio_resample =
+                                    gstreamer::ElementFactory::make("audioresample").build()?;
 
-                            let audio_elements = &[&audio_queue, &audio_convert, &audio_resample];
-                            dbg!("adding many audio");
-                            pipeline.add_many(audio_elements)?;
-                            dbg!("added many audio");
-                            gstreamer::Element::link_many(audio_elements)?;
+                                let audio_elements =
+                                    &[&audio_queue, &audio_convert, &audio_resample];
+                                dbg!("adding many audio");
+                                pipeline.add_many(audio_elements)?;
+                                dbg!("added many audio");
+                                gstreamer::Element::link_many(audio_elements)?;
 
-                            let sink = audio_sink(pipeline.clone())?;
-                            audio_resample.link(&sink)?;
-                            sink.sync_state_with_parent()?;
+                                audio_resample.link(&sink)?;
+                                sink.sync_state_with_parent()?;
 
-                            for e in audio_elements {
-                                e.sync_state_with_parent()?
+                                for e in audio_elements {
+                                    e.sync_state_with_parent()?
+                                }
+
+                                // Get the queue element's sink pad and link the decodebin's newly created
+                                // src pad for the audio stream to it.
+                                let sink_pad = audio_queue
+                                    .static_pad("sink")
+                                    .expect("queue has no sinkpad");
+                                src_pad.link(&sink_pad)?;
                             }
-
-                            // Get the queue element's sink pad and link the decodebin's newly created
-                            // src pad for the audio stream to it.
-                            let sink_pad = audio_queue
-                                .static_pad("sink")
-                                .expect("queue has no sinkpad");
-                            src_pad.link(&sink_pad)?;
                         }
 
                         *has_audio = true;
@@ -752,19 +788,18 @@ impl NtscApp {
                             .name("still_image_freeze")
                             .build()?;
                         let video_caps = gstreamer_video::VideoCapsBuilder::new()
-                            .framerate(gstreamer::Fraction::from(30))
+                            .framerate(initial_still_image_framerate)
                             .build();
                         framerate_caps_filter.set_property("caps", video_caps);
 
                         if let Some(pipeline) = pipeline.upgrade() {
                             pipeline.add(&image_freeze)?;
                             src_pad.link(&image_freeze.static_pad("sink").unwrap())?;
-                            gstreamer::Element::link_many([
-                                &image_freeze,
-                                &video_queue,
-                            ])?;
+                            gstreamer::Element::link_many([&image_freeze, &video_queue])?;
                             image_freeze.sync_state_with_parent()?;
 
+                            // We cannot move this functionality into create_render_job. If we do this seek outside of
+                            // this callback, the output video will be truncated. No idea why.
                             if let Some(duration) = duration {
                                 image_freeze.seek(
                                     1.0,
@@ -833,17 +868,16 @@ impl NtscApp {
                             .and_then(|a| a.downcast_ref::<gstreamer::Pipeline>())
                         {
                             let pipeline_state_change_done = *src_pipeline == pipeline;
+                            dbg!(pipeline_state_change_done);
 
                             if pipeline_state_change_done {
                                 let mut id = handler_id.lock().unwrap();
                                 let id = id.take();
                                 if let Some(id) = id {
                                     decodebin.disconnect(id);
-
-                                    if let Some(callback) = handler_callback.lock().unwrap().take()
-                                    {
-                                        callback();
-                                    }
+                                }
+                                if let Some(callback) = handler_callback.lock().unwrap().take() {
+                                    callback(pipeline);
                                 }
                                 finished_loading.store(true, std::sync::atomic::Ordering::SeqCst);
                             }
@@ -909,23 +943,33 @@ impl NtscApp {
         Ok(())
     }
 
-    fn set_still_image_framerate(info: &PipelineInfo, framerate: gstreamer::Fraction) -> Result<(), GstreamerError> {
-        let caps_filter = info.pipeline.by_name("framerate_caps_filter");
+    fn set_still_image_framerate(
+        pipeline: &gstreamer::Pipeline,
+        framerate: gstreamer::Fraction,
+    ) -> Result<Option<gstreamer::Fraction>, GstreamerError> {
+        let caps_filter = pipeline.by_name("framerate_caps_filter");
         if let Some(caps_filter) = caps_filter {
-            caps_filter.set_property("caps", VideoCapsBuilder::default().framerate(framerate).build());
+            caps_filter.set_property(
+                "caps",
+                VideoCapsBuilder::default().framerate(framerate).build(),
+            );
             // This seek is necessary to prevent caps negotiation from failing due to race conditions, for some reason.
             // It seems like in some cases, there would be "tearing" in the caps between different elements, where some
             // elements' caps would use the old framerate and some would use the new framerate. This would cause caps
             // negotiation to fail, even though the caps filter sends a "reconfigure" event. This in turn woulc make the
             // entire pipeline error out.
-            info.pipeline.seek_simple(
-                gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
-                info.pipeline.query_position::<gstreamer::ClockTime>().unwrap(),
-            )?;
-            *info.framerate.lock().unwrap() = Some(framerate);
+            if let Some(seek_pos) = pipeline.query_position::<gstreamer::ClockTime>() {
+                pipeline.seek_simple(
+                    gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
+                    seek_pos,
+                )?;
+                Ok(Some(framerate))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
         }
-
-        Ok(())
     }
 
     fn create_preview_pipeline(
@@ -964,11 +1008,11 @@ impl NtscApp {
         let audio_sink_for_closure = audio_sink.clone();
         let video_sink_for_closure = video_sink.clone();
 
-        let pipeline = NtscApp::create_pipeline(
+        let pipeline = self.create_pipeline(
             src.clone(),
             |pipeline| {
                 pipeline.add(&audio_sink_for_closure)?;
-                Ok(audio_sink_for_closure)
+                Ok(Some(audio_sink_for_closure))
             },
             |_| Ok(video_sink_for_closure),
             move |bus, msg| {
@@ -1012,12 +1056,12 @@ impl NtscApp {
                             {
                                 // Changed from READY to PAUSED/PLAYING.
                                 *pipeline_info_state.lock().unwrap() = PipelineInfoState::Loaded;
-                                let is_still_image_inner = pipeline.by_name("still_image_freeze").is_some();
+                                let is_still_image_inner =
+                                    pipeline.by_name("still_image_freeze").is_some();
                                 *is_still_image.lock().unwrap() = is_still_image_inner;
 
                                 let video_rate = pipeline.by_name("video_rate").unwrap();
-                                let caps =
-                                    video_rate.static_pad("src").and_then(|pad| pad.caps());
+                                let caps = video_rate.static_pad("src").and_then(|pad| pad.caps());
 
                                 *framerate.lock().unwrap() = if let Some(caps) = caps {
                                     let structure = caps.structure(0);
@@ -1044,12 +1088,13 @@ impl NtscApp {
             } else {
                 None
             },
-            Some(|| {
+            gstreamer::Fraction::from(30),
+            Some(|p| {
                 dbg!("got pipeline!");
             }),
         )?;
 
-        dbg!(pipeline.set_state(gstreamer::State::Paused))?;
+        pipeline.set_state(gstreamer::State::Paused)?;
 
         Ok(PipelineInfo {
             pipeline,
@@ -1090,15 +1135,15 @@ impl NtscApp {
     fn create_render_job(
         &mut self,
         ctx: &egui::Context,
-        src_path: PathBuf,
-        settings: RenderSettings,
+        src_path: &Path,
+        settings: RenderPipelineSettings,
     ) -> Result<RenderJob, GstreamerError> {
         let src = gstreamer::ElementFactory::make("filesrc")
-            .property("location", src_path.as_path())
+            .property("location", src_path)
             .build()?;
 
-        let (audio_enc, video_enc, video_mux, pixel_formats) = match settings.output_codec {
-            OutputCodec::H264 => {
+        let (audio_enc, video_enc, video_mux, pixel_formats) = match &settings.codec_settings {
+            RenderPipelineCodec::H264(h264_settings) => {
                 // Load the x264enc plugin so the enum classes exist. Nothing seems to work except actually instantiating an Element.
                 let _ = gstreamer::ElementFactory::make("x264enc").build().unwrap();
                 #[allow(non_snake_case)]
@@ -1112,17 +1157,17 @@ impl NtscApp {
                 )
                 .unwrap();
 
-                let audio_enc = gstreamer::ElementFactory::make("avenc_aac").build()?;
+                let audio_enc = Some(gstreamer::ElementFactory::make("avenc_aac").build()?);
 
                 let video_enc = gstreamer::ElementFactory::make("x264enc")
                     // CRF mode
                     .property("pass", GstX264EncPass.to_value_by_nick("quant").unwrap())
                     // invert CRF (so that low numbers = low quality)
-                    .property("quantizer", 51 - settings.h264_settings.crf as u32)
+                    .property("quantizer", 51 - h264_settings.crf as u32)
                     .property(
                         "speed-preset",
                         GstX264EncPreset
-                            .to_value(9 - settings.h264_settings.encode_speed as i32)
+                            .to_value(9 - h264_settings.encode_speed as i32)
                             .unwrap(),
                     )
                     .build()?;
@@ -1130,31 +1175,36 @@ impl NtscApp {
                 let video_mux = gstreamer::ElementFactory::make("mp4mux").build()?;
 
                 let pixel_formats = Self::pixel_formats_for(
-                    if settings.h264_settings.ten_bit {
-                        10
-                    } else {
-                        8
-                    },
-                    settings.h264_settings.chroma_subsampling,
+                    if h264_settings.ten_bit { 10 } else { 8 },
+                    h264_settings.chroma_subsampling,
                 );
 
-                (audio_enc, video_enc, video_mux, pixel_formats)
+                (audio_enc, video_enc, Some(video_mux), pixel_formats)
             }
-            OutputCodec::Ffv1 => {
-                let audio_enc = gstreamer::ElementFactory::make("flacenc").build()?;
+            RenderPipelineCodec::Ffv1(ffv1_settings) => {
+                let audio_enc = Some(gstreamer::ElementFactory::make("flacenc").build()?);
                 let video_enc = gstreamer::ElementFactory::make("avenc_ffv1").build()?;
                 let video_mux = gstreamer::ElementFactory::make("matroskamux").build()?;
 
                 let pixel_formats = Self::pixel_formats_for(
-                    match settings.ffv1_settings.bit_depth {
+                    match ffv1_settings.bit_depth {
                         Ffv1BitDepth::Bits8 => 8,
                         Ffv1BitDepth::Bits10 => 10,
                         Ffv1BitDepth::Bits12 => 12,
                     },
-                    settings.ffv1_settings.chroma_subsampling,
+                    ffv1_settings.chroma_subsampling,
                 );
 
-                (audio_enc, video_enc, video_mux, pixel_formats)
+                (audio_enc, video_enc, Some(video_mux), pixel_formats)
+            }
+            RenderPipelineCodec::Png => {
+                let video_enc = gstreamer::ElementFactory::make("pngenc")
+                    .property("snapshot", true)
+                    .build()?;
+
+                let pixel_formats: &[VideoFormat] = &[VideoFormat::Rgb];
+
+                (None, video_enc, None, pixel_formats)
             }
         };
 
@@ -1177,18 +1227,31 @@ impl NtscApp {
         let job_state = Arc::new(Mutex::new(RenderJobState::Waiting));
         let job_state_for_handler = Arc::clone(&job_state);
         let exec = self.execute_fn_next_frame();
+        let exec2 = self.execute_fn_next_frame();
         let ctx_for_handler = ctx.clone();
 
         let audio_enc_for_closure = audio_enc.clone();
         let video_mux_for_closure = video_mux.clone();
         let video_ntsc_for_closure = video_ntsc.clone();
 
-        let pipeline = Self::create_pipeline(
+        //let still_image_duration = settings.duration;
+        let current_time = self
+            .pipeline
+            .as_ref()
+            .and_then(|info| info.pipeline.query_position::<gstreamer::ClockTime>())
+            .unwrap_or(gstreamer::ClockTime::ZERO);
+        let is_png = matches!(settings.codec_settings, RenderPipelineCodec::Png);
+
+        let pipeline = self.create_pipeline(
             src,
             move |pipeline| {
-                pipeline.add(&audio_enc_for_closure)?;
-                audio_enc_for_closure.link(&video_mux_for_closure)?;
-                Ok(audio_enc_for_closure)
+                if let Some(audio_enc) = audio_enc_for_closure {
+                    pipeline.add(&audio_enc)?;
+                    audio_enc.link(&video_mux_for_closure.unwrap())?;
+                    Ok(Some(audio_enc))
+                } else {
+                    Ok(None)
+                }
             },
             |_| Ok(video_ntsc_for_closure),
             move |bus, msg| {
@@ -1245,13 +1308,33 @@ impl NtscApp {
 
                 gstreamer::BusSyncReply::Drop
             },
-            Some(self.render_settings.duration),
+            if is_png {
+                None
+            } else {
+                Some(settings.duration)
+            },
             if self.video_scale.enabled {
                 Some(self.video_scale.scale)
             } else {
                 None
             },
-            None::<fn()>,
+            self.pipeline
+                .as_ref()
+                .and_then(|info| *info.framerate.lock().unwrap())
+                .unwrap_or(gstreamer::Fraction::from(30)),
+            Some(move |p: gstreamer::Pipeline| {
+                exec2(async move {
+                    if is_png {
+                        let _ = p.seek_simple(
+                            gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
+                            current_time,
+                        );
+                    }
+
+                    let _ = p.set_state(gstreamer::State::Playing);
+                    None
+                });
+            }),
         )?;
 
         let video_caps = gstreamer_video::VideoCapsBuilder::new()
@@ -1271,7 +1354,6 @@ impl NtscApp {
             &video_convert,
             &caps_filter,
             &video_enc,
-            &video_mux,
             &dst,
         ])?;
         dbg!("added many render");
@@ -1282,15 +1364,24 @@ impl NtscApp {
             &video_convert,
             &caps_filter,
             &video_enc,
-            &video_mux,
         ])?;
 
-        gstreamer::Element::link(&video_mux, &dst)?;
+        let encoder_dst = if let Some(video_mux) = &video_mux {
+            pipeline.add(video_mux)?;
+            gstreamer::Element::link(video_mux, &dst)?;
+            video_mux.sync_state_with_parent()?;
+            video_mux
+        } else {
+            &dst
+        };
 
-        video_mux.sync_state_with_parent()?;
+        gstreamer::Element::link(&video_enc, encoder_dst)?;
+
         dst.sync_state_with_parent()?;
 
-        dbg!(pipeline.set_state(gstreamer::State::Playing))?;
+        pipeline.set_state(gstreamer::State::Paused)?;
+
+        //dbg!(pipeline.set_state(gstreamer::State::Playing))?;
 
         Ok(RenderJob {
             settings,
@@ -1782,8 +1873,8 @@ impl NtscApp {
             {
                 let render_job = self.create_render_job(
                     ui.ctx(),
-                    src_path.unwrap().clone(),
-                    self.render_settings.clone(),
+                    &src_path.unwrap().clone(),
+                    (&self.render_settings).into(),
                 );
                 match render_job {
                     Ok(render_job) => {
@@ -2134,24 +2225,44 @@ impl eframe::App for NtscApp {
                         let mut remove_pipeline = false;
                         let mut res = None;
                         if let Some(info) = &mut self.pipeline {
-                            let framerate = *info.framerate.lock().unwrap();
+                            let mut framerate = info.framerate.lock().unwrap();
                             if ui.button("🗙").clicked() {
                                 remove_pipeline = true;
                             }
 
-                            if let Some(framerate) = framerate {
+                            if let Some(current_framerate) = *framerate {
                                 ui.separator();
                                 if *info.is_still_image.lock().unwrap() {
-                                    let mut new_framerate = framerate.numer() as f64 / framerate.denom() as f64;
+                                    let mut new_framerate = current_framerate.numer() as f64
+                                        / current_framerate.denom() as f64;
                                     ui.label("fps");
-                                    if ui.add(egui::DragValue::new(&mut new_framerate).clamp_range(0.0..=240.0)).changed() {
-                                        let framerate_fraction = gstreamer::Fraction::approximate_f64(new_framerate);
+                                    if ui
+                                        .add(
+                                            egui::DragValue::new(&mut new_framerate)
+                                                .clamp_range(0.0..=240.0),
+                                        )
+                                        .changed()
+                                    {
+                                        let framerate_fraction =
+                                            gstreamer::Fraction::approximate_f64(new_framerate);
                                         if let Some(f) = framerate_fraction {
-                                            res = Some(Self::set_still_image_framerate(info, f));
+                                            let changed_framerate =
+                                                Self::set_still_image_framerate(&info.pipeline, f);
+                                            if let Ok(new_framerate) = changed_framerate {
+                                                if let Some(new_framerate) = new_framerate {
+                                                    *framerate = Some(new_framerate);
+                                                }
+                                            }
+
+                                            res = Some(changed_framerate);
                                         }
                                     }
                                 } else {
-                                    ui.label(format!("{:.2} fps", framerate.numer() as f64 / framerate.denom() as f64));
+                                    ui.label(format!(
+                                        "{:.2} fps",
+                                        current_framerate.numer() as f64
+                                            / current_framerate.denom() as f64
+                                    ));
                                 }
                             }
 
@@ -2192,7 +2303,7 @@ impl eframe::App for NtscApp {
                                 }
                                 None => "▶",
                             });
-                            let mut btn = ui.add_sized(
+                            let btn = ui.add_sized(
                                 vec2(
                                     ui.spacing().interact_size.y * 1.5,
                                     ui.spacing().interact_size.y * 1.5,
@@ -2200,32 +2311,40 @@ impl eframe::App for NtscApp {
                                 btn_widget,
                             );
 
-                            if !ctx.wants_keyboard_input() && ctx.input(|i| {
-                                i.events.iter().any(|event| {
-                                    if let egui::Event::Key {
-                                        key,
-                                        pressed,
-                                        repeat,
-                                        modifiers,
-                                    } = event
-                                    {
-                                        *key == egui::Key::Space
-                                            && *pressed
-                                            && !repeat
-                                            && modifiers.is_none()
-                                    } else {
-                                        false
-                                    }
+                            if !ctx.wants_keyboard_input()
+                                && ctx.input(|i| {
+                                    i.events.iter().any(|event| {
+                                        if let egui::Event::Key {
+                                            key,
+                                            pressed,
+                                            repeat,
+                                            modifiers,
+                                        } = event
+                                        {
+                                            *key == egui::Key::Space
+                                                && *pressed
+                                                && !repeat
+                                                && modifiers.is_none()
+                                        } else {
+                                            false
+                                        }
+                                    })
                                 })
-                            }) {
-                                let res = self.pipeline.as_mut().and_then(|p| Some(p.toggle_playing()));
+                            {
+                                let res = self
+                                    .pipeline
+                                    .as_mut()
+                                    .and_then(|p| Some(p.toggle_playing()));
                                 if let Some(res) = res {
                                     self.handle_result(res);
                                 }
                             }
 
                             if btn.clicked() {
-                                let res = self.pipeline.as_mut().and_then(|p| Some(p.toggle_playing()));
+                                let res = self
+                                    .pipeline
+                                    .as_mut()
+                                    .and_then(|p| Some(p.toggle_playing()));
                                 if let Some(res) = res {
                                     self.handle_result(res);
                                 }
@@ -2299,25 +2418,79 @@ impl eframe::App for NtscApp {
 
                             let scale_checkbox =
                                 ui.checkbox(&mut self.video_scale.enabled, "Scale to");
-                            ui.set_enabled(self.video_scale.enabled);
-                            let drag_resp = ui.add(
-                                egui::DragValue::new(&mut self.video_scale.scale)
-                                    .clamp_range(1..=usize::MAX),
-                            );
-                            if drag_resp.changed() || scale_checkbox.changed() {
-                                if let Some(pipeline) = &self.pipeline {
-                                    let res = Self::rescale_video(
-                                        &pipeline.pipeline,
-                                        if self.video_scale.enabled {
-                                            Some(self.video_scale.scale)
+                            ui.add_enabled_ui(self.video_scale.enabled, |ui| {
+                                let drag_resp = ui.add(
+                                    egui::DragValue::new(&mut self.video_scale.scale)
+                                        .clamp_range(1..=usize::MAX),
+                                );
+                                if drag_resp.changed() || scale_checkbox.changed() {
+                                    if let Some(pipeline) = &self.pipeline {
+                                        let res = Self::rescale_video(
+                                            &pipeline.pipeline,
+                                            if self.video_scale.enabled {
+                                                Some(self.video_scale.scale)
+                                            } else {
+                                                None
+                                            },
+                                        );
+                                        self.handle_result(res);
+                                    }
+                                }
+                                ui.label("scanlines");
+                            });
+
+                            ui.separator();
+
+                            let src_path = self
+                                .pipeline
+                                .as_ref()
+                                .and_then(|info| Some(info.path.clone()));
+                            if ui.button("Save image").clicked() {
+                                let ctx = ctx.clone();
+                                if let Some(src_path) = src_path {
+                                    let dst_path = src_path.with_extension("");
+                                    self.spawn(async move {
+                                        let handle = rfd::AsyncFileDialog::new()
+                                            .set_directory(
+                                                dst_path.parent().unwrap_or(Path::new("/")),
+                                            )
+                                            .set_file_name(format!(
+                                                "{}_ntsc.png",
+                                                dst_path
+                                                    .file_name()
+                                                    .to_owned()
+                                                    .unwrap()
+                                                    .to_string_lossy()
+                                            ))
+                                            .save_file()
+                                            .await;
+
+                                        if let Some(handle) = handle {
+                                            Some(Box::new(move |app: &mut NtscApp| {
+                                                let res = app.create_render_job(
+                                                    &ctx,
+                                                    &src_path.clone(),
+                                                    RenderPipelineSettings {
+                                                        codec_settings: RenderPipelineCodec::Png,
+                                                        output_path: handle.into(),
+                                                        duration:
+                                                            gstreamer::ClockTime::from_seconds(1),
+                                                    },
+                                                );
+                                                if let Ok(job) = res {
+                                                    app.render_jobs.push(job);
+                                                } else {
+                                                    app.handle_result(res);
+                                                }
+                                                Ok(())
+                                            })
+                                                as _)
                                         } else {
                                             None
-                                        },
-                                    );
-                                    self.handle_result(res);
+                                        }
+                                    });
                                 }
                             }
-                            ui.label("scanlines");
                         });
                     });
 

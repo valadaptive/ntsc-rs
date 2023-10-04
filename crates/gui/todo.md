@@ -7,5 +7,4 @@
 - Effect enable/disable toggle and splitscreen view
 - ctrl+scroll to zoom?
 - tooltips for all buttons!
-- Save single frame button
 - fix 4:2:0 h.264 encoding on images with odd dimensions
