@@ -2,10 +2,10 @@
 - Ensure error coverage
 - Error when an audio-only file is loaded
 - Randomize seed button
-- FPS display?
-- Show input framerate
+- Show current (rendered) FPS
 - Framerate doubler for 25/30fps
 - Effect enable/disable toggle and splitscreen view
 - ctrl+scroll to zoom?
 - tooltips for all buttons!
 - Save single frame button
+- fix 4:2:0 h.264 encoding on images with odd dimensions

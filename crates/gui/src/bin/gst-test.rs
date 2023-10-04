@@ -47,8 +47,8 @@ use gstreamer::prelude::*;
 use gstreamer::subclass::prelude::ObjectSubclass;
 use gstreamer::PadLinkError;
 use gstreamer_controller::prelude::*;
-use gstreamer_video::VideoCapsBuilder;
 use gstreamer_video::subclass::prelude::*;
+use gstreamer_video::VideoCapsBuilder;
 use gstreamer_video::VideoFormat;
 use gui::expression_parser::eval_expression_string;
 use gui::gst_utils::clock_format::clock_time_format;
@@ -222,6 +222,7 @@ struct PipelineInfo {
     preview: egui::TextureHandle,
     at_eos: Arc<Mutex<bool>>,
     is_still_image: Arc<Mutex<bool>>,
+    framerate: Arc<Mutex<Option<gstreamer::Fraction>>>,
 }
 
 impl PipelineInfo {
@@ -601,12 +602,17 @@ impl NtscApp {
             .name("video_queue")
             .build()?;
         let video_convert = gstreamer::ElementFactory::make("videoconvert").build()?;
-        let video_rate = gstreamer::ElementFactory::make("videorate").build()?;
+        let video_rate = gstreamer::ElementFactory::make("videorate")
+            .name("video_rate")
+            .build()?;
         let video_scale = gstreamer::ElementFactory::make("videoscale")
             .name("video_scale")
             .build()?;
         let caps_filter = gstreamer::ElementFactory::make("capsfilter")
             .name("caps_filter")
+            .build()?;
+        let framerate_caps_filter = gstreamer::ElementFactory::make("capsfilter")
+            .name("framerate_caps_filter")
             .build()?;
 
         let video_elements = &[
@@ -615,6 +621,7 @@ impl NtscApp {
             &video_rate,
             &video_scale,
             &caps_filter,
+            &framerate_caps_filter,
             &video_sink(pipeline.clone())?,
         ];
         pipeline.add_many(video_elements)?;
@@ -727,8 +734,16 @@ impl NtscApp {
                     };
 
                     if caps.is_some() && initial_scale.is_some() {
-                        if let Some((width, height)) = Self::scale_from_caps(&caps.unwrap(), initial_scale.unwrap()) {
-                            caps_filter.set_property("caps", gstreamer_video::VideoCapsBuilder::default().width(width).height(height).build());
+                        if let Some((width, height)) =
+                            Self::scale_from_caps(&caps.unwrap(), initial_scale.unwrap())
+                        {
+                            caps_filter.set_property(
+                                "caps",
+                                gstreamer_video::VideoCapsBuilder::default()
+                                    .width(width)
+                                    .height(height)
+                                    .build(),
+                            );
                         }
                     }
 
@@ -739,20 +754,16 @@ impl NtscApp {
                         let video_caps = gstreamer_video::VideoCapsBuilder::new()
                             .framerate(gstreamer::Fraction::from(30))
                             .build();
-                        let framerate_setter = gstreamer::ElementFactory::make("capsfilter")
-                            .property("caps", video_caps)
-                            .build()?;
+                        framerate_caps_filter.set_property("caps", video_caps);
 
                         if let Some(pipeline) = pipeline.upgrade() {
-                            pipeline.add_many([&image_freeze, &framerate_setter])?;
+                            pipeline.add(&image_freeze)?;
                             src_pad.link(&image_freeze.static_pad("sink").unwrap())?;
                             gstreamer::Element::link_many([
                                 &image_freeze,
-                                &framerate_setter,
                                 &video_queue,
                             ])?;
                             image_freeze.sync_state_with_parent()?;
-                            framerate_setter.sync_state_with_parent()?;
 
                             if let Some(duration) = duration {
                                 image_freeze.seek(
@@ -888,13 +899,31 @@ impl NtscApp {
             }
         } else {
             caps_filter.set_property("caps", gstreamer_video::VideoCapsBuilder::default().build());
-            pipeline.send_event(gstreamer::event::Reconfigure::new());
         }
 
         pipeline.seek_simple(
             gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
             pipeline.query_position::<gstreamer::ClockTime>().unwrap(),
         )?;
+
+        Ok(())
+    }
+
+    fn set_still_image_framerate(info: &PipelineInfo, framerate: gstreamer::Fraction) -> Result<(), GstreamerError> {
+        let caps_filter = info.pipeline.by_name("framerate_caps_filter");
+        if let Some(caps_filter) = caps_filter {
+            caps_filter.set_property("caps", VideoCapsBuilder::default().framerate(framerate).build());
+            // This seek is necessary to prevent caps negotiation from failing due to race conditions, for some reason.
+            // It seems like in some cases, there would be "tearing" in the caps between different elements, where some
+            // elements' caps would use the old framerate and some would use the new framerate. This would cause caps
+            // negotiation to fail, even though the caps filter sends a "reconfigure" event. This in turn woulc make the
+            // entire pipeline error out.
+            info.pipeline.seek_simple(
+                gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
+                info.pipeline.query_position::<gstreamer::ClockTime>().unwrap(),
+            )?;
+            *info.framerate.lock().unwrap() = Some(framerate);
+        }
 
         Ok(())
     }
@@ -928,6 +957,8 @@ impl NtscApp {
         let at_eos_for_handler = Arc::clone(&at_eos);
         let is_still_image = Arc::new(Mutex::new(false));
         let is_still_image_for_handler = Arc::clone(&is_still_image);
+        let framerate = Arc::new(Mutex::new(None));
+        let framerate_for_handler = Arc::clone(&framerate);
         let ctx_for_handler = ctx.clone();
 
         let audio_sink_for_closure = audio_sink.clone();
@@ -946,6 +977,7 @@ impl NtscApp {
                 let ctx = &ctx_for_handler;
                 let pipeline_info_state = &pipeline_info_state_for_handler;
                 let is_still_image = &is_still_image_for_handler;
+                let framerate = &framerate_for_handler;
 
                 let handle_msg = move |_bus, msg: &gstreamer::Message| -> Option<()> {
                     // Make sure we're listening to a pipeline event
@@ -980,8 +1012,21 @@ impl NtscApp {
                             {
                                 // Changed from READY to PAUSED/PLAYING.
                                 *pipeline_info_state.lock().unwrap() = PipelineInfoState::Loaded;
-                                *is_still_image.lock().unwrap() =
-                                    pipeline.by_name("still_image_freeze").is_some();
+                                let is_still_image_inner = pipeline.by_name("still_image_freeze").is_some();
+                                *is_still_image.lock().unwrap() = is_still_image_inner;
+
+                                let video_rate = pipeline.by_name("video_rate").unwrap();
+                                let caps =
+                                    video_rate.static_pad("src").and_then(|pad| pad.caps());
+
+                                *framerate.lock().unwrap() = if let Some(caps) = caps {
+                                    let structure = caps.structure(0);
+                                    structure.and_then(|structure| {
+                                        structure.get::<gstreamer::Fraction>("framerate").ok()
+                                    })
+                                } else {
+                                    None
+                                };
                             }
                         }
                     }
@@ -1016,6 +1061,7 @@ impl NtscApp {
             last_seek_pos: gstreamer::ClockTime::ZERO,
             preview: tex,
             is_still_image,
+            framerate,
         })
     }
 
@@ -1028,27 +1074,15 @@ impl NtscApp {
                 VideoFormat::Nv24,
             ],
             (8, true) => &[
-                gstreamer_video::VideoFormat::I420,
-                gstreamer_video::VideoFormat::Yv12,
-                gstreamer_video::VideoFormat::Nv12,
-                gstreamer_video::VideoFormat::Nv21,
+                VideoFormat::I420,
+                VideoFormat::Yv12,
+                VideoFormat::Nv12,
+                VideoFormat::Nv21,
             ],
-            (10, false) => &[
-                gstreamer_video::VideoFormat::Y44410be,
-                gstreamer_video::VideoFormat::Y44410le,
-            ],
-            (10, true) => &[
-                gstreamer_video::VideoFormat::I42010be,
-                gstreamer_video::VideoFormat::I42010le,
-            ],
-            (12, false) => &[
-                gstreamer_video::VideoFormat::Y44412be,
-                gstreamer_video::VideoFormat::Y44412le,
-            ],
-            (12, true) => &[
-                gstreamer_video::VideoFormat::I42012be,
-                gstreamer_video::VideoFormat::I42012le,
-            ],
+            (10, false) => &[VideoFormat::Y44410be, VideoFormat::Y44410le],
+            (10, true) => &[VideoFormat::I42010be, VideoFormat::I42010le],
+            (12, false) => &[VideoFormat::Y44412be, VideoFormat::Y44412le],
+            (12, true) => &[VideoFormat::I42012be, VideoFormat::I42012le],
             _ => panic!("No pixel format for bit depth {bit_depth}"),
         }
     }
@@ -1866,14 +1900,13 @@ impl NtscApp {
                                                         egui::Align::Center,
                                                     ),
                                                     |ui| {
-                                                        // TODO: this looks like garbage! use egui's text truncation once they actually release a new version
                                                         ui.add(
                                                             egui::Label::new(
                                                                 job.settings
                                                                     .output_path
                                                                     .to_string_lossy(),
                                                             )
-                                                            .wrap(true),
+                                                            .truncate(true),
                                                         );
                                                     },
                                                 )
@@ -2099,17 +2132,42 @@ impl eframe::App for NtscApp {
                 egui::TopBottomPanel::top("video_info").show_inside(ui, |ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let mut remove_pipeline = false;
+                        let mut res = None;
                         if let Some(info) = &mut self.pipeline {
+                            let framerate = *info.framerate.lock().unwrap();
                             if ui.button("🗙").clicked() {
                                 remove_pipeline = true;
+                            }
+
+                            if let Some(framerate) = framerate {
+                                ui.separator();
+                                if *info.is_still_image.lock().unwrap() {
+                                    let mut new_framerate = framerate.numer() as f64 / framerate.denom() as f64;
+                                    ui.label("fps");
+                                    if ui.add(egui::DragValue::new(&mut new_framerate).clamp_range(0.0..=240.0)).changed() {
+                                        let framerate_fraction = gstreamer::Fraction::approximate_f64(new_framerate);
+                                        if let Some(f) = framerate_fraction {
+                                            res = Some(Self::set_still_image_framerate(info, f));
+                                        }
+                                    }
+                                } else {
+                                    ui.label(format!("{:.2} fps", framerate.numer() as f64 / framerate.denom() as f64));
+                                }
                             }
 
                             ui.with_layout(
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
-                                    ui.label(info.path.to_string_lossy());
+                                    ui.add(
+                                        egui::Label::new(info.path.to_string_lossy())
+                                            .truncate(true),
+                                    );
                                 },
                             );
+                        }
+
+                        if let Some(res) = res {
+                            self.handle_result(res);
                         }
 
                         if remove_pipeline {
@@ -2142,7 +2200,7 @@ impl eframe::App for NtscApp {
                                 btn_widget,
                             );
 
-                            if ctx.input(|i| {
+                            if !ctx.wants_keyboard_input() && ctx.input(|i| {
                                 i.events.iter().any(|event| {
                                     if let egui::Event::Key {
                                         key,
@@ -2160,15 +2218,16 @@ impl eframe::App for NtscApp {
                                     }
                                 })
                             }) {
-                                if let Some(info) = &mut self.pipeline {
-                                    let res = info.toggle_playing();
-                                    btn = btn.highlight();
+                                let res = self.pipeline.as_mut().and_then(|p| Some(p.toggle_playing()));
+                                if let Some(res) = res {
+                                    self.handle_result(res);
                                 }
                             }
 
                             if btn.clicked() {
-                                if let Some(info) = &mut self.pipeline {
-                                    let res = info.toggle_playing();
+                                let res = self.pipeline.as_mut().and_then(|p| Some(p.toggle_playing()));
+                                if let Some(res) = res {
+                                    self.handle_result(res);
                                 }
                             }
 
