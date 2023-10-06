@@ -245,6 +245,7 @@ fn descriptors_to_c(descs: &[RsSettingDescriptor]) -> (*mut SettingDescriptor, u
     (p.as_mut_ptr(), descs.len(), descs.len() + num_group_children)
 }
 
+#[repr(transparent)]
 struct DescriptorsById(Box<[Option<Box<[usize]>>]>);
 
 #[repr(C)]

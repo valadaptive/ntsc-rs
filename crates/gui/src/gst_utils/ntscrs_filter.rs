@@ -2,7 +2,6 @@ use std::sync::RwLock;
 
 use gstreamer::glib;
 use gstreamer::glib::once_cell::sync::Lazy;
-use gstreamer::prelude::*;
 use gstreamer::prelude::{GstParamSpecBuilderExt, ParamSpecBuilderExt, ToValue};
 use gstreamer_video::subclass::prelude::*;
 use gstreamer_video::VideoFormat;

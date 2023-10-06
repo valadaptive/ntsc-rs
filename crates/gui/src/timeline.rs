@@ -8,7 +8,7 @@ use eframe::{
 };
 use gstreamer::{ClockTime, Fraction};
 
-use crate::gst_utils::clock_format::{clock_time_format, clock_time_parser};
+use crate::gst_utils::clock_format::clock_time_format;
 
 type GetSetValue<'a> = Box<dyn 'a + FnMut(Option<u64>) -> u64>;
 
@@ -287,7 +287,7 @@ impl<'a> Widget for Timeline<'a> {
             let feathering = ui.ctx().tessellation_options(|t| t.feathering_size_in_pixels) / ui.ctx().pixels_per_point();
 
             // Draw background
-            painter.rect_filled(rect, egui::Rounding::none(), visuals.bg_fill);
+            painter.rect_filled(rect, egui::Rounding::ZERO, visuals.bg_fill);
 
             let fine_tick_mark_interval = if let Some(framerate) = self.framerate {
                 framerate.denom() as f64 * ClockTime::SECOND.nseconds() as f64

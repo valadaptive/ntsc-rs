@@ -460,7 +460,7 @@ struct AppExecutor {
     waker: Waker,
     ctx: egui::Context,
     run_tasks: Vec<Pin<Box<dyn Future<Output = Option<AppFn>> + Send>>>,
-    queued_instant: VecDeque<AppFn>,
+    queued: Vec<AppFn>,
 }
 
 impl AppExecutor {
@@ -470,19 +470,21 @@ impl AppExecutor {
             waker: waker_fn::waker_fn(move || waker_ctx.request_repaint()),
             ctx,
             run_tasks: Vec::new(),
-            queued_instant: VecDeque::new(),
+            queued: Vec::new(),
         }
     }
-    fn tick(&mut self, app: &mut NtscApp) {
+
+    #[must_use]
+    fn tick(&mut self) -> Vec<AppFn> {
         let mut i = 0usize;
+        let mut queued = std::mem::take(&mut self.queued);
         while i < self.run_tasks.len() {
             let task = &mut self.run_tasks[i];
             match task.poll(&mut Context::from_waker(&self.waker)) {
                 Poll::Pending => {}
                 Poll::Ready(f) => {
                     if let Some(f) = f {
-                        let res = f(app);
-                        app.handle_result(res);
+                        queued.push(f);
                     }
                     self.run_tasks.swap_remove(i);
                 }
@@ -491,10 +493,7 @@ impl AppExecutor {
             i += 1;
         }
 
-        for queued_fn in self.queued_instant.drain(..) {
-            let res = queued_fn(app);
-            app.handle_result(res);
-        }
+        queued
     }
 
     fn spawn(
@@ -510,7 +509,7 @@ impl AppExecutor {
             match boxed.poll(&mut Context::from_waker(&self.waker)) {
                 Poll::Ready(f) => {
                     if let Some(f) = f {
-                        self.queued_instant.push_back(f);
+                        self.queued.push(f);
                     }
                 }
                 Poll::Pending => {
@@ -596,6 +595,29 @@ impl NtscApp {
                 exec.lock().unwrap().spawn(future, true);
             }
         }
+    }
+
+    fn tick(&mut self) {
+        loop {
+            // Get the functions to be executed at the end of the completed futures.
+            let app_fns = {
+                let exec = Arc::clone(&self.executor);
+                let mut exec = exec.lock().unwrap();
+                exec.tick()
+            };
+
+            // If there are none, we're done. If there are, loop--executing them may spawn more futures.
+            if app_fns.len() == 0 {
+                break;
+            }
+
+            // Execute functions outside the executor--if they call `spawn`, we don't want to recursively lock the
+            // executor's mutex.
+            for f in app_fns {
+                self.handle_result_with(f);
+            }
+        }
+
     }
 
     fn load_video(&mut self, ctx: &egui::Context, path: PathBuf) -> Result<(), ApplicationError> {
@@ -2082,11 +2104,7 @@ impl NtscApp {
 
 impl eframe::App for NtscApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        {
-            let exec = Arc::clone(&self.executor);
-            let mut exec = exec.lock().unwrap();
-            exec.tick(self);
-        }
+        self.tick();
 
         let mut pipeline_error = None::<GstreamerError>;
         if let Some(pipeline) = &self.pipeline {
