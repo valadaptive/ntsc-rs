@@ -4,6 +4,7 @@ use gstreamer::prelude::*;
 pub mod egui_sink;
 pub mod clock_format;
 pub mod ntscrs_filter;
+pub mod video_pad_filter;
 
 glib::wrapper! {
     pub struct EguiSink(ObjectSubclass<egui_sink::EguiSink>) @extends gstreamer_video::VideoSink, gstreamer_base::BaseSink, gstreamer::Element, gstreamer::Object;
@@ -11,6 +12,10 @@ glib::wrapper! {
 
 glib::wrapper! {
     pub struct NtscFilter(ObjectSubclass<ntscrs_filter::NtscFilter>) @extends gstreamer_base::BaseTransform, gstreamer::Element, gstreamer::Object;
+}
+
+glib::wrapper! {
+    pub struct VideoPadFilter(ObjectSubclass<video_pad_filter::VideoPadFilter>) @extends gstreamer_base::BaseTransform, gstreamer::Element, gstreamer::Object;
 }
 
 pub fn register(plugin: &gstreamer::Plugin) -> Result<(), glib::BoolError> {

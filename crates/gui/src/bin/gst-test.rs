@@ -52,6 +52,7 @@ use gstreamer_video::subclass::prelude::*;
 use gstreamer_video::VideoCapsBuilder;
 use gstreamer_video::VideoFormat;
 use gui::expression_parser::eval_expression_string;
+use gui::gst_utils::VideoPadFilter;
 use gui::gst_utils::clock_format::clock_time_format;
 use gui::gst_utils::clock_format::clock_time_formatter;
 use gui::gst_utils::clock_format::clock_time_parser;
@@ -157,6 +158,13 @@ fn initialize_gstreamer() -> Result<(), GstreamerError> {
         "ntscfilter",
         gstreamer::Rank::None,
         NtscFilter::static_type(),
+    )?;
+
+    gstreamer::Element::register(
+        None,
+        "videopadfilter",
+        gstreamer::Rank::None,
+        VideoPadFilter::static_type(),
     )?;
 
     // PulseAudio has a severe bug that will greatly delay initial playback to the point of unusability:
@@ -1348,36 +1356,35 @@ impl NtscApp {
         let dst = gstreamer::ElementFactory::make("filesink")
             .property("location", settings.output_path.as_path())
             .build()?;
+
+        let mut elems = vec![video_ntsc];
+
+        // libx264 can't encode 4:2:0 subsampled videos with odd dimensions. Pad them out to even dimensions.
+        if let RenderPipelineCodec::H264(H264Settings { chroma_subsampling: true, .. }) = &settings.codec_settings {
+            let video_padding = gstreamer::ElementFactory::make("videopadfilter").build()?;
+            elems.push(video_padding);
+        }
+
+        elems.extend([
+            ntsc_caps_filter,
+            video_convert,
+            caps_filter,
+            video_enc,
+        ]);
+        if let Some(video_mux) = video_mux {
+            elems.push(video_mux);
+        }
+        elems.push(dst);
+
         dbg!("adding many render");
-        pipeline.add_many([
-            &ntsc_caps_filter,
-            &video_convert,
-            &caps_filter,
-            &video_enc,
-            &dst,
-        ])?;
+        pipeline.add_many(elems.iter().skip(1))?;
         dbg!("added many render");
 
-        gstreamer::Element::link_many([
-            &video_ntsc,
-            &ntsc_caps_filter,
-            &video_convert,
-            &caps_filter,
-            &video_enc,
-        ])?;
+        gstreamer::Element::link_many(elems.iter())?;
 
-        let encoder_dst = if let Some(video_mux) = &video_mux {
-            pipeline.add(video_mux)?;
-            gstreamer::Element::link(video_mux, &dst)?;
-            video_mux.sync_state_with_parent()?;
-            video_mux
-        } else {
-            &dst
-        };
-
-        gstreamer::Element::link(&video_enc, encoder_dst)?;
-
-        dst.sync_state_with_parent()?;
+        for elem in elems.iter() {
+            elem.sync_state_with_parent()?;
+        }
 
         pipeline.set_state(gstreamer::State::Paused)?;
 
