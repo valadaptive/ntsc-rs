@@ -5,6 +5,7 @@ use core::f32::consts::PI;
 use image::RgbImage;
 use rand::{Rng, RngCore, SeedableRng};
 use rand_xoshiro::Xoshiro256PlusPlus;
+use rayon::prelude::*;
 use simdnoise::NoiseBuilder;
 
 use crate::{
@@ -111,7 +112,7 @@ fn filter_plane(
     scale: f32,
     delay: usize,
 ) {
-    plane.chunks_mut(width).for_each(|field| {
+    plane.par_chunks_mut(width).for_each(|field| {
         let initial = match initial {
             InitialCondition::Zero => 0.0,
             InitialCondition::Constant(c) => c,
@@ -213,9 +214,9 @@ fn chroma_into_luma(
 ) {
     let width = yiq.dimensions.0;
 
-    let y_lines = yiq.y.chunks_mut(width);
-    let i_lines = yiq.i.chunks_mut(width);
-    let q_lines = yiq.q.chunks_mut(width);
+    let y_lines = yiq.y.par_chunks_mut(width);
+    let i_lines = yiq.i.par_chunks_mut(width);
+    let q_lines = yiq.q.par_chunks_mut(width);
 
     y_lines
         .zip(i_lines.zip(q_lines))
@@ -322,11 +323,10 @@ fn luma_into_chroma(
 
     match filter_mode {
         ChromaDemodulationFilter::Box
-        | ChromaDemodulationFilter::Notch
-        | ChromaDemodulationFilter::OneLineComb => {
-            let y_lines = yiq.y.chunks_mut(width);
-            let i_lines = yiq.i.chunks_mut(width);
-            let q_lines = yiq.q.chunks_mut(width);
+        | ChromaDemodulationFilter::Notch => {
+            let y_lines = yiq.y.par_chunks_mut(width);
+            let i_lines = yiq.i.par_chunks_mut(width);
+            let q_lines = yiq.q.par_chunks_mut(width);
 
             match filter_mode {
                 ChromaDemodulationFilter::Box => {
@@ -346,7 +346,7 @@ fn luma_into_chroma(
                 ChromaDemodulationFilter::Notch => {
                     let scratch = scratch_buffer.get();
                     let filter: TransferFunction = make_notch_filter(0.5, 2.0);
-                    (y_lines.zip(scratch.chunks_mut(width)))
+                    (y_lines.zip(scratch.par_chunks_mut(width)))
                         .zip(i_lines.zip(q_lines))
                         .enumerate()
                         .for_each(|(index, ((y, scratch), (i, q)))| {
@@ -368,30 +368,33 @@ fn luma_into_chroma(
                                 subcarrier_amplitude,
                             );
                         });
-                }
-                ChromaDemodulationFilter::OneLineComb => {
-                    let mut delay = vec![0f32; width];
-                    y_lines.zip(i_lines.zip(q_lines)).enumerate().for_each(
-                        |(line_index, (y, (i, q)))| {
-                            for index in 0..width {
-                                let blended = (y[index] + delay[index]) * 0.5;
-                                delay[index] = y[index];
-                                let chroma = blended - y[index];
-                                y[index] = blended;
-                                let xi = chroma_phase_offset(
-                                    phase_shift,
-                                    phase_offset,
-                                    info.frame_num,
-                                    line_index * 2,
-                                );
-                                demodulate_chroma(chroma, index, xi, subcarrier_amplitude, i, q);
-                            }
-                        },
-                    );
-                }
+                },
                 _ => unreachable!(),
             }
         }
+        ChromaDemodulationFilter::OneLineComb => {
+            let y_lines = yiq.y.chunks_mut(width);
+            let i_lines = yiq.i.chunks_mut(width);
+            let q_lines = yiq.q.chunks_mut(width);
+            let mut delay = vec![0f32; width];
+            y_lines.zip(i_lines.zip(q_lines)).enumerate().for_each(
+                |(line_index, (y, (i, q)))| {
+                    for index in 0..width {
+                        let blended = (y[index] + delay[index]) * 0.5;
+                        delay[index] = y[index];
+                        let chroma = blended - y[index];
+                        y[index] = blended;
+                        let xi = chroma_phase_offset(
+                            phase_shift,
+                            phase_offset,
+                            info.frame_num,
+                            line_index * 2,
+                        );
+                        demodulate_chroma(chroma, index, xi, subcarrier_amplitude, i, q);
+                    }
+                },
+            );
+        },
         ChromaDemodulationFilter::TwoLineComb => {
             let mut delay = vec![0f32; width];
 
@@ -474,7 +477,7 @@ fn composite_noise(yiq: &mut YiqView, info: &CommonInfo, frequency: f32, intensi
         .mix(info.frame_num);
 
     yiq.y
-        .chunks_mut(width)
+        .par_chunks_mut(width)
         .enumerate()
         .for_each(|(index, row)| {
             video_noise_line(
@@ -495,8 +498,8 @@ fn chroma_noise(yiq: &mut YiqView, info: &CommonInfo, frequency: f32, intensity:
         .mix(info.frame_num);
 
     yiq.i
-        .chunks_mut(width)
-        .zip(yiq.q.chunks_mut(width))
+        .par_chunks_mut(width)
+        .zip(yiq.q.par_chunks_mut(width))
         .enumerate()
         .for_each(|(index, (i, q))| {
             video_noise_line(
@@ -524,8 +527,8 @@ fn chroma_phase_noise(yiq: &mut YiqView, info: &CommonInfo, intensity: f32) {
         .mix(info.frame_num);
 
     yiq.i
-        .chunks_mut(width)
-        .zip(yiq.q.chunks_mut(width))
+        .par_chunks_mut(width)
+        .zip(yiq.q.par_chunks_mut(width))
         .enumerate()
         .for_each(|(index, (i, q))| {
             // Phase shift angle in radians. Mapped so that an intensity of 1.0 is a phase shift ranging from a full
@@ -574,7 +577,7 @@ fn head_switching(
         .mix(info.frame_num);
 
     affected_rows
-        .chunks_mut(width)
+        .par_chunks_mut(width)
         .enumerate()
         .for_each(|(index, row)| {
             let index = num_affected_rows - (index + cut_off_rows);
@@ -673,7 +676,7 @@ fn tracking_noise(
     };
 
     affected_rows
-        .chunks_mut(width)
+        .par_chunks_mut(width)
         .enumerate()
         .for_each(|(index, row)| {
             let index = index + cut_off_rows;
@@ -710,7 +713,7 @@ fn snow(yiq: &mut YiqView, info: &CommonInfo, intensity: f32, anisotropy: f32) {
         .mix(info.frame_num);
 
     yiq.y
-        .chunks_mut(yiq.dimensions.0)
+        .par_chunks_mut(yiq.dimensions.0)
         .enumerate()
         .for_each(|(index, row)| {
             let line_seed = seeder.clone().mix(index);
@@ -744,8 +747,8 @@ fn chroma_delay(yiq: &mut YiqView, info: &CommonInfo, offset: (f32, isize)) {
     if offset.1 == 0 {
         // Only a horizontal shift is necessary. We can do this in-place easily.
         yiq.i
-            .chunks_mut(width)
-            .zip(yiq.q.chunks_mut(width))
+            .par_chunks_mut(width)
+            .zip(yiq.q.par_chunks_mut(width))
             .for_each(|(i, q)| {
                 shift_row(i, horiz_shift, BoundaryHandling::Constant(0.0));
                 shift_row(q, horiz_shift, BoundaryHandling::Constant(0.0));
@@ -817,7 +820,7 @@ fn vhs_edge_wave(yiq: &mut YiqView, info: &CommonInfo, intensity: f32, speed: f3
 
     for plane in [&mut yiq.y, &mut yiq.i, &mut yiq.q] {
         plane
-            .chunks_mut(width)
+            .par_chunks_mut(width)
             .enumerate()
             .for_each(|(index, row)| {
                 let shift = (noise[index] / 0.022) * intensity * 0.5 * info.bandwidth_scale;

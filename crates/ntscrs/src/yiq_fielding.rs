@@ -1,5 +1,6 @@
 use glam::{Mat3, Vec3};
 use image::RgbImage;
+use rayon::prelude::*;
 
 const YIQ_MATRIX: Mat3 = Mat3 {
     x_axis: Vec3 {
@@ -67,7 +68,7 @@ impl YiqField {
     }
 }
 
-pub trait Normalize: Sized + Copy {
+pub trait Normalize: Sized + Copy + Send + Sync {
     fn from_norm(value: f32) -> Self;
     fn to_norm(self) -> f32;
 }
@@ -145,8 +146,8 @@ impl<'a> YiqView<'a> {
         let Self {y, i, q, ..} = self;
         let (width, ..) = self.dimensions;
 
-        y.chunks_mut(width)
-            .zip(i.chunks_mut(width).zip(q.chunks_mut(width)))
+        y.par_chunks_mut(width)
+            .zip(i.par_chunks_mut(width).zip(q.par_chunks_mut(width)))
             .enumerate()
             .for_each(|(row_idx, (y, (i, q)))| {
                 let src_row_idx = (row_idx << row_lshift) + row_offset;
@@ -190,7 +191,7 @@ impl<'a> YiqView<'a> {
 
         let num_rows = self.num_rows();
 
-        dst.chunks_exact_mut(row_bytes / std::mem::size_of::<S::DataFormat>())
+        dst.par_chunks_exact_mut(row_bytes / std::mem::size_of::<S::DataFormat>())
             .enumerate()
             .for_each(|(row_idx, dst_row)| {
                 // Inner fields with lines above and below them. Interpolate between those fields
