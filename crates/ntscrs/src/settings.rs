@@ -238,6 +238,7 @@ pub struct NtscEffect {
     pub snow_intensity: f32,
     pub snow_anisotropy: f32,
     pub chroma_phase_noise_intensity: f32,
+    pub chroma_phase_error: f32,
     pub chroma_delay: (f32, i32),
     #[settings_block]
     pub vhs_settings: Option<VHSSettings>,
@@ -264,6 +265,7 @@ impl Default for NtscEffect {
             composite_noise_intensity: 0.01,
             chroma_noise_intensity: 0.1,
             chroma_phase_noise_intensity: 0.001,
+            chroma_phase_error: 0.0,
             chroma_delay: (0.0, 0),
             vhs_settings: Some(VHSSettings::default()),
             bandwidth_scale: 1.0,
@@ -362,6 +364,8 @@ pub enum SettingID {
     TRACKING_NOISE_SNOW_ANISOTROPY,
 
     RANDOM_SEED,
+
+    CHROMA_PHASE_ERROR,
 }
 
 macro_rules! impl_get_field_ref {
@@ -447,6 +451,8 @@ macro_rules! impl_get_field_ref {
 
             SettingID::BANDWIDTH_SCALE => $settings.bandwidth_scale.$borrow_op(),
             SettingID::RANDOM_SEED => $settings.random_seed.$borrow_op(),
+
+            SettingID::CHROMA_PHASE_ERROR => $settings.chroma_phase_error.$borrow_op(),
         }
     };
 }
@@ -578,6 +584,7 @@ impl SettingID {
             SettingID::SNOW_ANISOTROPY => "snow_anisotropy",
             SettingID::TRACKING_NOISE_SNOW_ANISOTROPY => "tracking_noise_snow_anisotropy",
             SettingID::RANDOM_SEED => "random_seed",
+            SettingID::CHROMA_PHASE_ERROR => "chroma_phase_error",
         }
     }
 }
@@ -912,6 +919,15 @@ impl SettingsList {
                     default_value: default_settings.chroma_noise_intensity,
                 },
                 id: SettingID::CHROMA_NOISE_INTENSITY,
+            },
+            SettingDescriptor {
+                label: "Chroma phase error",
+                description: Some("Phase error for the chrominance signal."),
+                kind: SettingKind::Percentage {
+                    logarithmic: false,
+                    default_value: default_settings.chroma_phase_error,
+                },
+                id: SettingID::CHROMA_PHASE_ERROR,
             },
             SettingDescriptor {
                 label: "Chroma phase noise",

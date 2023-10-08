@@ -10,4 +10,3 @@
 - Look into replacing Meson with build.rs and https://crates.io/crates/cc
 - Handle downsampling properly
 - Luma smear
-- Whole-frame chroma phase error (as opposed to chroma phase noise)

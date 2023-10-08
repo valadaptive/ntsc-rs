@@ -167,7 +167,7 @@ fn composite_chroma_lowpass_lite(frame: &mut YiqView, info: &CommonInfo) {
 }
 
 /// Calculate the chroma subcarrier phase for a given row/field
-fn chroma_phase_offset(
+fn chroma_phase_shift(
     scanline_phase_shift: PhaseShift,
     offset: i32,
     frame_num: usize,
@@ -222,7 +222,7 @@ fn chroma_into_luma(
         .zip(i_lines.zip(q_lines))
         .enumerate()
         .for_each(|(index, (y, (i, q)))| {
-            let xi = chroma_phase_offset(phase_shift, phase_offset, info.frame_num, index * 2);
+            let xi = chroma_phase_shift(phase_shift, phase_offset, info.frame_num, index * 2);
 
             chroma_into_luma_line(y, i, q, xi, subcarrier_amplitude);
         });
@@ -332,7 +332,7 @@ fn luma_into_chroma(
                 ChromaDemodulationFilter::Box => {
                     y_lines.zip(i_lines.zip(q_lines)).enumerate().for_each(
                         |(index, (y, (i, q)))| {
-                            let xi = chroma_phase_offset(
+                            let xi = chroma_phase_shift(
                                 phase_shift,
                                 phase_offset,
                                 info.frame_num,
@@ -350,7 +350,7 @@ fn luma_into_chroma(
                         .zip(i_lines.zip(q_lines))
                         .enumerate()
                         .for_each(|(index, ((y, scratch), (i, q)))| {
-                            let xi = chroma_phase_offset(
+                            let xi = chroma_phase_shift(
                                 phase_shift,
                                 phase_offset,
                                 info.frame_num,
@@ -384,7 +384,7 @@ fn luma_into_chroma(
                         delay[index] = y[index];
                         let chroma = blended - y[index];
                         y[index] = blended;
-                        let xi = chroma_phase_offset(
+                        let xi = chroma_phase_shift(
                             phase_shift,
                             phase_offset,
                             info.frame_num,
@@ -412,7 +412,7 @@ fn luma_into_chroma(
                     delay[sample_index] = *cur_line;
                     *cur_line = blended;
 
-                    let xi = chroma_phase_offset(
+                    let xi = chroma_phase_shift(
                         phase_shift,
                         phase_offset,
                         info.frame_num,
@@ -519,6 +519,33 @@ fn chroma_noise(yiq: &mut YiqView, info: &CommonInfo, frequency: f32, intensity:
         });
 }
 
+fn chroma_phase_offset_line(i: &mut [f32], q: &mut [f32], offset: f32) {
+    // Phase shift angle in radians. Mapped so that an intensity of 1.0 is a phase shift ranging from a full
+    // rotation to the left - a full rotation to the right.
+    let phase_shift = offset * PI * 2.0;
+    let (sin_angle, cos_angle) = phase_shift.sin_cos();
+
+    for (i, q) in i.iter_mut().zip(q.iter_mut()) {
+        // Treat (i, q) as a 2D vector and rotate it by the phase shift amount.
+        let rotated_i = (*i * cos_angle) - (*q * sin_angle);
+        let rotated_q = (*i * sin_angle) + (*q * cos_angle);
+
+        *i = rotated_i;
+        *q = rotated_q;
+    }
+}
+
+fn chroma_phase_error(yiq: &mut YiqView, intensity: f32) {
+    let width = yiq.dimensions.0;
+
+    yiq.i
+        .par_chunks_mut(width)
+        .zip(yiq.q.par_chunks_mut(width))
+        .for_each(|(i, q)| {
+            chroma_phase_offset_line(i, q, intensity);
+        });
+}
+
 /// Add per-scanline chroma phase error.
 fn chroma_phase_noise(yiq: &mut YiqView, info: &CommonInfo, intensity: f32) {
     let width = yiq.dimensions.0;
@@ -534,17 +561,9 @@ fn chroma_phase_noise(yiq: &mut YiqView, info: &CommonInfo, intensity: f32) {
             // Phase shift angle in radians. Mapped so that an intensity of 1.0 is a phase shift ranging from a full
             // rotation to the left - a full rotation to the right.
             let phase_shift =
-                (seeder.clone().mix(index).finalize::<f32>() - 0.5) * PI * 4.0 * intensity;
-            let (sin_angle, cos_angle) = phase_shift.sin_cos();
+                (seeder.clone().mix(index).finalize::<f32>() - 0.5) * 2.0 * intensity;
 
-            for (i, q) in i.iter_mut().zip(q.iter_mut()) {
-                // Treat (i, q) as a 2D vector and rotate it by the phase shift amount.
-                let rotated_i = (*i * cos_angle) - (*q * sin_angle);
-                let rotated_q = (*i * sin_angle) + (*q * cos_angle);
-
-                *i = rotated_i;
-                *q = rotated_q;
-            }
+            chroma_phase_offset_line(i, q, phase_shift);
         });
 }
 
@@ -993,6 +1012,10 @@ impl NtscEffect {
 
         if self.chroma_noise_intensity > 0.0 {
             chroma_noise(yiq, &info, 0.05, self.chroma_noise_intensity);
+        }
+
+        if self.chroma_phase_error > 0.0 {
+            chroma_phase_error(yiq, self.chroma_phase_error);
         }
 
         if self.chroma_phase_noise_intensity > 0.0 {
