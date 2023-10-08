@@ -887,7 +887,7 @@ impl NtscApp {
                             // CRF mode
                             .property("pass", GstX264EncPass.to_value_by_nick("quant").unwrap())
                             // invert CRF (so that low numbers = low quality)
-                            .property("quantizer", 51 - h264_settings.crf as u32)
+                            .property("quantizer", 50 - h264_settings.crf as u32)
                             .property(
                                 "speed-preset",
                                 GstX264EncPreset
@@ -1569,16 +1569,16 @@ impl NtscApp {
             match self.render_settings.output_codec {
                 OutputCodec::H264 => {
                     ui.add(
-                        egui::Slider::new(&mut self.render_settings.h264_settings.crf, 0..=51)
+                        egui::Slider::new(&mut self.render_settings.h264_settings.crf, 0..=50)
                             .text("Quality"),
-                    );
+                    ).on_hover_text("Video quality factor, where 0 is the worst quality and 50 is the best. Higher quality videos take up more space.");
                     ui.add(
                         egui::Slider::new(
                             &mut self.render_settings.h264_settings.encode_speed,
                             0..=8,
                         )
                         .text("Encoding speed"),
-                    );
+                    ).on_hover_text("Encoding speed preset. Higher encoding speeds provide a worse compression ratio, resulting in larger videos at a given quality.");
                     // Disabled for now until I can find a way to query for 10-bit support
                     /*ui.checkbox(
                         &mut self.render_settings.h264_settings.ten_bit,
@@ -1587,7 +1587,7 @@ impl NtscApp {
                     ui.checkbox(
                         &mut self.render_settings.h264_settings.chroma_subsampling,
                         "4:2:0 chroma subsampling",
-                    );
+                    ).on_hover_text("Subsample the chrominance planes to half the resolution of the luminance plane. Increases playback compatibility.");
                 }
 
                 OutputCodec::Ffv1 => {
@@ -1614,7 +1614,7 @@ impl NtscApp {
                     ui.checkbox(
                         &mut self.render_settings.ffv1_settings.chroma_subsampling,
                         "4:2:0 chroma subsampling",
-                    );
+                    ).on_hover_text("Subsample the chrominance planes to half the resolution of the luminance plane. Results in smaller files.");
                 }
             }
 
