@@ -15,7 +15,7 @@ impl VideoPadFilter {}
 #[glib::object_subclass]
 impl ObjectSubclass for VideoPadFilter {
     const NAME: &'static str = "ntscrs_video_pad";
-    type Type = super::VideoPadFilter;
+    type Type = super::elements::VideoPadFilter;
     type ParentType = gstreamer_video::VideoFilter;
 }
 

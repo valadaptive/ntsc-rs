@@ -34,7 +34,7 @@ impl Debug for SinkTexture {
 }
 
 #[derive(glib::Properties, Default)]
-#[properties(wrapper_type = super::EguiSink)]
+#[properties(wrapper_type = super::elements::EguiSink)]
 pub struct EguiSink {
     #[property(get, set)]
     texture: Mutex<SinkTexture>,
@@ -115,7 +115,7 @@ impl EguiSink {
 #[glib::object_subclass]
 impl ObjectSubclass for EguiSink {
     const NAME: &'static str = "EguiSink";
-    type Type = super::EguiSink;
+    type Type = super::elements::EguiSink;
     type ParentType = gstreamer_video::VideoSink;
 }
 

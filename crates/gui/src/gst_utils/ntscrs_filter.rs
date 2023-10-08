@@ -24,7 +24,7 @@ impl NtscFilter {}
 #[glib::object_subclass]
 impl ObjectSubclass for NtscFilter {
     const NAME: &'static str = "ntscrs";
-    type Type = super::NtscFilter;
+    type Type = super::elements::NtscFilter;
     type ParentType = gstreamer_video::VideoFilter;
 }
 
