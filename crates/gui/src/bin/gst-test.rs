@@ -395,7 +395,9 @@ impl AppExecutor {
         while i < self.run_tasks.len() {
             let task = &mut self.run_tasks[i];
             match task.poll(&mut Context::from_waker(&self.waker)) {
-                Poll::Pending => {}
+                Poll::Pending => {
+                    i += 1;
+                }
                 Poll::Ready(f) => {
                     if let Some(f) = f {
                         queued.push(f);
@@ -403,8 +405,6 @@ impl AppExecutor {
                     self.run_tasks.swap_remove(i);
                 }
             }
-
-            i += 1;
         }
 
         queued
@@ -470,13 +470,7 @@ impl NtscApp {
             last_error: None,
         }
     }
-}
 
-#[derive(Clone, Debug, glib::Boxed)]
-#[boxed_type(name = "ErrorValue")]
-struct ErrorValue(Arc<Mutex<Option<GstreamerError>>>);
-
-impl NtscApp {
     fn spawn(&mut self, future: impl Future<Output = Option<AppFn>> + 'static + Send) {
         self.executor.lock().unwrap().spawn(future, false);
     }
@@ -1091,6 +1085,23 @@ impl NtscApp {
         }
     }
 
+    fn handle_error(&mut self, err: &dyn Error) {
+        self.last_error = Some(format!("{}", err));
+    }
+
+    fn handle_result<T, E: Error>(&mut self, result: Result<T, E>) {
+        if let Err(err) = result {
+            self.handle_error(&err);
+        }
+    }
+
+    fn handle_result_with<T, E: Error, F: FnOnce(&mut Self) -> Result<T, E>>(&mut self, cb: F) {
+        let result = cb(self);
+        self.handle_result(result);
+    }
+}
+
+impl NtscApp {
     fn settings_from_descriptors(
         effect_settings: &mut NtscEffectFullSettings,
         ui: &mut egui::Ui,
@@ -1384,6 +1395,136 @@ impl NtscApp {
         });
     }
 
+    fn show_render_job(ui: &mut egui::Ui, job: &mut RenderJob) -> bool {
+        let mut remove_job = false;
+        ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+            let fill = ui.style().visuals.faint_bg_color;
+            egui::Frame::none()
+                .fill(fill)
+                .stroke(ui.style().visuals.window_stroke)
+                .rounding(ui.style().noninteractive().rounding)
+                .inner_margin(ui.style().spacing.window_margin)
+                .show(ui, |ui| {
+                    let job_state = &*job.state.lock().unwrap();
+
+                    let (progress, job_position, job_duration) = match job_state {
+                        RenderJobState::Waiting => (0.0, None, None),
+                        RenderJobState::Paused
+                        | RenderJobState::Rendering
+                        | RenderJobState::Error(_) => {
+                            let job_position =
+                                job.pipeline.query_position::<gstreamer::ClockTime>();
+                            let job_duration =
+                                job.pipeline.query_duration::<gstreamer::ClockTime>();
+
+                            (
+                                if job_position.is_some() && job_duration.is_some() {
+                                    job_position.unwrap().nseconds() as f64
+                                        / job_duration.unwrap().nseconds() as f64
+                                } else {
+                                    job.last_progress
+                                },
+                                job_position,
+                                job_duration,
+                            )
+                        }
+                        RenderJobState::Complete => (1.0, None, None),
+                    };
+
+                    if matches!(
+                        job_state,
+                        RenderJobState::Rendering | RenderJobState::Waiting
+                    ) {
+                        let current_time = ui.ctx().input(|input| input.time);
+                        let most_recent_sample = job
+                            .progress_samples
+                            .back()
+                            .and_then(|sample| Some(sample.clone()));
+                        let should_update_estimate =
+                            if let Some((_, sample_time)) = most_recent_sample {
+                                current_time - sample_time > PROGRESS_SAMPLE_TIME_DELTA
+                            } else {
+                                true
+                            };
+                        if should_update_estimate {
+                            if job.start_time.is_none() {
+                                job.start_time = Some(current_time);
+                            }
+                            let new_sample = (progress, current_time);
+                            let oldest_sample =
+                                if job.progress_samples.len() >= NUM_PROGRESS_SAMPLES {
+                                    job.progress_samples.pop_front()
+                                } else {
+                                    job.progress_samples
+                                        .front()
+                                        .and_then(|sample| Some(sample.clone()))
+                                };
+                            job.progress_samples.push_back(new_sample);
+                            if let Some((old_progress, old_sample_time)) = oldest_sample {
+                                let time_estimate =
+                                    (current_time - old_sample_time) / (progress - old_progress);
+                                if time_estimate.is_finite() {
+                                    let elapsed_time = current_time - job.start_time.unwrap();
+                                    let remaining_time = (time_estimate - elapsed_time).max(0.0);
+                                    job.estimated_time_remaining = Some(remaining_time);
+                                }
+                            }
+                        }
+                    }
+
+                    ui.horizontal(|ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            remove_job = ui.button("🗙").clicked();
+                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                ui.add(
+                                    egui::Label::new(job.settings.output_path.to_string_lossy())
+                                        .truncate(true),
+                                );
+                            })
+                        });
+                    });
+
+                    ui.separator();
+
+                    ui.add(egui::ProgressBar::new(progress as f32).show_percentage());
+                    if let RenderJobState::Rendering = job_state {
+                        ui.ctx().request_repaint();
+                    }
+
+                    ui.label(match job_state {
+                        RenderJobState::Waiting => Cow::Borrowed("Waiting..."),
+                        RenderJobState::Rendering => {
+                            if job_position.is_some() && job_duration.is_some() {
+                                Cow::Owned(format!(
+                                    "Rendering... ({:.2} / {:.2})",
+                                    job_position.unwrap(),
+                                    job_duration.unwrap()
+                                ))
+                            } else {
+                                Cow::Borrowed("Rendering...")
+                            }
+                        }
+                        RenderJobState::Paused => Cow::Borrowed("Paused"),
+                        RenderJobState::Complete => Cow::Borrowed("Complete"),
+                        RenderJobState::Error(err) => Cow::Owned(format!("Error: {err}")),
+                    });
+
+                    if matches!(
+                        job_state,
+                        RenderJobState::Rendering | RenderJobState::Paused
+                    ) {
+                        if let Some(time_remaining) = job.estimated_time_remaining {
+                            ui.label(format!("Time remaining: {time_remaining:.0} seconds"));
+                        }
+                    }
+
+                    job.last_progress = progress;
+                });
+        });
+
+        remove_job
+    }
+
     fn show_render_settings(&mut self, ui: &mut egui::Ui) {
         egui::Frame::central_panel(ui.style()).show(ui, |ui| {
             egui::ComboBox::from_label("Codec")
@@ -1565,161 +1706,9 @@ impl NtscApp {
                 .show(ui, |ui| {
                     let mut removed_job_idx = None;
                     for (idx, job) in self.render_jobs.iter_mut().enumerate() {
-                        ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
-                            let fill = ui.style().visuals.faint_bg_color;
-                            egui::Frame::none()
-                                .fill(fill)
-                                .stroke(ui.style().visuals.window_stroke)
-                                .rounding(ui.style().noninteractive().rounding)
-                                .inner_margin(ui.style().spacing.window_margin)
-                                .show(ui, |ui| {
-                                    let job_state = &*job.state.lock().unwrap();
-
-                                    let (progress, job_position, job_duration) = match job_state {
-                                        RenderJobState::Waiting => (0.0, None, None),
-                                        RenderJobState::Paused
-                                        | RenderJobState::Rendering
-                                        | RenderJobState::Error(_) => {
-                                            let job_position = job
-                                                .pipeline
-                                                .query_position::<gstreamer::ClockTime>();
-                                            let job_duration = job
-                                                .pipeline
-                                                .query_duration::<gstreamer::ClockTime>();
-
-                                            (
-                                                if job_position.is_some() && job_duration.is_some()
-                                                {
-                                                    job_position.unwrap().nseconds() as f64
-                                                        / job_duration.unwrap().nseconds() as f64
-                                                } else {
-                                                    job.last_progress
-                                                },
-                                                job_position,
-                                                job_duration,
-                                            )
-                                        }
-                                        RenderJobState::Complete => (1.0, None, None),
-                                    };
-
-                                    if matches!(
-                                        job_state,
-                                        RenderJobState::Rendering | RenderJobState::Waiting
-                                    ) {
-                                        let current_time = ui.ctx().input(|input| input.time);
-                                        let most_recent_sample = job
-                                            .progress_samples
-                                            .back()
-                                            .and_then(|sample| Some(sample.clone()));
-                                        let should_update_estimate = if let Some((_, sample_time)) =
-                                            most_recent_sample
-                                        {
-                                            current_time - sample_time > PROGRESS_SAMPLE_TIME_DELTA
-                                        } else {
-                                            true
-                                        };
-                                        if should_update_estimate {
-                                            if job.start_time.is_none() {
-                                                job.start_time = Some(current_time);
-                                            }
-                                            let new_sample = (progress, current_time);
-                                            let oldest_sample = if job.progress_samples.len()
-                                                >= NUM_PROGRESS_SAMPLES
-                                            {
-                                                job.progress_samples.pop_front()
-                                            } else {
-                                                job.progress_samples
-                                                    .front()
-                                                    .and_then(|sample| Some(sample.clone()))
-                                            };
-                                            job.progress_samples.push_back(new_sample);
-                                            if let Some((old_progress, old_sample_time)) =
-                                                oldest_sample
-                                            {
-                                                let time_estimate = (current_time
-                                                    - old_sample_time)
-                                                    / (progress - old_progress);
-                                                if time_estimate.is_finite() {
-                                                    let elapsed_time =
-                                                        current_time - job.start_time.unwrap();
-                                                    let remaining_time =
-                                                        (time_estimate - elapsed_time).max(0.0);
-                                                    job.estimated_time_remaining =
-                                                        Some(remaining_time);
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    ui.horizontal(|ui| {
-                                        ui.with_layout(
-                                            egui::Layout::right_to_left(egui::Align::Center),
-                                            |ui| {
-                                                if ui.button("🗙").clicked() {
-                                                    removed_job_idx = Some(idx);
-                                                }
-                                                ui.with_layout(
-                                                    egui::Layout::left_to_right(
-                                                        egui::Align::Center,
-                                                    ),
-                                                    |ui| {
-                                                        ui.add(
-                                                            egui::Label::new(
-                                                                job.settings
-                                                                    .output_path
-                                                                    .to_string_lossy(),
-                                                            )
-                                                            .truncate(true),
-                                                        );
-                                                    },
-                                                )
-                                            },
-                                        );
-                                    });
-
-                                    ui.separator();
-
-                                    ui.add(
-                                        egui::ProgressBar::new(progress as f32).show_percentage(),
-                                    );
-                                    if let RenderJobState::Rendering = job_state {
-                                        ui.ctx().request_repaint();
-                                    }
-
-                                    ui.label(match job_state {
-                                        RenderJobState::Waiting => Cow::Borrowed("Waiting..."),
-                                        RenderJobState::Rendering => {
-                                            if job_position.is_some() && job_duration.is_some() {
-                                                Cow::Owned(format!(
-                                                    "Rendering... ({:.2} / {:.2})",
-                                                    job_position.unwrap(),
-                                                    job_duration.unwrap()
-                                                ))
-                                            } else {
-                                                Cow::Borrowed("Rendering...")
-                                            }
-                                        }
-                                        RenderJobState::Paused => Cow::Borrowed("Paused"),
-                                        RenderJobState::Complete => Cow::Borrowed("Complete"),
-                                        RenderJobState::Error(err) => {
-                                            Cow::Owned(format!("Error: {err}"))
-                                        }
-                                    });
-
-                                    if matches!(
-                                        job_state,
-                                        RenderJobState::Rendering | RenderJobState::Paused
-                                    ) {
-                                        if let Some(time_remaining) = job.estimated_time_remaining {
-                                            ui.label(format!(
-                                                "Time remaining: {time_remaining:.0} seconds"
-                                            ));
-                                        }
-                                    }
-
-                                    job.last_progress = progress;
-                                });
-                        });
+                        if Self::show_render_job(ui, job) {
+                            removed_job_idx = Some(idx);
+                        }
                     }
 
                     if let Some(remove_idx) = removed_job_idx {
@@ -1729,51 +1718,357 @@ impl NtscApp {
         });
     }
 
-    fn handle_error(&mut self, err: &dyn Error) {
-        self.last_error = Some(format!("{}", err));
-    }
+    fn show_video_pane(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let last_seek_pos = if let Some(info) = &mut self.pipeline {
+            // While seeking, GStreamer sometimes doesn't return a timecode. In that case, use the last timecode it
+            // did respond with.
+            let queried_pos = info.pipeline.query_position::<gstreamer::ClockTime>();
+            if let Some(position) = queried_pos {
+                info.last_seek_pos = position;
+            }
+            info.last_seek_pos
+        } else {
+            gstreamer::ClockTime::ZERO
+        };
 
-    fn handle_result<T, E: Error>(&mut self, result: Result<T, E>) {
-        if let Err(err) = result {
-            self.handle_error(&err);
-        }
-    }
+        let framerate = (|| {
+            let caps = self
+                .pipeline
+                .as_ref()?
+                .pipeline
+                .by_name("video_queue")?
+                .static_pad("sink")?
+                .current_caps()?;
+            let framerate = caps
+                .structure(0)?
+                .get::<gstreamer::Fraction>("framerate")
+                .ok()?;
+            Some(framerate)
+        })();
 
-    fn handle_result_with<T, E: Error, F: FnOnce(&mut Self) -> Result<T, E>>(&mut self, cb: F) {
-        let result = cb(self);
-        self.handle_result(result);
-    }
-}
-
-impl eframe::App for NtscApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        self.tick();
-
-        let mut pipeline_error = None::<GstreamerError>;
-        if let Some(pipeline) = &self.pipeline {
-            let state = pipeline.state.lock().unwrap();
-            let state = &*state;
-            match state {
-                PipelineInfoState::Loading => {}
-                PipelineInfoState::Loaded => {
-                    let pipeline = self.pipeline.as_ref().unwrap();
-                    let mut at_eos = pipeline.at_eos.lock().unwrap();
-                    if *at_eos {
-                        let _ = pipeline.pipeline.set_state(gstreamer::State::Paused);
-                        *at_eos = false;
+        egui::TopBottomPanel::top("video_info").show_inside(ui, |ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let mut remove_pipeline = false;
+                let mut res = None;
+                if let Some(info) = &mut self.pipeline {
+                    let mut framerate = info.framerate.lock().unwrap();
+                    if ui.button("🗙").clicked() {
+                        remove_pipeline = true;
                     }
-                }
-                PipelineInfoState::Error(err) => {
-                    pipeline_error = Some(err.clone());
-                }
-            };
-        }
 
-        if let Some(err) = pipeline_error {
-            let _ = self.remove_pipeline();
-            self.handle_error(&err);
-        }
+                    if let Some(current_framerate) = *framerate {
+                        ui.separator();
+                        if *info.is_still_image.lock().unwrap() {
+                            let mut new_framerate =
+                                current_framerate.numer() as f64 / current_framerate.denom() as f64;
+                            ui.label("fps");
+                            if ui
+                                .add(
+                                    egui::DragValue::new(&mut new_framerate)
+                                        .clamp_range(0.0..=240.0),
+                                )
+                                .changed()
+                            {
+                                let framerate_fraction =
+                                    gstreamer::Fraction::approximate_f64(new_framerate);
+                                if let Some(f) = framerate_fraction {
+                                    let changed_framerate =
+                                        Self::set_still_image_framerate(&info.pipeline, f);
+                                    if let Ok(new_framerate) = changed_framerate {
+                                        if let Some(new_framerate) = new_framerate {
+                                            *framerate = Some(new_framerate);
+                                        }
+                                    }
 
+                                    res = Some(changed_framerate);
+                                }
+                            }
+                        } else {
+                            ui.label(format!(
+                                "{:.2} fps",
+                                current_framerate.numer() as f64 / current_framerate.denom() as f64
+                            ));
+                        }
+                    }
+
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.add(egui::Label::new(info.path.to_string_lossy()).truncate(true));
+                    });
+                }
+
+                if let Some(res) = res {
+                    self.handle_result(res);
+                }
+
+                if remove_pipeline {
+                    self.handle_result_with(|app| app.remove_pipeline());
+                }
+            });
+        });
+
+        egui::TopBottomPanel::bottom("video_controls")
+            .exact_height(ui.spacing().interact_size.y * 2.0)
+            .show_inside(ui, |ui| {
+                ui.set_enabled(self.pipeline.is_some());
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    let btn_widget = egui::Button::new(match &self.pipeline {
+                        Some(PipelineInfo { pipeline, .. }) => {
+                            let state = pipeline.current_state();
+                            match state {
+                                gstreamer::State::Paused | gstreamer::State::Ready => "▶",
+                                gstreamer::State::Playing => "⏸",
+                                _ => "▶",
+                            }
+                        }
+                        None => "▶",
+                    });
+                    let btn = ui.add_sized(
+                        vec2(
+                            ui.spacing().interact_size.y * 1.5,
+                            ui.spacing().interact_size.y * 1.5,
+                        ),
+                        btn_widget,
+                    );
+
+                    if !ctx.wants_keyboard_input()
+                        && ctx.input(|i| {
+                            i.events.iter().any(|event| {
+                                if let egui::Event::Key {
+                                    key,
+                                    pressed,
+                                    repeat,
+                                    modifiers,
+                                } = event
+                                {
+                                    *key == egui::Key::Space
+                                        && *pressed
+                                        && !repeat
+                                        && modifiers.is_none()
+                                } else {
+                                    false
+                                }
+                            })
+                        })
+                    {
+                        let res = self
+                            .pipeline
+                            .as_mut()
+                            .and_then(|p| Some(p.toggle_playing()));
+                        if let Some(res) = res {
+                            self.handle_result(res);
+                        }
+                    }
+
+                    if btn.clicked() {
+                        let res = self
+                            .pipeline
+                            .as_mut()
+                            .and_then(|p| Some(p.toggle_playing()));
+                        if let Some(res) = res {
+                            self.handle_result(res);
+                        }
+                    }
+
+                    let duration = if let Some(info) = &self.pipeline {
+                        info.pipeline.query_duration::<gstreamer::ClockTime>()
+                    } else {
+                        None
+                    };
+
+                    let mut timecode_ms = last_seek_pos.nseconds() as f64
+                        / gstreamer::ClockTime::MSECOND.nseconds() as f64;
+                    let frame_pace = if let Some(framerate) = framerate {
+                        framerate.denom() as f64 / framerate.numer() as f64
+                    } else {
+                        1f64 / 30f64
+                    };
+
+                    let mut drag_value = egui::DragValue::new(&mut timecode_ms)
+                        .custom_formatter(|value, _| {
+                            clock_time_format(
+                                (value * gstreamer::ClockTime::MSECOND.nseconds() as f64) as u64,
+                            )
+                        })
+                        .custom_parser(clock_time_parser)
+                        .speed(frame_pace * 1000.0 * 0.5);
+
+                    if let Some(duration) = duration {
+                        drag_value = drag_value.clamp_range(0..=duration.mseconds());
+                    }
+
+                    if ui.add(drag_value).changed() {
+                        if let Some(info) = &self.pipeline {
+                            // don't use KEY_UNIT here; it causes seeking to often be very inaccurate (almost a second of deviation)
+                            let _ = info.pipeline.seek_simple(
+                                gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
+                                gstreamer::ClockTime::from_nseconds(
+                                    (timecode_ms * gstreamer::ClockTime::MSECOND.nseconds() as f64)
+                                        as u64,
+                                ),
+                            );
+                        }
+                    }
+
+                    ui.separator();
+
+                    ui.label("🔎");
+                    ui.add_enabled(
+                        !self.video_zoom.fit,
+                        egui::DragValue::new(&mut self.video_zoom.scale)
+                            .clamp_range(0.0..=8.0)
+                            .speed(0.01)
+                            .custom_formatter(format_percentage)
+                            .custom_parser(|input: &str| {
+                                let mut expr = eval_expression_string(input).ok()?;
+                                // greater than 800% zoom? the user probably meant to input a raw percentage and
+                                // not a decimal in 0..1
+                                if expr >= 8.0 {
+                                    expr /= 100.0;
+                                }
+                                Some(expr)
+                            }),
+                    );
+                    ui.checkbox(&mut self.video_zoom.fit, "Fit");
+
+                    ui.separator();
+
+                    let scale_checkbox = ui.checkbox(&mut self.video_scale.enabled, "Scale to");
+                    ui.add_enabled_ui(self.video_scale.enabled, |ui| {
+                        let drag_resp = ui.add(
+                            egui::DragValue::new(&mut self.video_scale.scale)
+                                .clamp_range(1..=usize::MAX),
+                        );
+                        if drag_resp.changed() || scale_checkbox.changed() {
+                            if let Some(pipeline) = &self.pipeline {
+                                let res = Self::rescale_video(
+                                    &pipeline.pipeline,
+                                    if self.video_scale.enabled {
+                                        Some(self.video_scale.scale)
+                                    } else {
+                                        None
+                                    },
+                                );
+                                self.handle_result(res);
+                            }
+                        }
+                        ui.label("scanlines");
+                    });
+
+                    ui.separator();
+
+                    let src_path = self
+                        .pipeline
+                        .as_ref()
+                        .and_then(|info| Some(info.path.clone()));
+                    if ui.button("Save image").clicked() {
+                        let ctx = ctx.clone();
+                        if let Some(src_path) = src_path {
+                            let dst_path = src_path.with_extension("");
+                            self.spawn(async move {
+                                let handle = rfd::AsyncFileDialog::new()
+                                    .set_directory(dst_path.parent().unwrap_or(Path::new("/")))
+                                    .set_file_name(format!(
+                                        "{}_ntsc.png",
+                                        dst_path.file_name().to_owned().unwrap().to_string_lossy()
+                                    ))
+                                    .save_file()
+                                    .await;
+
+                                if let Some(handle) = handle {
+                                    Some(Box::new(move |app: &mut NtscApp| {
+                                        let res = app.create_render_job(
+                                            &ctx,
+                                            &src_path.clone(),
+                                            RenderPipelineSettings {
+                                                codec_settings: RenderPipelineCodec::Png,
+                                                output_path: handle.into(),
+                                                duration: gstreamer::ClockTime::from_seconds(1),
+                                                effect_settings: (&app.effect_settings).into(),
+                                            },
+                                        );
+                                        if let Ok(job) = res {
+                                            app.render_jobs.push(job);
+                                        } else {
+                                            app.handle_result(res);
+                                        }
+                                        Ok(())
+                                    }) as _)
+                                } else {
+                                    None
+                                }
+                            });
+                        }
+                    }
+                });
+            });
+
+        egui::CentralPanel::default()
+            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(0.0))
+            .show_inside(ui, |ui| {
+                ui.visuals_mut().clip_rect_margin = 0.0;
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                    if let Some(info) = &mut self.pipeline {
+                        let mut timecode = info.last_seek_pos.nseconds();
+
+                        let duration = info.pipeline.query_duration::<gstreamer::ClockTime>();
+
+                        if let Some(duration) = duration {
+                            if ui
+                                .add(Timeline::new(
+                                    &mut timecode,
+                                    0..=duration.nseconds(),
+                                    framerate,
+                                ))
+                                .changed()
+                            {
+                                let _ = info.pipeline.seek_simple(
+                                    gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
+                                    gstreamer::ClockTime::from_nseconds(timecode),
+                                );
+                            }
+                        }
+                    }
+                    egui::ScrollArea::both()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.with_layout(
+                                egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                                |ui| {
+                                    if let Some(PipelineInfo { preview, .. }) = &mut self.pipeline {
+                                        let texture_size = if self.video_scale.enabled {
+                                            let texture_actual_size = preview.size_vec2();
+                                            let scale_factor = self.video_scale.scale as f32
+                                                / texture_actual_size.y;
+                                            vec2(
+                                                (texture_actual_size.x * scale_factor).round(),
+                                                self.video_scale.scale as f32,
+                                            )
+                                        } else {
+                                            preview.size_vec2()
+                                        };
+                                        let scale_factor = if self.video_zoom.fit {
+                                            // Due to floating-point error, a scrollbar may appear even if we scale down. To
+                                            // avoid the scrollbar popping in and out of existence, subtract a constant value
+                                            // from available_size.
+                                            ((ui.available_size() - vec2(1.0, 1.0)) / texture_size)
+                                                .min_elem()
+                                                .min(1.0)
+                                        } else {
+                                            self.video_zoom.scale as f32
+                                        };
+                                        ui.image((preview.id(), texture_size * scale_factor));
+                                    } else {
+                                        ui.heading("No media loaded");
+                                    }
+                                },
+                            );
+                        });
+                });
+            });
+    }
+
+    fn show_app(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.heading("ntsc-rs");
@@ -1861,385 +2156,41 @@ impl eframe::App for NtscApp {
             .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(0.0))
             .show(ctx, |ui| {
                 ui.visuals_mut().clip_rect_margin = 0.0;
-                let last_seek_pos = if let Some(info) = &mut self.pipeline {
-                    // While seeking, GStreamer sometimes doesn't return a timecode. In that case, use the last timecode it
-                    // did respond with.
-                    let queried_pos = info.pipeline.query_position::<gstreamer::ClockTime>();
-                    if let Some(position) = queried_pos {
-                        info.last_seek_pos = position;
-                    }
-                    info.last_seek_pos
-                } else {
-                    gstreamer::ClockTime::ZERO
-                };
-
-                let framerate = (|| {
-                    let caps = self
-                        .pipeline
-                        .as_ref()?
-                        .pipeline
-                        .by_name("video_queue")?
-                        .static_pad("sink")?
-                        .current_caps()?;
-                    let framerate = caps
-                        .structure(0)?
-                        .get::<gstreamer::Fraction>("framerate")
-                        .ok()?;
-                    Some(framerate)
-                })();
-
-                egui::TopBottomPanel::top("video_info").show_inside(ui, |ui| {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let mut remove_pipeline = false;
-                        let mut res = None;
-                        if let Some(info) = &mut self.pipeline {
-                            let mut framerate = info.framerate.lock().unwrap();
-                            if ui.button("🗙").clicked() {
-                                remove_pipeline = true;
-                            }
-
-                            if let Some(current_framerate) = *framerate {
-                                ui.separator();
-                                if *info.is_still_image.lock().unwrap() {
-                                    let mut new_framerate = current_framerate.numer() as f64
-                                        / current_framerate.denom() as f64;
-                                    ui.label("fps");
-                                    if ui
-                                        .add(
-                                            egui::DragValue::new(&mut new_framerate)
-                                                .clamp_range(0.0..=240.0),
-                                        )
-                                        .changed()
-                                    {
-                                        let framerate_fraction =
-                                            gstreamer::Fraction::approximate_f64(new_framerate);
-                                        if let Some(f) = framerate_fraction {
-                                            let changed_framerate =
-                                                Self::set_still_image_framerate(&info.pipeline, f);
-                                            if let Ok(new_framerate) = changed_framerate {
-                                                if let Some(new_framerate) = new_framerate {
-                                                    *framerate = Some(new_framerate);
-                                                }
-                                            }
-
-                                            res = Some(changed_framerate);
-                                        }
-                                    }
-                                } else {
-                                    ui.label(format!(
-                                        "{:.2} fps",
-                                        current_framerate.numer() as f64
-                                            / current_framerate.denom() as f64
-                                    ));
-                                }
-                            }
-
-                            ui.with_layout(
-                                egui::Layout::left_to_right(egui::Align::Center),
-                                |ui| {
-                                    ui.add(
-                                        egui::Label::new(info.path.to_string_lossy())
-                                            .truncate(true),
-                                    );
-                                },
-                            );
-                        }
-
-                        if let Some(res) = res {
-                            self.handle_result(res);
-                        }
-
-                        if remove_pipeline {
-                            self.handle_result_with(|app| app.remove_pipeline());
-                        }
-                    });
-                });
-
-                egui::TopBottomPanel::bottom("video_controls")
-                    .exact_height(ui.spacing().interact_size.y * 2.0)
-                    .show_inside(ui, |ui| {
-                        ui.set_enabled(self.pipeline.is_some());
-                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                            let btn_widget = egui::Button::new(match &self.pipeline {
-                                Some(PipelineInfo { pipeline, .. }) => {
-                                    let state = pipeline.current_state();
-                                    match state {
-                                        gstreamer::State::Paused | gstreamer::State::Ready => "▶",
-                                        gstreamer::State::Playing => "⏸",
-                                        _ => "▶",
-                                    }
-                                }
-                                None => "▶",
-                            });
-                            let btn = ui.add_sized(
-                                vec2(
-                                    ui.spacing().interact_size.y * 1.5,
-                                    ui.spacing().interact_size.y * 1.5,
-                                ),
-                                btn_widget,
-                            );
-
-                            if !ctx.wants_keyboard_input()
-                                && ctx.input(|i| {
-                                    i.events.iter().any(|event| {
-                                        if let egui::Event::Key {
-                                            key,
-                                            pressed,
-                                            repeat,
-                                            modifiers,
-                                        } = event
-                                        {
-                                            *key == egui::Key::Space
-                                                && *pressed
-                                                && !repeat
-                                                && modifiers.is_none()
-                                        } else {
-                                            false
-                                        }
-                                    })
-                                })
-                            {
-                                let res = self
-                                    .pipeline
-                                    .as_mut()
-                                    .and_then(|p| Some(p.toggle_playing()));
-                                if let Some(res) = res {
-                                    self.handle_result(res);
-                                }
-                            }
-
-                            if btn.clicked() {
-                                let res = self
-                                    .pipeline
-                                    .as_mut()
-                                    .and_then(|p| Some(p.toggle_playing()));
-                                if let Some(res) = res {
-                                    self.handle_result(res);
-                                }
-                            }
-
-                            let duration = if let Some(info) = &self.pipeline {
-                                info.pipeline.query_duration::<gstreamer::ClockTime>()
-                            } else {
-                                None
-                            };
-
-                            let mut timecode_ms = last_seek_pos.nseconds() as f64
-                                / gstreamer::ClockTime::MSECOND.nseconds() as f64;
-                            let frame_pace = if let Some(framerate) = framerate {
-                                framerate.denom() as f64 / framerate.numer() as f64
-                            } else {
-                                1f64 / 30f64
-                            };
-
-                            let mut drag_value = egui::DragValue::new(&mut timecode_ms)
-                                .custom_formatter(|value, _| {
-                                    clock_time_format(
-                                        (value * gstreamer::ClockTime::MSECOND.nseconds() as f64)
-                                            as u64,
-                                    )
-                                })
-                                .custom_parser(clock_time_parser)
-                                .speed(frame_pace * 1000.0 * 0.5);
-
-                            if let Some(duration) = duration {
-                                drag_value = drag_value.clamp_range(0..=duration.mseconds());
-                            }
-
-                            if ui.add(drag_value).changed() {
-                                if let Some(info) = &self.pipeline {
-                                    // don't use KEY_UNIT here; it causes seeking to often be very inaccurate (almost a second of deviation)
-                                    let _ = info.pipeline.seek_simple(
-                                        gstreamer::SeekFlags::FLUSH
-                                            | gstreamer::SeekFlags::ACCURATE,
-                                        gstreamer::ClockTime::from_nseconds(
-                                            (timecode_ms
-                                                * gstreamer::ClockTime::MSECOND.nseconds() as f64)
-                                                as u64,
-                                        ),
-                                    );
-                                }
-                            }
-
-                            ui.separator();
-
-                            ui.label("🔎");
-                            ui.add_enabled(
-                                !self.video_zoom.fit,
-                                egui::DragValue::new(&mut self.video_zoom.scale)
-                                    .clamp_range(0.0..=8.0)
-                                    .speed(0.01)
-                                    .custom_formatter(format_percentage)
-                                    .custom_parser(|input: &str| {
-                                        let mut expr = eval_expression_string(input).ok()?;
-                                        // greater than 800% zoom? the user probably meant to input a raw percentage and
-                                        // not a decimal in 0..1
-                                        if expr >= 8.0 {
-                                            expr /= 100.0;
-                                        }
-                                        Some(expr)
-                                    }),
-                            );
-                            ui.checkbox(&mut self.video_zoom.fit, "Fit");
-
-                            ui.separator();
-
-                            let scale_checkbox =
-                                ui.checkbox(&mut self.video_scale.enabled, "Scale to");
-                            ui.add_enabled_ui(self.video_scale.enabled, |ui| {
-                                let drag_resp = ui.add(
-                                    egui::DragValue::new(&mut self.video_scale.scale)
-                                        .clamp_range(1..=usize::MAX),
-                                );
-                                if drag_resp.changed() || scale_checkbox.changed() {
-                                    if let Some(pipeline) = &self.pipeline {
-                                        let res = Self::rescale_video(
-                                            &pipeline.pipeline,
-                                            if self.video_scale.enabled {
-                                                Some(self.video_scale.scale)
-                                            } else {
-                                                None
-                                            },
-                                        );
-                                        self.handle_result(res);
-                                    }
-                                }
-                                ui.label("scanlines");
-                            });
-
-                            ui.separator();
-
-                            let src_path = self
-                                .pipeline
-                                .as_ref()
-                                .and_then(|info| Some(info.path.clone()));
-                            if ui.button("Save image").clicked() {
-                                let ctx = ctx.clone();
-                                if let Some(src_path) = src_path {
-                                    let dst_path = src_path.with_extension("");
-                                    self.spawn(async move {
-                                        let handle = rfd::AsyncFileDialog::new()
-                                            .set_directory(
-                                                dst_path.parent().unwrap_or(Path::new("/")),
-                                            )
-                                            .set_file_name(format!(
-                                                "{}_ntsc.png",
-                                                dst_path
-                                                    .file_name()
-                                                    .to_owned()
-                                                    .unwrap()
-                                                    .to_string_lossy()
-                                            ))
-                                            .save_file()
-                                            .await;
-
-                                        if let Some(handle) = handle {
-                                            Some(Box::new(move |app: &mut NtscApp| {
-                                                let res = app.create_render_job(
-                                                    &ctx,
-                                                    &src_path.clone(),
-                                                    RenderPipelineSettings {
-                                                        codec_settings: RenderPipelineCodec::Png,
-                                                        output_path: handle.into(),
-                                                        duration:
-                                                            gstreamer::ClockTime::from_seconds(1),
-                                                        effect_settings: (&app.effect_settings)
-                                                            .into(),
-                                                    },
-                                                );
-                                                if let Ok(job) = res {
-                                                    app.render_jobs.push(job);
-                                                } else {
-                                                    app.handle_result(res);
-                                                }
-                                                Ok(())
-                                            })
-                                                as _)
-                                        } else {
-                                            None
-                                        }
-                                    });
-                                }
-                            }
-                        });
-                    });
-
-                egui::CentralPanel::default()
-                    .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(0.0))
-                    .show_inside(ui, |ui| {
-                        ui.visuals_mut().clip_rect_margin = 0.0;
-                        ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                            if let Some(info) = &mut self.pipeline {
-                                let mut timecode = info.last_seek_pos.nseconds();
-
-                                let duration =
-                                    info.pipeline.query_duration::<gstreamer::ClockTime>();
-
-                                if let Some(duration) = duration {
-                                    if ui
-                                        .add(Timeline::new(
-                                            &mut timecode,
-                                            0..=duration.nseconds(),
-                                            framerate,
-                                        ))
-                                        .changed()
-                                    {
-                                        let _ = info.pipeline.seek_simple(
-                                            gstreamer::SeekFlags::FLUSH
-                                                | gstreamer::SeekFlags::ACCURATE,
-                                            gstreamer::ClockTime::from_nseconds(timecode),
-                                        );
-                                    }
-                                }
-                            }
-                            egui::ScrollArea::both()
-                                .auto_shrink([false, false])
-                                .show(ui, |ui| {
-                                    ui.with_layout(
-                                        egui::Layout::centered_and_justified(
-                                            egui::Direction::TopDown,
-                                        ),
-                                        |ui| {
-                                            if let Some(PipelineInfo { preview, .. }) =
-                                                &mut self.pipeline
-                                            {
-                                                let texture_size = if self.video_scale.enabled {
-                                                    let texture_actual_size = preview.size_vec2();
-                                                    let scale_factor = self.video_scale.scale
-                                                        as f32
-                                                        / texture_actual_size.y;
-                                                    vec2(
-                                                        (texture_actual_size.x * scale_factor)
-                                                            .round(),
-                                                        self.video_scale.scale as f32,
-                                                    )
-                                                } else {
-                                                    preview.size_vec2()
-                                                };
-                                                let scale_factor = if self.video_zoom.fit {
-                                                    // Due to floating-point error, a scrollbar may appear even if we scale down. To
-                                                    // avoid the scrollbar popping in and out of existence, subtract a constant value
-                                                    // from available_size.
-                                                    ((ui.available_size() - vec2(1.0, 1.0))
-                                                        / texture_size)
-                                                        .min_elem()
-                                                        .min(1.0)
-                                                } else {
-                                                    self.video_zoom.scale as f32
-                                                };
-                                                ui.image((
-                                                    preview.id(),
-                                                    texture_size * scale_factor,
-                                                ));
-                                            } else {
-                                                ui.heading("No media loaded");
-                                            }
-                                        },
-                                    );
-                                });
-                        });
-                    });
+                self.show_video_pane(ui);
             });
+    }
+}
+
+impl eframe::App for NtscApp {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        self.tick();
+
+        let mut pipeline_error = None::<GstreamerError>;
+        if let Some(pipeline) = &self.pipeline {
+            let state = pipeline.state.lock().unwrap();
+            let state = &*state;
+            match state {
+                PipelineInfoState::Loading => {}
+                PipelineInfoState::Loaded => {
+                    let pipeline = self.pipeline.as_ref().unwrap();
+                    let mut at_eos = pipeline.at_eos.lock().unwrap();
+                    if *at_eos {
+                        let _ = pipeline.pipeline.set_state(gstreamer::State::Paused);
+                        *at_eos = false;
+                    }
+                }
+                PipelineInfoState::Error(err) => {
+                    pipeline_error = Some(err.clone());
+                }
+            };
+        }
+
+        if let Some(err) = pipeline_error {
+            let _ = self.remove_pipeline();
+            self.handle_error(&err);
+        }
+
+        self.show_app(ctx, frame);
     }
 }
 
