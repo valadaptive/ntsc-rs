@@ -17,6 +17,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::rc::Rc;
+use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -61,6 +62,7 @@ use gui::gst_utils::ntscrs_filter;
 use gui::gst_utils::ntscrs_filter::NtscFilterSettings;
 use gui::gst_utils::NtscFilter;
 use image::ImageError;
+use ntscrs::settings::NtscEffect;
 use ntscrs::settings::NtscEffectFullSettings;
 use ntscrs::settings::ParseSettingsError;
 use ntscrs::settings::SettingDescriptor;
@@ -377,6 +379,8 @@ struct RenderPipelineSettings {
     codec_settings: RenderPipelineCodec,
     output_path: PathBuf,
     duration: gstreamer::ClockTime,
+    video_scale: Option<usize>,
+    effect_settings: NtscEffect,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -390,15 +394,11 @@ struct RenderSettings {
     duration: gstreamer::ClockTime,
 }
 
-impl From<&RenderSettings> for RenderPipelineSettings {
+impl From<&RenderSettings> for RenderPipelineCodec {
     fn from(value: &RenderSettings) -> Self {
-        RenderPipelineSettings {
-            codec_settings: match value.output_codec {
-                OutputCodec::H264 => RenderPipelineCodec::H264(value.h264_settings.clone()),
-                OutputCodec::Ffv1 => RenderPipelineCodec::Ffv1(value.ffv1_settings.clone()),
-            },
-            output_path: value.output_path.clone(),
-            duration: value.duration,
+        match value.output_codec {
+            OutputCodec::H264 => RenderPipelineCodec::H264(value.h264_settings.clone()),
+            OutputCodec::Ffv1 => RenderPipelineCodec::Ffv1(value.ffv1_settings.clone()),
         }
     }
 }
@@ -632,11 +632,11 @@ impl NtscApp {
     }
 
     fn create_pipeline<
-        F1: FnOnce(gstreamer::Pipeline) -> Result<Option<gstreamer::Element>, GstreamerError>
+        AudioElemCallback: FnOnce(&gstreamer::Pipeline) -> Result<Option<gstreamer::Element>, GstreamerError>
             + Send
             + Sync
             + 'static,
-        F2: FnOnce(gstreamer::Pipeline) -> Result<gstreamer::Element, GstreamerError>
+        VideoElemCallback: FnOnce(&gstreamer::Pipeline) -> Result<gstreamer::Element, GstreamerError>
             + Send
             + Sync
             + 'static,
@@ -645,8 +645,8 @@ impl NtscApp {
     >(
         &self,
         src_pad: gstreamer::Element,
-        audio_sink: F1,
-        video_sink: F2,
+        audio_sink: AudioElemCallback,
+        video_sink: VideoElemCallback,
         bus_handler: G,
         duration: Option<gstreamer::ClockTime>,
         initial_scale: Option<usize>,
@@ -658,48 +658,14 @@ impl NtscApp {
         pipeline.add_many([&src_pad, &decodebin])?;
         gstreamer::Element::link_many([&src_pad, &decodebin])?;
 
-        let video_queue = gstreamer::ElementFactory::make("queue")
-            .name("video_queue")
-            .build()?;
-        let video_convert = gstreamer::ElementFactory::make("videoconvert").build()?;
-        let video_rate = gstreamer::ElementFactory::make("videorate")
-            .name("video_rate")
-            .build()?;
-        let video_scale = gstreamer::ElementFactory::make("videoscale")
-            .name("video_scale")
-            .build()?;
-        let caps_filter = gstreamer::ElementFactory::make("capsfilter")
-            .name("caps_filter")
-            .build()?;
-        let framerate_caps_filter = gstreamer::ElementFactory::make("capsfilter")
-            .name("framerate_caps_filter")
-            .build()?;
-
-        let video_sink = video_sink(pipeline.clone())?;
-
-        let video_elements = &[
-            &video_queue,
-            &video_convert,
-            &video_rate,
-            &video_scale,
-            &caps_filter,
-            &framerate_caps_filter,
-            &video_sink,
-        ];
-        pipeline.add_many(video_elements)?;
-        gstreamer::Element::link_many(video_elements)?;
-
-        for e in video_elements {
-            e.sync_state_with_parent()?;
-        }
-
-        let has_audio = Arc::new(Mutex::new(false));
-        let has_video = Arc::new(Mutex::new(false));
+        let has_audio = Mutex::new(false);
+        let has_video = Mutex::new(false);
 
         let handler_id: Arc<Mutex<Option<SignalHandlerId>>> = Arc::new(Mutex::new(None));
         let handler_id_for_handler = Arc::clone(&handler_id);
 
         let audio_sink = Mutex::new(Some(audio_sink));
+        let video_sink = Mutex::new(Some(video_sink));
 
         let pipeline_weak = gstreamer::prelude::ObjectExt::downgrade(&pipeline);
         let pad_added_handler = decodebin.connect_pad_added(move |dbin, src_pad| {
@@ -738,7 +704,7 @@ impl NtscApp {
 
                     if let Some(pipeline) = pipeline.upgrade() {
                         let audio_sink = audio_sink.lock().unwrap().take();
-                        if let Some(sink) = audio_sink.and_then(|sink| Some(sink(pipeline.clone())))
+                        if let Some(sink) = audio_sink.and_then(|sink| Some(sink(&pipeline)))
                         {
                             if let Some(sink) = sink? {
                                 let audio_queue =
@@ -778,71 +744,110 @@ impl NtscApp {
                 } else if is_video && !*has_video {
                     dbg!("connected video");
 
-                    // Get the queue element's sink pad and link the decodebin's newly created
-                    // src pad for the video stream to it.
-                    let sink_pad = video_queue
-                        .static_pad("sink")
-                        .expect("queue has no sinkpad");
+                    if let Some(pipeline) = pipeline.upgrade() {
+                        let video_sink = video_sink.lock().unwrap().take();
+                        if let Some(video_sink) = video_sink {
+                            let video_queue = gstreamer::ElementFactory::make("queue")
+                                .name("video_queue")
+                                .build()?;
+                            let video_convert = gstreamer::ElementFactory::make("videoconvert").build()?;
+                            let video_rate = gstreamer::ElementFactory::make("videorate")
+                                .name("video_rate")
+                                .build()?;
+                            let video_scale = gstreamer::ElementFactory::make("videoscale")
+                                .name("video_scale")
+                                .build()?;
+                            let caps_filter = gstreamer::ElementFactory::make("capsfilter")
+                                .name("caps_filter")
+                                .build()?;
+                            let framerate_caps_filter = gstreamer::ElementFactory::make("capsfilter")
+                                .name("framerate_caps_filter")
+                                .build()?;
 
-                    let caps = src_pad.current_caps();
+                            let video_elements = &[
+                                &video_queue,
+                                &video_convert,
+                                &video_rate,
+                                &video_scale,
+                                &caps_filter,
+                                &framerate_caps_filter,
+                            ];
+                            pipeline.add_many(video_elements)?;
+                            gstreamer::Element::link_many(video_elements)?;
 
-                    let framerate = caps.as_ref().and_then(|caps| {
-                        Some(
-                            caps.structure(0)?
-                                .get::<gstreamer::Fraction>("framerate")
-                                .ok()?,
-                        )
-                    });
+                            let video_sink = video_sink(&pipeline)?;
+                            framerate_caps_filter.link(&video_sink)?;
 
-                    let is_still_image = match framerate {
-                        Some(framerate) => framerate.numer() == 0,
-                        None => false,
-                    };
+                            for e in video_elements {
+                                e.sync_state_with_parent()?;
+                            }
+                            video_sink.sync_state_with_parent()?;
 
-                    if caps.is_some() && initial_scale.is_some() {
-                        if let Some((width, height)) =
-                            Self::scale_from_caps(&caps.unwrap(), initial_scale.unwrap())
-                        {
-                            caps_filter.set_property(
-                                "caps",
-                                gstreamer_video::VideoCapsBuilder::default()
-                                    .width(width)
-                                    .height(height)
-                                    .build(),
-                            );
-                        }
-                    }
+                            // Get the queue element's sink pad and link the decodebin's newly created
+                            // src pad for the video stream to it.
+                            let sink_pad = video_queue
+                                .static_pad("sink")
+                                .expect("queue has no sinkpad");
 
-                    if is_still_image {
-                        let image_freeze = gstreamer::ElementFactory::make("imagefreeze")
-                            .name("still_image_freeze")
-                            .build()?;
-                        let video_caps = gstreamer_video::VideoCapsBuilder::new()
-                            .framerate(initial_still_image_framerate)
-                            .build();
-                        framerate_caps_filter.set_property("caps", video_caps);
+                            let caps = src_pad.current_caps();
 
-                        if let Some(pipeline) = pipeline.upgrade() {
-                            pipeline.add(&image_freeze)?;
-                            src_pad.link(&image_freeze.static_pad("sink").unwrap())?;
-                            gstreamer::Element::link_many([&image_freeze, &video_queue])?;
-                            image_freeze.sync_state_with_parent()?;
+                            let framerate = caps.as_ref().and_then(|caps| {
+                                Some(
+                                    caps.structure(0)?
+                                        .get::<gstreamer::Fraction>("framerate")
+                                        .ok()?,
+                                )
+                            });
 
-                            // We cannot move this functionality into create_render_job. If we do this seek outside of
-                            // this callback, the output video will be truncated. No idea why.
-                            if let Some(duration) = duration {
-                                image_freeze.seek(
-                                    1.0,
-                                    gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
-                                    gstreamer::SeekType::Set,
-                                    gstreamer::ClockTime::ZERO,
-                                    gstreamer::SeekType::Set,
-                                    duration,
-                                )?;
+                            let is_still_image = match framerate {
+                                Some(framerate) => framerate.numer() == 0,
+                                None => false,
+                            };
+
+                            if caps.is_some() && initial_scale.is_some() {
+                                if let Some((width, height)) =
+                                    Self::scale_from_caps(&caps.unwrap(), initial_scale.unwrap())
+                                {
+                                    caps_filter.set_property(
+                                        "caps",
+                                        gstreamer_video::VideoCapsBuilder::default()
+                                            .width(width)
+                                            .height(height)
+                                            .build(),
+                                    );
+                                }
+                            }
+
+                            if is_still_image {
+                                let image_freeze = gstreamer::ElementFactory::make("imagefreeze")
+                                    .name("still_image_freeze")
+                                    .build()?;
+                                let video_caps = gstreamer_video::VideoCapsBuilder::new()
+                                    .framerate(initial_still_image_framerate)
+                                    .build();
+                                framerate_caps_filter.set_property("caps", video_caps);
+
+                                pipeline.add(&image_freeze)?;
+                                src_pad.link(&image_freeze.static_pad("sink").unwrap())?;
+                                gstreamer::Element::link_many([&image_freeze, &video_queue])?;
+                                image_freeze.sync_state_with_parent()?;
+
+                                // We cannot move this functionality into create_render_job. If we do this seek outside of
+                                // this callback, the output video will be truncated. No idea why.
+                                if let Some(duration) = duration {
+                                    image_freeze.seek(
+                                        1.0,
+                                        gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
+                                        gstreamer::SeekType::Set,
+                                        gstreamer::ClockTime::ZERO,
+                                        gstreamer::SeekType::Set,
+                                        duration,
+                                    )?;
+                                }
+                            } else {
+                                src_pad.link(&sink_pad)?;
                             }
                         }
-                    } else {
-                        src_pad.link(&sink_pad)?;
                     }
 
                     *has_video = true;
@@ -1044,7 +1049,10 @@ impl NtscApp {
                 pipeline.add(&audio_sink_for_closure)?;
                 Ok(Some(audio_sink_for_closure))
             },
-            |_| Ok(video_sink_for_closure),
+            |pipeline| {
+                pipeline.add(&video_sink_for_closure)?;
+                Ok(video_sink_for_closure)
+            },
             move |bus, msg| {
                 dbg!(msg);
                 let at_eos = &at_eos_for_handler;
@@ -1066,8 +1074,6 @@ impl NtscApp {
                             ctx.request_repaint();
                         }
                     }
-
-                    if msg.type_() == gstreamer::MessageType::Error {}
 
                     if let Some(pipeline) = src.downcast_ref::<gstreamer::Pipeline>() {
                         // We want to pause the pipeline at EOS, but setting an element's state inside the bus handler doesn't
@@ -1172,97 +1178,50 @@ impl NtscApp {
             .property("location", src_path)
             .build()?;
 
-        let (audio_enc, video_enc, video_mux, pixel_formats) = match &settings.codec_settings {
-            RenderPipelineCodec::H264(h264_settings) => {
-                // Load the x264enc plugin so the enum classes exist. Nothing seems to work except actually instantiating an Element.
-                let _ = gstreamer::ElementFactory::make("x264enc").build().unwrap();
-                #[allow(non_snake_case)]
-                let GstX264EncPass = gstreamer::glib::EnumClass::with_type(
-                    gstreamer::glib::Type::from_name("GstX264EncPass").unwrap(),
-                )
-                .unwrap();
-                #[allow(non_snake_case)]
-                let GstX264EncPreset = gstreamer::glib::EnumClass::with_type(
-                    gstreamer::glib::Type::from_name("GstX264EncPreset").unwrap(),
-                )
-                .unwrap();
+        let settings = Arc::new(settings);
+        let settings_audio_closure = Arc::clone(&settings);
+        let settings_video_closure = Arc::clone(&settings);
 
-                let audio_enc = Some(gstreamer::ElementFactory::make("avenc_aac").build()?);
+        let output_elems_cell = Arc::new(OnceLock::new());
+        let output_elems_cell_video = Arc::clone(&output_elems_cell);
+        let closure_settings = settings.clone();
+        let create_output_elems = move |pipeline: &gstreamer::Pipeline| -> Result<(Option<gstreamer::Element>, gstreamer::Element), GstreamerError> {
+            let video_mux = match &closure_settings.codec_settings {
+                RenderPipelineCodec::H264(_) => {
+                    Some(gstreamer::ElementFactory::make("mp4mux").name("output_muxer").build()?)
+                },
+                RenderPipelineCodec::Ffv1(_) => {
+                    Some(gstreamer::ElementFactory::make("matroskamux").name("output_muxer").build()?)
+                },
+                RenderPipelineCodec::Png => None,
+            };
 
-                let video_enc = gstreamer::ElementFactory::make("x264enc")
-                    // CRF mode
-                    .property("pass", GstX264EncPass.to_value_by_nick("quant").unwrap())
-                    // invert CRF (so that low numbers = low quality)
-                    .property("quantizer", 51 - h264_settings.crf as u32)
-                    .property(
-                        "speed-preset",
-                        GstX264EncPreset
-                            .to_value(9 - h264_settings.encode_speed as i32)
-                            .unwrap(),
-                    )
-                    .build()?;
+            let file_sink = gstreamer::ElementFactory::make("filesink")
+                .property("location", closure_settings.output_path.as_path())
+                .build()?;
 
-                let video_mux = gstreamer::ElementFactory::make("mp4mux").build()?;
+            pipeline.add(&file_sink)?;
+            file_sink.sync_state_with_parent()?;
 
-                let pixel_formats = Self::pixel_formats_for(
-                    if h264_settings.ten_bit { 10 } else { 8 },
-                    h264_settings.chroma_subsampling,
-                );
+            if let Some(video_mux) = video_mux {
+                pipeline.add(&video_mux)?;
+                video_mux.link(&file_sink)?;
+                video_mux.sync_state_with_parent()?;
 
-                (audio_enc, video_enc, Some(video_mux), pixel_formats)
-            }
-            RenderPipelineCodec::Ffv1(ffv1_settings) => {
-                let audio_enc = Some(gstreamer::ElementFactory::make("flacenc").build()?);
-                let video_enc = gstreamer::ElementFactory::make("avenc_ffv1").build()?;
-                let video_mux = gstreamer::ElementFactory::make("matroskamux").build()?;
-
-                let pixel_formats = Self::pixel_formats_for(
-                    match ffv1_settings.bit_depth {
-                        Ffv1BitDepth::Bits8 => 8,
-                        Ffv1BitDepth::Bits10 => 10,
-                        Ffv1BitDepth::Bits12 => 12,
-                    },
-                    ffv1_settings.chroma_subsampling,
-                );
-
-                (audio_enc, video_enc, Some(video_mux), pixel_formats)
-            }
-            RenderPipelineCodec::Png => {
-                let video_enc = gstreamer::ElementFactory::make("pngenc")
-                    .property("snapshot", true)
-                    .build()?;
-
-                let pixel_formats: &[VideoFormat] = &[VideoFormat::Rgb];
-
-                (None, video_enc, None, pixel_formats)
+                Ok((Some(video_mux.clone()), video_mux))
+            } else {
+                Ok((None, file_sink))
             }
         };
 
-        let video_ntsc = gstreamer::ElementFactory::make("ntscfilter")
-            .property(
-                "settings",
-                NtscFilterSettings(self.effect_settings.clone().into()),
-            )
-            .build()?;
-        let ntsc_caps_filter = gstreamer::ElementFactory::make("capsfilter")
-            .property(
-                "caps",
-                gstreamer_video::VideoCapsBuilder::new()
-                    .format(gstreamer_video::VideoFormat::Argb64)
-                    .build(),
-            )
-            .build()?;
-        let video_convert = gstreamer::ElementFactory::make("videoconvert").build()?;
+        let create_output_elems_audio = create_output_elems.clone();
+        let create_output_elems_video = create_output_elems.clone();
 
         let job_state = Arc::new(Mutex::new(RenderJobState::Waiting));
         let job_state_for_handler = Arc::clone(&job_state);
         let exec = self.execute_fn_next_frame();
         let exec2 = self.execute_fn_next_frame();
         let ctx_for_handler = ctx.clone();
-
-        let audio_enc_for_closure = audio_enc.clone();
-        let video_mux_for_closure = video_mux.clone();
-        let video_ntsc_for_closure = video_ntsc.clone();
 
         //let still_image_duration = settings.duration;
         let current_time = self
@@ -1275,15 +1234,135 @@ impl NtscApp {
         let pipeline = self.create_pipeline(
             src,
             move |pipeline| {
-                if let Some(audio_enc) = audio_enc_for_closure {
+                let (audio_out, _) = output_elems_cell.get_or_init(|| create_output_elems_audio(pipeline)).as_ref().map_err(|err| err.clone())?;
+                if let Some(audio_out) = audio_out {
+                    let audio_enc = match settings_audio_closure.codec_settings {
+                        RenderPipelineCodec::H264(_) => gstreamer::ElementFactory::make("avenc_aac").build()?,
+                        RenderPipelineCodec::Ffv1(_) => gstreamer::ElementFactory::make("flacenc").build()?,
+                        RenderPipelineCodec::Png => return Ok(None),
+                    };
+
                     pipeline.add(&audio_enc)?;
-                    audio_enc.link(&video_mux_for_closure.unwrap())?;
+                    audio_enc.link(audio_out)?;
+                    audio_enc.sync_state_with_parent()?;
                     Ok(Some(audio_enc))
                 } else {
                     Ok(None)
                 }
             },
-            |_| Ok(video_ntsc_for_closure),
+            move |pipeline| {
+                let (_, video_out) = output_elems_cell_video.get_or_init(|| create_output_elems_video(pipeline)).as_ref().map_err(|err| err.clone())?;
+
+                let (video_enc, pixel_formats) = match &settings_video_closure.codec_settings {
+                    RenderPipelineCodec::H264(h264_settings) => {
+                    // Load the x264enc plugin so the enum classes exist. Nothing seems to work except actually instantiating an Element.
+                    let _ = gstreamer::ElementFactory::make("x264enc").build().unwrap();
+                    #[allow(non_snake_case)]
+                    let GstX264EncPass = gstreamer::glib::EnumClass::with_type(
+                        gstreamer::glib::Type::from_name("GstX264EncPass").unwrap(),
+                    )
+                    .unwrap();
+                    #[allow(non_snake_case)]
+                    let GstX264EncPreset = gstreamer::glib::EnumClass::with_type(
+                        gstreamer::glib::Type::from_name("GstX264EncPreset").unwrap(),
+                    )
+                    .unwrap();
+
+                    let video_enc = gstreamer::ElementFactory::make("x264enc")
+                        // CRF mode
+                        .property("pass", GstX264EncPass.to_value_by_nick("quant").unwrap())
+                        // invert CRF (so that low numbers = low quality)
+                        .property("quantizer", 51 - h264_settings.crf as u32)
+                        .property(
+                            "speed-preset",
+                            GstX264EncPreset
+                                .to_value(9 - h264_settings.encode_speed as i32)
+                                .unwrap(),
+                        )
+                        .build()?;
+
+                    let pixel_formats = Self::pixel_formats_for(
+                        if h264_settings.ten_bit { 10 } else { 8 },
+                        h264_settings.chroma_subsampling,
+                    );
+
+                    (video_enc, pixel_formats)
+                }
+                RenderPipelineCodec::Ffv1(ffv1_settings) => {
+                    let video_enc = gstreamer::ElementFactory::make("avenc_ffv1").build()?;
+
+                    let pixel_formats = Self::pixel_formats_for(
+                        match ffv1_settings.bit_depth {
+                            Ffv1BitDepth::Bits8 => 8,
+                            Ffv1BitDepth::Bits10 => 10,
+                            Ffv1BitDepth::Bits12 => 12,
+                        },
+                        ffv1_settings.chroma_subsampling,
+                    );
+
+                    (video_enc, pixel_formats)
+                }
+                RenderPipelineCodec::Png => {
+                    let video_enc = gstreamer::ElementFactory::make("pngenc")
+                        .property("snapshot", true)
+                        .build()?;
+
+                    let pixel_formats: &[VideoFormat] = &[VideoFormat::Rgb];
+
+                    (video_enc, pixel_formats)
+                }
+            };
+
+                let video_ntsc = gstreamer::ElementFactory::make("ntscfilter")
+                    .property(
+                        "settings",
+                        NtscFilterSettings(settings_video_closure.effect_settings.clone()),
+                    )
+                    .build()?;
+                let ntsc_caps_filter = gstreamer::ElementFactory::make("capsfilter")
+                    .property(
+                        "caps",
+                        gstreamer_video::VideoCapsBuilder::new()
+                            .format(gstreamer_video::VideoFormat::Argb64)
+                            .build(),
+                    )
+                    .build()?;
+                let video_convert = gstreamer::ElementFactory::make("videoconvert").build()?;
+
+                let video_caps = gstreamer_video::VideoCapsBuilder::new()
+                    .format_list(pixel_formats.iter().copied())
+                    .build();
+                let caps_filter = gstreamer::ElementFactory::make("capsfilter")
+                    .property("caps", &video_caps)
+                    .build()?;
+
+                let mut elems = vec![video_ntsc.clone()];
+
+                // libx264 can't encode 4:2:0 subsampled videos with odd dimensions. Pad them out to even dimensions.
+                if let RenderPipelineCodec::H264(H264Settings { chroma_subsampling: true, .. }) = &settings_video_closure.codec_settings {
+                    let video_padding = gstreamer::ElementFactory::make("videopadfilter").build()?;
+                    elems.push(video_padding);
+                }
+
+                elems.extend([
+                    ntsc_caps_filter,
+                    video_convert,
+                    caps_filter,
+                    video_enc.clone(),
+                ]);
+
+                pipeline.add_many(elems.iter())?;
+                gstreamer::Element::link_many(elems.iter())?;
+
+                video_enc.link(video_out)?;
+
+                for elem in elems.iter() {
+                    elem.sync_state_with_parent()?;
+                }
+                video_enc.sync_state_with_parent()?;
+
+                Ok(video_ntsc)
+            },
             move |bus, msg| {
                 let job_state = &job_state_for_handler;
                 let exec = &exec;
@@ -1367,53 +1446,10 @@ impl NtscApp {
             }),
         )?;
 
-        let video_caps = gstreamer_video::VideoCapsBuilder::new()
-            .format_list(pixel_formats.iter().copied())
-            .build();
-        let caps_filter = gstreamer::ElementFactory::make("capsfilter")
-            .property("caps", &video_caps)
-            .build()?;
-        dbg!(&video_caps);
-
-        let dst = gstreamer::ElementFactory::make("filesink")
-            .property("location", settings.output_path.as_path())
-            .build()?;
-
-        let mut elems = vec![video_ntsc];
-
-        // libx264 can't encode 4:2:0 subsampled videos with odd dimensions. Pad them out to even dimensions.
-        if let RenderPipelineCodec::H264(H264Settings { chroma_subsampling: true, .. }) = &settings.codec_settings {
-            let video_padding = gstreamer::ElementFactory::make("videopadfilter").build()?;
-            elems.push(video_padding);
-        }
-
-        elems.extend([
-            ntsc_caps_filter,
-            video_convert,
-            caps_filter,
-            video_enc,
-        ]);
-        if let Some(video_mux) = video_mux {
-            elems.push(video_mux);
-        }
-        elems.push(dst);
-
-        dbg!("adding many render");
-        pipeline.add_many(elems.iter().skip(1))?;
-        dbg!("added many render");
-
-        gstreamer::Element::link_many(elems.iter())?;
-
-        for elem in elems.iter() {
-            elem.sync_state_with_parent()?;
-        }
-
         pipeline.set_state(gstreamer::State::Paused)?;
 
-        //dbg!(pipeline.set_state(gstreamer::State::Playing))?;
-
         Ok(RenderJob {
-            settings,
+            settings: settings.as_ref().clone(),
             pipeline,
             state: job_state,
             last_progress: 0.0,
@@ -1903,7 +1939,17 @@ impl NtscApp {
                 let render_job = self.create_render_job(
                     ui.ctx(),
                     &src_path.unwrap().clone(),
-                    (&self.render_settings).into(),
+                    RenderPipelineSettings {
+                        codec_settings: (&self.render_settings).into(),
+                        output_path: self.render_settings.output_path.clone(),
+                        duration: self.render_settings.duration,
+                        video_scale: if self.video_scale.enabled {
+                            Some(self.video_scale.scale)
+                        } else {
+                            None
+                        },
+                        effect_settings: (&self.effect_settings).into(),
+                    },
                 );
                 match render_job {
                     Ok(render_job) => {
@@ -2500,6 +2546,12 @@ impl eframe::App for NtscApp {
                                                         output_path: handle.into(),
                                                         duration:
                                                             gstreamer::ClockTime::from_seconds(1),
+                                                        video_scale: if app.video_scale.enabled {
+                                                            Some(app.video_scale.scale)
+                                                        } else {
+                                                            None
+                                                        },
+                                                        effect_settings: (&app.effect_settings).into(),
                                                     },
                                                 );
                                                 if let Ok(job) = res {
