@@ -16,17 +16,17 @@ pub fn create_pipeline<
         + Send
         + Sync
         + 'static,
-    CB: FnOnce(gstreamer::Pipeline) + Send + Sync + 'static,
-    G: Fn(&gstreamer::Bus, &gstreamer::Message) -> gstreamer::BusSyncReply + Send + Sync + 'static,
+    BusHandler: Fn(&gstreamer::Bus, &gstreamer::Message) -> gstreamer::BusSyncReply + Send + Sync + 'static,
+    PipelineCallback: FnOnce(gstreamer::Pipeline) + Send + Sync + 'static,
 >(
     src_pad: gstreamer::Element,
     audio_sink: AudioElemCallback,
     video_sink: VideoElemCallback,
-    bus_handler: G,
+    bus_handler: BusHandler,
     duration: Option<gstreamer::ClockTime>,
     initial_scale: Option<usize>,
     initial_still_image_framerate: gstreamer::Fraction,
-    callback: Option<CB>,
+    callback: Option<PipelineCallback>,
 ) -> Result<gstreamer::Pipeline, GstreamerError> {
     let pipeline = gstreamer::Pipeline::default();
     let decodebin = gstreamer::ElementFactory::make("decodebin").build()?;

@@ -16,13 +16,10 @@ use std::{
 
 use eframe::egui;
 use eframe::epaint::vec2;
-use futures_lite::Future;
-use futures_lite::FutureExt;
-use gstreamer::glib;
-use gstreamer::glib::clone::Downgrade;
-use gstreamer::prelude::*;
-use gstreamer_video::VideoCapsBuilder;
-use gstreamer_video::VideoFormat;
+use futures_lite::{Future, FutureExt};
+use glib::clone::Downgrade;
+use gstreamer::{glib, prelude::*};
+use gstreamer_video::{VideoCapsBuilder, VideoFormat};
 
 use gui::{
     expression_parser::eval_expression_string,
@@ -297,7 +294,6 @@ struct RenderPipelineSettings {
     codec_settings: RenderPipelineCodec,
     output_path: PathBuf,
     duration: gstreamer::ClockTime,
-    video_scale: Option<usize>,
     effect_settings: NtscEffect,
 }
 
@@ -1549,11 +1545,6 @@ impl NtscApp {
                         codec_settings: (&self.render_settings).into(),
                         output_path: self.render_settings.output_path.clone(),
                         duration: self.render_settings.duration,
-                        video_scale: if self.video_scale.enabled {
-                            Some(self.video_scale.scale)
-                        } else {
-                            None
-                        },
                         effect_settings: (&self.effect_settings).into(),
                     },
                 );
@@ -2152,11 +2143,6 @@ impl eframe::App for NtscApp {
                                                         output_path: handle.into(),
                                                         duration:
                                                             gstreamer::ClockTime::from_seconds(1),
-                                                        video_scale: if app.video_scale.enabled {
-                                                            Some(app.video_scale.scale)
-                                                        } else {
-                                                            None
-                                                        },
                                                         effect_settings: (&app.effect_settings)
                                                             .into(),
                                                     },
