@@ -52,9 +52,6 @@ impl ObjectImpl for NtscFilter {
         let mut settings = self.settings.write().unwrap();
         let new_settings = value.get().unwrap();
         *settings = new_settings;
-        dbg!("update settings");
-        // self.obj().downcast::<gstreamer::Pad>().unwrap().push(buffer);
-        // self.dispatch_properties_changed(Self::properties());
     }
 
     fn property(&self, _id: usize, pspec: &glib::ParamSpec) -> glib::Value {

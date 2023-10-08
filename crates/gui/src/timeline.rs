@@ -243,7 +243,6 @@ impl<'a> Widget for Timeline<'a> {
             }
 
             if scroll_delta != 0.0 {
-                dbg!(scroll_delta);
                 let zoom_span = state.zoom_range[1] - state.zoom_range[0];
                 // we need to negate the scroll delta--scrolling down and right are both negative?
                 let delta = (-scroll_delta.signum() / rect.width()) as f64 * zoom_span;

@@ -1,10 +1,7 @@
 use std::sync::{atomic::AtomicBool, Arc, Mutex};
-
 use gstreamer::{element_error, element_warning, glib, prelude::*};
-
-use super::scale_from_caps;
-
-use super::gstreamer_error::GstreamerError;
+use super::{scale_from_caps, gstreamer_error::GstreamerError};
+use log::debug;
 
 #[derive(Clone, Debug, glib::Boxed)]
 #[boxed_type(name = "ErrorValue")]
@@ -53,7 +50,7 @@ pub fn create_pipeline<
         // just now is either audio or video (or none of both, e.g. subtitles).
         let (is_audio, is_video) = {
             let media_type = src_pad.current_caps().and_then(|caps| {
-                dbg!(&caps);
+                debug!("{:?}", &caps);
                 caps.structure(0).map(|s| {
                     let name = s.name();
                     (name.starts_with("audio/"), name.starts_with("video/"))
@@ -78,7 +75,7 @@ pub fn create_pipeline<
             let mut has_audio = has_audio.lock().unwrap();
             let mut has_video = has_video.lock().unwrap();
             if is_audio && !*has_audio {
-                dbg!("connected audio");
+                debug!("connected audio");
 
                 if let Some(pipeline) = pipeline.upgrade() {
                     let audio_sink = audio_sink.lock().unwrap().take();
@@ -91,9 +88,7 @@ pub fn create_pipeline<
                                 gstreamer::ElementFactory::make("audioresample").build()?;
 
                             let audio_elements = &[&audio_queue, &audio_convert, &audio_resample];
-                            dbg!("adding many audio");
                             pipeline.add_many(audio_elements)?;
-                            dbg!("added many audio");
                             gstreamer::Element::link_many(audio_elements)?;
 
                             audio_resample.link(&sink)?;
@@ -117,7 +112,7 @@ pub fn create_pipeline<
 
                 // has_audio
             } else if is_video && !*has_video {
-                dbg!("connected video");
+                debug!("connected video");
 
                 if let Some(pipeline) = pipeline.upgrade() {
                     let video_sink = video_sink.lock().unwrap().take();
@@ -248,7 +243,7 @@ pub fn create_pipeline<
         // of those, one can send arbitrary rust types (using the pipeline's bus) into the mainloop.
         // What we send here is unpacked down below, in the iteration-code over sent bus-messages.
         if let Err(err) = insert_sink(is_audio, is_video) {
-            dbg!(&err);
+            debug!("got error: {:?}", &err);
             element_error!(
                 dbin,
                 gstreamer::LibraryError::Failed,
@@ -279,7 +274,7 @@ pub fn create_pipeline<
                         .and_then(|a| a.downcast_ref::<gstreamer::Pipeline>())
                     {
                         let pipeline_state_change_done = *src_pipeline == pipeline;
-                        dbg!(pipeline_state_change_done);
+                        debug!("pipeline state change done: {:?}", pipeline_state_change_done);
 
                         if pipeline_state_change_done {
                             let mut id = handler_id.lock().unwrap();

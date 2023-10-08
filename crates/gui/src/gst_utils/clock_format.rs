@@ -17,7 +17,6 @@ pub fn clock_time_parser(input: &str) -> Option<f64> {
         .enumerate()
         .try_for_each(|(index, item)| -> Option<()> {
             let multiplier = MULTIPLIERS.get(index)?;
-            dbg!(item);
             if item.contains(".") {
                 if index != 0 {
                     return None;
@@ -27,7 +26,6 @@ pub fn clock_time_parser(input: &str) -> Option<f64> {
             } else {
                 *out_value.get_or_insert(0) += item.parse::<u64>().ok()? * *multiplier;
             }
-            dbg!(out_value);
             Some(())
         });
     out_value.map(|value| value as f64)

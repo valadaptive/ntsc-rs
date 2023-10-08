@@ -24,15 +24,18 @@ use gstreamer::prelude::*;
 use gstreamer_video::VideoCapsBuilder;
 use gstreamer_video::VideoFormat;
 
-use gui::expression_parser::eval_expression_string;
-use gui::gst_utils::{
-    clock_format::{clock_time_format, clock_time_parser},
-    egui_sink::{EguiCtx, SinkTexture},
-    elements::{EguiSink, NtscFilter, VideoPadFilter},
-    gstreamer_error::GstreamerError,
-    ntscrs_filter::NtscFilterSettings,
-    pipeline_utils::create_pipeline,
-    scale_from_caps,
+use gui::{
+    expression_parser::eval_expression_string,
+    gst_utils::{
+        clock_format::{clock_time_format, clock_time_parser},
+        egui_sink::{EguiCtx, SinkTexture},
+        elements::{EguiSink, NtscFilter, VideoPadFilter},
+        gstreamer_error::GstreamerError,
+        ntscrs_filter::NtscFilterSettings,
+        pipeline_utils::create_pipeline,
+        scale_from_caps,
+    },
+    timeline::Timeline,
 };
 
 use ntscrs::settings::{
@@ -40,7 +43,7 @@ use ntscrs::settings::{
 };
 use snafu::prelude::*;
 
-use gui::timeline::Timeline;
+use log::debug;
 
 #[derive(Debug, Snafu)]
 enum ApplicationError {
@@ -554,9 +557,6 @@ impl NtscApp {
             };
 
             if let Some((dst_width, dst_height)) = scale_from_caps(&scale_caps, scanlines) {
-                dbg!(dst_width);
-                dbg!(scanlines);
-
                 caps_filter.set_property(
                     "caps",
                     gstreamer_video::VideoCapsBuilder::default()
@@ -653,7 +653,7 @@ impl NtscApp {
                 Ok(video_sink_for_closure)
             },
             move |bus, msg| {
-                dbg!(msg);
+                debug!("{:?}", msg);
                 let at_eos = &at_eos_for_handler;
                 let ctx = &ctx_for_handler;
                 let pipeline_info_state = &pipeline_info_state_for_handler;
@@ -665,8 +665,7 @@ impl NtscApp {
                     let src = msg.src()?;
 
                     if let gstreamer::MessageView::Error(err_msg) = msg.view() {
-                        dbg!("handling error message");
-                        dbg!(&msg);
+                        debug!("handling error message: {:?}", msg);
                         let mut pipeline_state = pipeline_info_state.lock().unwrap();
                         if !matches!(&*pipeline_state, PipelineInfoState::Error(_)) {
                             *pipeline_state = PipelineInfoState::Error(err_msg.error().into());
@@ -724,9 +723,7 @@ impl NtscApp {
                 None
             },
             gstreamer::Fraction::from(30),
-            Some(|p| {
-                dbg!("got pipeline!");
-            }),
+            None::<fn(_)>,
         )?;
 
         pipeline.set_state(gstreamer::State::Paused)?;
@@ -990,7 +987,7 @@ impl NtscApp {
                 let ctx = &ctx_for_handler;
 
                 let handle_msg = move |_bus, msg: &gstreamer::Message| -> Option<()> {
-                    //dbg!(msg);
+                    debug!("{:?}", msg);
                     let src = msg.src()?;
 
                     if let gstreamer::MessageView::Error(err) = msg.view() {
@@ -1310,16 +1307,6 @@ impl NtscApp {
                         });
                     }
 
-                    let pasted_text = ui.input(|input| {
-                        input.events.iter().find_map(|event| match event {
-                            egui::Event::Paste(data) => Some(data.clone()),
-                            _ => None,
-                        })
-                    });
-                    if let Some(p) = pasted_text {
-                        dbg!(p);
-                    }
-
                     let btn = ui.button("📄 Paste");
 
                     let paste_popup_id = ui.make_persistent_id("paste_popup_open");
@@ -1337,7 +1324,6 @@ impl NtscApp {
                         .data(|map| map.get_temp(paste_popup_id).unwrap_or(false))
                     {
                         let mut is_open = true;
-                        //ui.visuals_mut().clip_rect_margin = 3.0;
                         egui::Window::new("Paste JSON")
                             .default_pos(btn.rect.center_top())
                             .open(&mut is_open)
@@ -1545,7 +1531,6 @@ impl NtscApp {
                     {
                         self.render_settings.duration =
                             gstreamer::ClockTime::from_mseconds(duration);
-                        dbg!(self.render_settings.duration);
                     }
                 });
             }
@@ -2275,6 +2260,5 @@ impl eframe::App for NtscApp {
 impl Drop for NtscApp {
     fn drop(&mut self) {
         let _ = self.remove_pipeline();
-        dbg!("dropping app");
     }
 }
