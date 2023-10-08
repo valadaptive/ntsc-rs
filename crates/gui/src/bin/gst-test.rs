@@ -29,7 +29,7 @@ use gui::{
         elements::{EguiSink, NtscFilter, VideoPadFilter},
         gstreamer_error::GstreamerError,
         ntscrs_filter::NtscFilterSettings,
-        pipeline_utils::create_pipeline,
+        pipeline_utils::{create_pipeline, PipelineError},
         scale_from_caps,
     },
     timeline::Timeline,
@@ -48,7 +48,10 @@ enum ApplicationError {
     LoadVideo { source: GstreamerError },
 
     #[snafu(display("Error creating pipeline: {source}"))]
-    CreatePipeline { source: GstreamerError },
+    CreatePipeline { source: PipelineError },
+
+    #[snafu(display("Error creating render job: {source}"))]
+    CreateRenderJob { source: GstreamerError },
 
     #[snafu(display("Error reading JSON: {source}"))]
     JSONRead { source: std::io::Error },
@@ -134,7 +137,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 enum PipelineInfoState {
     Loading,
     Loaded,
-    Error(GstreamerError),
+    Error(PipelineError),
 }
 
 struct PipelineInfo {
@@ -621,6 +624,7 @@ impl NtscApp {
 
         let pipeline_info_state = Arc::new(Mutex::new(PipelineInfoState::Loading));
         let pipeline_info_state_for_handler = Arc::clone(&pipeline_info_state);
+        let pipeline_info_state_for_callback = Arc::clone(&pipeline_info_state);
         let at_eos = Arc::new(Mutex::new(false));
         let at_eos_for_handler = Arc::clone(&at_eos);
         let is_still_image = Arc::new(Mutex::new(false));
@@ -628,6 +632,7 @@ impl NtscApp {
         let framerate = Arc::new(Mutex::new(None));
         let framerate_for_handler = Arc::clone(&framerate);
         let ctx_for_handler = ctx.clone();
+        let ctx_for_callback = ctx.clone();
 
         let audio_sink_for_closure = audio_sink.clone();
         let video_sink_for_closure = video_sink.clone();
@@ -684,17 +689,19 @@ impl NtscApp {
                                     pipeline.by_name("still_image_freeze").is_some();
                                 *is_still_image.lock().unwrap() = is_still_image_inner;
 
-                                let video_rate = pipeline.by_name("video_rate").unwrap();
-                                let caps = video_rate.static_pad("src").and_then(|pad| pad.caps());
+                                let video_rate = pipeline.by_name("video_rate");
+                                if let Some(video_rate) = video_rate {
+                                    let caps = video_rate.static_pad("src").and_then(|pad| pad.caps());
 
-                                *framerate.lock().unwrap() = if let Some(caps) = caps {
-                                    let structure = caps.structure(0);
-                                    structure.and_then(|structure| {
-                                        structure.get::<gstreamer::Fraction>("framerate").ok()
-                                    })
-                                } else {
-                                    None
-                                };
+                                    *framerate.lock().unwrap() = if let Some(caps) = caps {
+                                        let structure = caps.structure(0);
+                                        structure.and_then(|structure| {
+                                            structure.get::<gstreamer::Fraction>("framerate").ok()
+                                        })
+                                    } else {
+                                        None
+                                    };
+                                }
                             }
                         }
                     }
@@ -713,7 +720,12 @@ impl NtscApp {
                 None
             },
             gstreamer::Fraction::from(30),
-            None::<fn(_)>,
+            Some(move |p: Result<gstreamer::Pipeline, PipelineError>| {
+                if let Err(e) = p {
+                    *pipeline_info_state_for_callback.lock().unwrap() = PipelineInfoState::Error(e);
+                    ctx_for_callback.request_repaint();
+                }
+            }),
         )?;
 
         pipeline.set_state(gstreamer::State::Paused)?;
@@ -1039,17 +1051,29 @@ impl NtscApp {
                 .as_ref()
                 .and_then(|info| *info.framerate.lock().unwrap())
                 .unwrap_or(gstreamer::Fraction::from(30)),
-            Some(move |p: gstreamer::Pipeline| {
+            Some(move |p: Result<gstreamer::Pipeline, _>| {
                 exec2(async move {
-                    if is_png {
-                        let _ = p.seek_simple(
-                            gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
-                            current_time,
-                        );
-                    }
+                    Some(
+                        Box::new(move |_: &mut NtscApp| -> Result<(), ApplicationError> {
+                            let pipeline = p.context(CreatePipelineSnafu)?;
+                            if is_png {
+                                pipeline
+                                    .seek_simple(
+                                        gstreamer::SeekFlags::FLUSH
+                                            | gstreamer::SeekFlags::ACCURATE,
+                                        current_time,
+                                    )
+                                    .map_err(|e| e.into())
+                                    .context(CreateRenderJobSnafu)?;
+                            }
 
-                    let _ = p.set_state(gstreamer::State::Playing);
-                    None
+                            pipeline
+                                .set_state(gstreamer::State::Playing)
+                                .map_err(|e| e.into())
+                                .context(CreateRenderJobSnafu)?;
+                            Ok(())
+                        }) as _,
+                    )
                 });
             }),
         )?;
@@ -2165,7 +2189,7 @@ impl eframe::App for NtscApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.tick();
 
-        let mut pipeline_error = None::<GstreamerError>;
+        let mut pipeline_error = None::<PipelineError>;
         if let Some(pipeline) = &self.pipeline {
             let state = pipeline.state.lock().unwrap();
             let state = &*state;

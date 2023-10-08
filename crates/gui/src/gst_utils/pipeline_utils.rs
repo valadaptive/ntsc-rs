@@ -1,4 +1,4 @@
-use std::sync::{atomic::AtomicBool, Arc, Mutex};
+use std::{sync::{atomic::AtomicBool, Arc, Mutex}, error::Error, fmt::Display};
 use gstreamer::{element_error, element_warning, glib, prelude::*};
 use super::{scale_from_caps, gstreamer_error::GstreamerError};
 use log::debug;
@@ -6,6 +6,36 @@ use log::debug;
 #[derive(Clone, Debug, glib::Boxed)]
 #[boxed_type(name = "ErrorValue")]
 struct ErrorValue(Arc<Mutex<Option<GstreamerError>>>);
+
+#[derive(Debug, Clone)]
+pub enum PipelineError {
+    GlibError(glib::Error),
+    NoVideoError
+}
+
+impl Display for PipelineError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::GlibError(e) => e.fmt(f),
+            Self::NoVideoError => f.write_str("Pipeline source has no video")
+        }
+    }
+}
+
+impl Error for PipelineError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::GlibError(e) => Some(e),
+            Self::NoVideoError => None
+        }
+    }
+}
+
+impl From<glib::Error> for PipelineError {
+    fn from(value: glib::Error) -> Self {
+        Self::GlibError(value)
+    }
+}
 
 pub fn create_pipeline<
     AudioElemCallback: FnOnce(&gstreamer::Pipeline) -> Result<Option<gstreamer::Element>, GstreamerError>
@@ -17,7 +47,7 @@ pub fn create_pipeline<
         + Sync
         + 'static,
     BusHandler: Fn(&gstreamer::Bus, &gstreamer::Message) -> gstreamer::BusSyncReply + Send + Sync + 'static,
-    PipelineCallback: FnOnce(gstreamer::Pipeline) + Send + Sync + 'static,
+    PipelineCallback: FnOnce(Result<gstreamer::Pipeline, PipelineError>) + Send + Sync + 'static,
 >(
     src_pad: gstreamer::Element,
     audio_sink: AudioElemCallback,
@@ -34,7 +64,8 @@ pub fn create_pipeline<
     gstreamer::Element::link_many([&src_pad, &decodebin])?;
 
     let has_audio = Mutex::new(false);
-    let has_video = Mutex::new(false);
+    let has_video = Arc::new(Mutex::new(false));
+    let has_video_for_bus_handler = Arc::clone(&has_video);
 
     let handler_id: Arc<Mutex<Option<glib::SignalHandlerId>>> = Arc::new(Mutex::new(None));
     let handler_id_for_handler = Arc::clone(&handler_id);
@@ -262,33 +293,40 @@ pub fn create_pipeline<
         .bus()
         .expect("Pipeline without bus. Shouldn't happen!");
 
-    let pipeline_weak = gstreamer::prelude::ObjectExt::downgrade(&pipeline);
     let finished_loading = AtomicBool::new(false);
     let handler_callback = Mutex::new(callback);
     bus.set_sync_handler(move |bus, msg| {
         if !finished_loading.load(std::sync::atomic::Ordering::SeqCst) {
-            if let gstreamer::MessageView::AsyncDone(a) = msg.view() {
-                if let Some(pipeline) = pipeline_weak.upgrade() {
-                    if let Some(src_pipeline) = a
+            match msg.view() {
+                gstreamer::MessageView::AsyncDone(a) => {
+                    if let Some(pipeline) = a
                         .src()
                         .and_then(|a| a.downcast_ref::<gstreamer::Pipeline>())
                     {
-                        let pipeline_state_change_done = *src_pipeline == pipeline;
-                        debug!("pipeline state change done: {:?}", pipeline_state_change_done);
+                        debug!("pipeline state change done");
 
-                        if pipeline_state_change_done {
-                            let mut id = handler_id.lock().unwrap();
-                            let id = id.take();
-                            if let Some(id) = id {
-                                decodebin.disconnect(id);
-                            }
-                            if let Some(callback) = handler_callback.lock().unwrap().take() {
-                                callback(pipeline);
-                            }
-                            finished_loading.store(true, std::sync::atomic::Ordering::SeqCst);
+                        let mut id = handler_id.lock().unwrap();
+                        let id = id.take();
+                        if let Some(id) = id {
+                            decodebin.disconnect(id);
                         }
+                        if let Some(callback) = handler_callback.lock().unwrap().take() {
+                            if *has_video_for_bus_handler.lock().unwrap() {
+                                callback(Ok(pipeline.clone()));
+                            } else {
+                                callback(Err(PipelineError::NoVideoError));
+                            }
+                        }
+                        finished_loading.store(true, std::sync::atomic::Ordering::SeqCst);
                     }
+                },
+                gstreamer::MessageView::Error(e) => {
+                    if let Some(callback) = handler_callback.lock().unwrap().take() {
+                        callback(Err(PipelineError::GlibError(e.error())));
+                    }
+                    finished_loading.store(true, std::sync::atomic::Ordering::SeqCst);
                 }
+                _ => {}
             }
         }
 
