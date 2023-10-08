@@ -1579,10 +1579,11 @@ impl NtscApp {
                         )
                         .text("Encoding speed"),
                     );
-                    ui.checkbox(
+                    // Disabled for now until I can find a way to query for 10-bit support
+                    /*ui.checkbox(
                         &mut self.render_settings.h264_settings.ten_bit,
                         "10-bit color",
-                    );
+                    );*/
                     ui.checkbox(
                         &mut self.render_settings.h264_settings.chroma_subsampling,
                         "4:2:0 chroma subsampling",
