@@ -2972,6 +2972,7 @@ checksum = "e5ea92a5b6195c6ef2a0295ea818b312502c6fc94dde986c5553242e18fd4ce2"
 [[package]]
 name = "rfd"
 version = "0.12.0"
+source = "git+https://github.com/PolyMeilex/rfd?rev=4ea34bca1aeb4c4f47c8e53a7dffdfacd62ebca6#4ea34bca1aeb4c4f47c8e53a7dffdfacd62ebca6"
 dependencies = [
  "block",
  "dispatch",
