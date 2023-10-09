@@ -620,6 +620,7 @@ impl NtscApp {
         let video_sink = gstreamer::ElementFactory::make("eguisink")
             .property("texture", tex_sink)
             .property("ctx", egui_ctx)
+            .property("settings", NtscFilterSettings((&self.effect_settings).into()))
             .build()?;
 
         let pipeline_info_state = Arc::new(Mutex::new(PipelineInfoState::Loading));
