@@ -27,6 +27,6 @@ jobs:
       if: ${{ matrix.os == 'ubuntu-20.04' }}
     - name: Install gstreamer (Windows)
       if: ${{ matrix.os == 'windows-latest' }}
-      run: choco --yes install gstreamer-devel
+      run: choco install gstreamer-devel
     - name: Build
       run: cargo build --release --workspace
