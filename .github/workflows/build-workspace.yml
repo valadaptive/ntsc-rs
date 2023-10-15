@@ -21,8 +21,7 @@ jobs:
       uses: actions/checkout@v3
     - name: Install gstreamer
       run: |
-        sudo apt-get remove libunwind-14 -y
-        sudo apt-get install libunwind libgstreamer1.0-dev -y
+        sudo apt-get install libgstreamer1.0-dev -y
       if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Build
       run: cargo build --release --workspace
