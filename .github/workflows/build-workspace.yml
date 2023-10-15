@@ -17,6 +17,12 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v3
+    - name: Checkout
+      uses: actions/checkout@v3
+    - name: Install gstreamer
+      uses: awalsh128/cache-apt-pkgs-action@v1
+      with:
+        packages: libgstreamer1.0-dev 
+      if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Build
       run: cargo build --release --workspace
