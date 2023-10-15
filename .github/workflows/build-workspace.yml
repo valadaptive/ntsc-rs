@@ -19,9 +19,9 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v3
-    - name: Install gstreamer
+    - name: Install gstreamer (Linux)
       run: |
         sudo apt-get install libgstreamer1.0-dev -y
-      if: ${{ matrix.os == 'ubuntu-latest' }}
+      if: ${{ matrix.os == 'ubuntu-20.04' }}
     - name: Build
       run: cargo build --release --workspace
