@@ -2,7 +2,7 @@
 name = "gui"
 version = "0.1.0"
 edition = "2021"
-default-run = "gui"
+default-run = "ntsc-rs-standalone"
 license = "GPL-2.0-or-later"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -26,4 +26,4 @@ log = "0.4.20"
 rfd = { git = "https://github.com/PolyMeilex/rfd", rev = "4ea34bca1aeb4c4f47c8e53a7dffdfacd62ebca6" }
 
 [[bin]]
-name = "gst-test"
+name = "ntsc-rs-standalone"
