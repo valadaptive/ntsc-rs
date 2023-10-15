@@ -24,6 +24,7 @@ jobs:
       with:
         packages: libgstreamer1.0-dev
         version: 1.0
+        execute_install_scripts: true
       if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Build
       run: cargo build --release --workspace
