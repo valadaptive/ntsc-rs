@@ -22,7 +22,8 @@ jobs:
     - name: Install gstreamer
       uses: awalsh128/cache-apt-pkgs-action@v1
       with:
-        packages: libgstreamer1.0-dev 
+        packages: libgstreamer1.0-dev
+        version: 1.0
       if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Build
       run: cargo build --release --workspace
