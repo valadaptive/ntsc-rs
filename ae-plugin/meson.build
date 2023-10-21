@@ -1,4 +1,4 @@
-project('ntscrs-ae', ['c', 'cpp', 'rust'],
+project('ntscrs-ae', ['c', 'cpp'],
   version : '0.1',
   default_options : ['warning_level=3', 'c_std=c99', 'cpp_std=c++14'])
 
