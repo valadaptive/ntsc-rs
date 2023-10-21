@@ -43,13 +43,18 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v3
-    - name: Setup
+    - name: Setup gpg4win
       run: |
         $env:PATH = "C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\ProgramData\chocolatey\bin"
         [Environment]::SetEnvironmentVariable("Path", $env:PATH, "Machine")
         choco install gpg4win
         echo "C:\Program Files (x86)\Gpg4win\..\GnuPG\bin" >> $env:GITHUB_PATH
-        pip3 install meson ninja
+    - name: Setup Meson
+    - uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        cache: 'pip' # caching pip dependencies
+    - run: pip install meson ninja
     - name: Get SDK
       run: |
         git checkout blobs -- sdkwin.zip.gpg
