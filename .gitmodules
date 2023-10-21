@@ -1,3 +1,0 @@
-[submodule "crates/openfx-plugin/vendor/openfx"]
-	path = crates/openfx-plugin/vendor/openfx
-	url = https://github.com/AcademySoftwareFoundation/openfx
