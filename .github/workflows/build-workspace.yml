@@ -64,6 +64,10 @@ jobs:
         gpg --quiet --batch --yes --decrypt --passphrase="$Env:WIN_SDK_KEY" --output=sdkwin.zip sdkwin.zip.gpg
         Expand-Archive sdkwin.zip .\ae-plugin\sdk\
         mv '.\ae-plugin\sdk\Adobe After Effects CC 15.0 Win SDK\*' .\ae-plugin\sdk\
+    - name: Prepare MSVC
+      uses: bus1/cabuild/action/msdevshell@v1
+      with:
+        architecture: x64
     - name: Build
       run: |
         cd .\ae-plugin
