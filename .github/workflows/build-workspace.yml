@@ -22,7 +22,7 @@ jobs:
     - name: Install gstreamer (Linux)
       uses: awalsh128/cache-apt-pkgs-action@v1
       with:
-        packages: libgstreamer1.0-dev libatk1.0-dev libgtk-3-dev
+        packages: libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libatk1.0-dev libgtk-3-dev
         version: 2.0
       if: ${{ matrix.os == 'ubuntu-20.04' }}
     - name: Install gstreamer (Windows)
