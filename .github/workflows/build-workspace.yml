@@ -45,6 +45,10 @@ jobs:
       uses: actions/checkout@v3
     - name: Setup
       run: |
+        $env:PATH = "C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\ProgramData\chocolatey\bin"
+        [Environment]::SetEnvironmentVariable("Path", $env:PATH, "Machine")
+        choco install gpg4win
+        echo "C:\Program Files (x86)\Gpg4win\..\GnuPG\bin" >> $env:GITHUB_PATH
         pip3 install meson ninja
     - name: Get SDK
       run: |
