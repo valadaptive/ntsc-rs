@@ -45,7 +45,7 @@ jobs:
       uses: actions/checkout@v3
     - name: Setup
       run: |
-        choco install meson
+        pip3 install meson ninja
     - name: Get SDK
       run: |
         git checkout blobs -- sdkwin.zip.gpg
