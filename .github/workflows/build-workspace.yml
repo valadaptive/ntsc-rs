@@ -45,11 +45,11 @@ jobs:
       uses: actions/checkout@v3
     - name: Setup
       run: |
-        choco install gpg4win meson
+        choco install meson
     - name: Get SDK
       run: |
         git checkout blobs -- sdkwin.zip.gpg
-        gpg --quiet --batch --yes --decrypt --passphrase="$Env:WIN_SDK_KEY" --output=sdkwin.zip sdkwin.zip.gpg
+        "C:\Program Files\Git\usr\bin\gpg.exe" --quiet --batch --yes --decrypt --passphrase="$Env:WIN_SDK_KEY" --output=sdkwin.zip sdkwin.zip.gpg
         Expand-Archive sdkwin.zip .\ae-plugin\sdk\
         mv '.\ae-plugin\sdk\Adobe After Effects CC 15.0 Win SDK\*' .\ae-plugin\sdk\
     - name: Build
