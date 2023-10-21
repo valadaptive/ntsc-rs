@@ -15,6 +15,8 @@ struct Target {
     ofx_architecture: &'static str,
     /// File extension for a dynamic library on this platform, excluding the leading dot
     library_extension: &'static str,
+    /// Prefix for the library output filename. Platform-dependant; thanks Cargo!
+    library_prefix: &'static str,
 }
 
 // "Supported" target triples
@@ -23,32 +25,38 @@ const TARGETS: &'static [Target] = &[
         target_triple: "x86_64-unknown-linux-gnu",
         ofx_architecture: "Linux-x86-64",
         library_extension: "so",
+        library_prefix: "lib"
     },
     Target {
         target_triple: "i686-unknown-linux-gnu",
         ofx_architecture: "Linux-x86",
         library_extension: "so",
+        library_prefix: "lib",
     },
     Target {
         target_triple: "x86_64-pc-windows-msvc",
         ofx_architecture: "Win64",
         library_extension: "dll",
+        library_prefix: "",
     },
     Target {
         target_triple: "i686-pc-windows-msvc",
         ofx_architecture: "Win32",
         library_extension: "dll",
+        library_prefix: "",
     },
     // These two are completely untested. If your macOS build fails, don't be afraid to change these.
     Target {
         target_triple: "x86_64-apple-darwin",
         ofx_architecture: "MacOS-x86-64",
         library_extension: "dylib",
+        library_prefix: "lib",
     },
     Target {
         target_triple: "aarch64-apple-darwin",
         ofx_architecture: "MacOS",
         library_extension: "dylib",
+        library_prefix: "lib",
     },
 ];
 
@@ -86,12 +94,11 @@ pub fn main() -> std::io::Result<()> {
     plugin_bin_path.push("NtscRs.ofx");
 
     let mut built_library_path = target_dir_path.clone();
-    built_library_path.push("libopenfx_plugin");
+    built_library_path.push(target.library_prefix.to_owned() + "openfx_plugin");
     built_library_path.set_extension(target.library_extension);
 
     fs::create_dir_all(plugin_bin_path.parent().unwrap())?;
     fs::copy(built_library_path, plugin_bin_path)?;
-
 
     Ok(())
 }

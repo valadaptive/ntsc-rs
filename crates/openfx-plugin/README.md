@@ -14,14 +14,15 @@ to include as much information as possible.
 
 ## Building
 
-Building the OpenFX plugin only requires Cargo. A custom build script is used to package the plugin into an OpenFX
-bundle. To build, run:
+Building the OpenFX plugin requires Cargo and [rust-bindgen](
+https://rust-lang.github.io/rust-bindgen/requirements.html). A custom build script is used to package the plugin into
+an OpenFX bundle. To build, run:
 
 ```sh
 cargo run --bin build-plugin -- --release
 ```
 
-That'll build a release build--for a debu build, just leave off the `--release` part.
+That'll build a release build--for a debug build, just leave off the `--release` part.
 
 Building for macOS likely requires signing and notarization. I don't have a Mac or an Apple Developer account, so I
 can't provide any assistance there.
