@@ -57,6 +57,7 @@ jobs:
         echo "C:\Program Files (x86)\Gpg4win\..\GnuPG\bin" >> $env:GITHUB_PATH
     - name: Get SDK
       run: |
+        git fetch origin blobs
         git checkout blobs -- sdkwin.zip.gpg
         gpg --quiet --batch --yes --decrypt --passphrase="$Env:WIN_SDK_KEY" --output=sdkwin.zip sdkwin.zip.gpg
         Expand-Archive sdkwin.zip .\ae-plugin\sdk\
