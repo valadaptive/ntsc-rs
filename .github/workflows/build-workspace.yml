@@ -56,6 +56,8 @@ jobs:
         choco install gpg4win
         echo "C:\Program Files (x86)\Gpg4win\..\GnuPG\bin" >> $env:GITHUB_PATH
     - name: Get SDK
+      env:
+        WIN_SDK_KEY: ${{ secrets.WIN_SDK_KEY }}
       run: |
         git fetch origin blobs
         git checkout origin/blobs -- sdkwin.zip.gpg
