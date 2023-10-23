@@ -12,7 +12,7 @@ use crate::{
     filter::TransferFunction,
     random::{Geometric, Seeder},
     shift::{shift_row, shift_row_to, BoundaryHandling},
-    yiq_fielding::{YiqView, YiqField, YiqOwned}
+    yiq_fielding::{YiqField, YiqOwned, YiqView},
 };
 
 pub use crate::settings::*;
@@ -127,6 +127,40 @@ struct CommonInfo {
     seed: u64,
     frame_num: usize,
     bandwidth_scale: f32,
+}
+
+fn luma_filter(frame: &mut YiqView, filter_mode: LumaLowpass) {
+    match filter_mode {
+        LumaLowpass::None => {}
+        LumaLowpass::Box => {
+            frame.y.par_chunks_mut(frame.dimensions.0).for_each(|y| {
+                let mut delay = VecDeque::<f32>::with_capacity(4);
+                delay.push_back(16.0 / 255.0);
+                delay.push_back(16.0 / 255.0);
+                delay.push_back(y[0]);
+                delay.push_back(y[1]);
+                let mut sum: f32 = delay.iter().sum();
+                let width = y.len();
+
+                for index in 0..width {
+                    // Box-blur the signal.
+                    let c = y[usize::min(index + 2, width - 1)];
+                    sum -= delay.pop_front().unwrap();
+                    delay.push_back(c);
+                    sum += c;
+                    y[index] = sum * 0.25;
+                }
+            });
+        }
+        LumaLowpass::Notch => filter_plane(
+            frame.y,
+            frame.dimensions.0,
+            &make_notch_filter(0.5, 2.0),
+            InitialCondition::FirstSample,
+            1.0,
+            0,
+        ),
+    }
 }
 
 /// Apply a lowpass filter to the input chroma, emulating broadcast NTSC's bandwidth cutoffs.
@@ -322,8 +356,7 @@ fn luma_into_chroma(
     let width = yiq.dimensions.0;
 
     match filter_mode {
-        ChromaDemodulationFilter::Box
-        | ChromaDemodulationFilter::Notch => {
+        ChromaDemodulationFilter::Box | ChromaDemodulationFilter::Notch => {
             let y_lines = yiq.y.par_chunks_mut(width);
             let i_lines = yiq.i.par_chunks_mut(width);
             let q_lines = yiq.q.par_chunks_mut(width);
@@ -368,7 +401,7 @@ fn luma_into_chroma(
                                 subcarrier_amplitude,
                             );
                         });
-                },
+                }
                 _ => unreachable!(),
             }
         }
@@ -377,8 +410,10 @@ fn luma_into_chroma(
             let i_lines = yiq.i.chunks_mut(width);
             let q_lines = yiq.q.chunks_mut(width);
             let mut delay = vec![0f32; width];
-            y_lines.zip(i_lines.zip(q_lines)).enumerate().for_each(
-                |(line_index, (y, (i, q)))| {
+            y_lines
+                .zip(i_lines.zip(q_lines))
+                .enumerate()
+                .for_each(|(line_index, (y, (i, q)))| {
                     for index in 0..width {
                         let blended = (y[index] + delay[index]) * 0.5;
                         delay[index] = y[index];
@@ -392,9 +427,8 @@ fn luma_into_chroma(
                         );
                         demodulate_chroma(chroma, index, xi, subcarrier_amplitude, i, q);
                     }
-                },
-            );
-        },
+                });
+        }
         ChromaDemodulationFilter::TwoLineComb => {
             let mut delay = vec![0f32; width];
 
@@ -560,8 +594,7 @@ fn chroma_phase_noise(yiq: &mut YiqView, info: &CommonInfo, intensity: f32) {
         .for_each(|(index, (i, q))| {
             // Phase shift angle in radians. Mapped so that an intensity of 1.0 is a phase shift ranging from a full
             // rotation to the left - a full rotation to the right.
-            let phase_shift =
-                (seeder.clone().mix(index).finalize::<f32>() - 0.5) * 2.0 * intensity;
+            let phase_shift = (seeder.clone().mix(index).finalize::<f32>() - 0.5) * 2.0 * intensity;
 
             chroma_phase_offset_line(i, q, phase_shift);
         });
@@ -611,7 +644,13 @@ fn head_switching(
 }
 
 /// Helper function for generating "snow".
-fn row_speckles<R: Rng>(row: &mut [f32], rng: &mut R, intensity: f32, anisotropy: f32, bandwidth_scale: f32) {
+fn row_speckles<R: Rng>(
+    row: &mut [f32],
+    rng: &mut R,
+    intensity: f32,
+    anisotropy: f32,
+    bandwidth_scale: f32,
+) {
     let intensity = intensity as f64;
     let anisotropy = anisotropy as f64;
 
@@ -620,8 +659,11 @@ fn row_speckles<R: Rng>(row: &mut [f32], rng: &mut R, intensity: f32, anisotropy
     // look like S-curves with increasing sharpness.
     // As a bonus, the integral of this function over (0, 1) as we transition from 0% to 100% anisotropy is *almost*
     // constant, meaning there's approximately the same amount of snow each time.
-    let logistic_factor = ((rng.gen::<f64>() - intensity) / (intensity * (1.0 - intensity) * (1.0 - anisotropy))).exp();
-    let mut line_snow_intensity = anisotropy / (1.0 + logistic_factor) + intensity * (1.0 - anisotropy);
+    let logistic_factor = ((rng.gen::<f64>() - intensity)
+        / (intensity * (1.0 - intensity) * (1.0 - anisotropy)))
+        .exp();
+    let mut line_snow_intensity =
+        anisotropy / (1.0 + logistic_factor) + intensity * (1.0 - anisotropy);
 
     // At maximum intensity (1.0), the line just gets completely whited out. 0.125 intensity looks more reasonable.
     line_snow_intensity *= 0.125;
@@ -915,6 +957,8 @@ impl NtscEffect {
         };
 
         let mut scratch_buffer = ScratchBuffer::new(yiq.y.len());
+
+        luma_filter(yiq, self.input_luma_filter);
 
         match self.chroma_lowpass_in {
             ChromaLowpass::Full => {

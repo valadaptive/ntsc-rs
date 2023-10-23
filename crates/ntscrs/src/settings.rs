@@ -26,6 +26,13 @@ pub enum UseField {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+pub enum LumaLowpass {
+    None,
+    Box,
+    Notch,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
 pub enum PhaseShift {
     Degrees0,
     Degrees90,
@@ -222,6 +229,7 @@ impl<T: Default> Default for SettingsBlock<T> {
 pub struct NtscEffect {
     pub random_seed: i32,
     pub use_field: UseField,
+    pub input_luma_filter: LumaLowpass,
     pub chroma_lowpass_in: ChromaLowpass,
     pub chroma_demodulation: ChromaDemodulationFilter,
     pub composite_preemphasis: f32,
@@ -251,6 +259,7 @@ impl Default for NtscEffect {
         Self {
             random_seed: 0,
             use_field: UseField::Alternating,
+            input_luma_filter: LumaLowpass::Notch,
             chroma_lowpass_in: ChromaLowpass::Full,
             chroma_demodulation: ChromaDemodulationFilter::Box,
             chroma_lowpass_out: ChromaLowpass::Full,
@@ -366,6 +375,7 @@ pub enum SettingID {
     RANDOM_SEED,
 
     CHROMA_PHASE_ERROR,
+    INPUT_LUMA_FILTER,
 }
 
 macro_rules! impl_get_field_ref {
@@ -453,6 +463,7 @@ macro_rules! impl_get_field_ref {
             SettingID::RANDOM_SEED => $settings.random_seed.$borrow_op(),
 
             SettingID::CHROMA_PHASE_ERROR => $settings.chroma_phase_error.$borrow_op(),
+            SettingID::INPUT_LUMA_FILTER => $settings.input_luma_filter.$borrow_op(),
         }
     };
 }
@@ -487,6 +498,9 @@ impl SettingID {
     pub fn set_field_enum(&self, settings: &mut NtscEffectFullSettings, value: u32) -> Result<(), ()> {
         // We have to handle each enum manually since FromPrimitive isn't object-safe
         match self {
+            SettingID::INPUT_LUMA_FILTER => {
+                settings.input_luma_filter = LumaLowpass::from_u32(value).ok_or(())?;
+            }
             SettingID::CHROMA_LOWPASS_IN => {
                 settings.chroma_lowpass_in = ChromaLowpass::from_u32(value).ok_or(())?
             }
@@ -511,6 +525,7 @@ impl SettingID {
     pub fn get_field_enum(&self, settings: &NtscEffectFullSettings) -> Option<u32> {
         // We have to handle each enum manually since FromPrimitive isn't object-safe
         match self {
+            SettingID::INPUT_LUMA_FILTER => Some(settings.input_luma_filter.to_u32().unwrap()),
             SettingID::CHROMA_LOWPASS_IN => Some(settings.chroma_lowpass_in.to_u32().unwrap()),
             SettingID::VIDEO_SCANLINE_PHASE_SHIFT => {
                 Some(settings.video_scanline_phase_shift.to_u32().unwrap())
@@ -585,6 +600,7 @@ impl SettingID {
             SettingID::TRACKING_NOISE_SNOW_ANISOTROPY => "tracking_noise_snow_anisotropy",
             SettingID::RANDOM_SEED => "random_seed",
             SettingID::CHROMA_PHASE_ERROR => "chroma_phase_error",
+            SettingID::INPUT_LUMA_FILTER => "input_luma_filter",
         }
     }
 }
@@ -681,6 +697,31 @@ impl SettingsList {
                     default_value: default_settings.use_field.to_u32().unwrap(),
                 },
                 id: SettingID::USE_FIELD,
+            },
+            SettingDescriptor {
+                label: "Input luma filter",
+                description: Some("Filter the input luminance to reduce chroma crosstalk artifacts."),
+                kind: SettingKind::Enumeration {
+                    options: vec![
+                        MenuItem {
+                            label: "Notch",
+                            description: Some("Apply a notch filter to the input luminance signal. Sharp, but has ringing artifacts."),
+                            index: LumaLowpass::Notch.to_u32().unwrap(),
+                        },
+                        MenuItem {
+                            label: "Box",
+                            description: Some("Apply a simple box filter to the input luminance signal."),
+                            index: LumaLowpass::Box.to_u32().unwrap(),
+                        },
+                        MenuItem {
+                            label: "None",
+                            description: Some("Do not filter the luminance signal."),
+                            index: LumaLowpass::None.to_u32().unwrap(),
+                        },
+                    ],
+                    default_value: default_settings.input_luma_filter.to_u32().unwrap(),
+                },
+                id: SettingID::INPUT_LUMA_FILTER,
             },
             SettingDescriptor {
                 label: "Chroma low-pass in",
