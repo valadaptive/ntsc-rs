@@ -34,26 +34,44 @@ jobs:
         echo "C:\gstreamer\1.0\msvc_x86_64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
     - name: Build
       run: cargo build --release --workspace
+    - name: Build OpenFX plugin
+      run: cargo run --bin build-plugin -- --release
+    - name: Archive Windows OpenFX plugin
+      if: ${{ matrix.os == 'windows-latest' }}
+      uses: actions/upload-artifact@v3
+      with:
+        name: ntsc-rs-windows-openfx
+        path: openfx-plugin/build/NtscRs.ofx.bundle
+    - name: Archive Linux OpenFX plugin
+      if: ${{ matrix.os == 'ubuntu-20.04' }}
+      uses: actions/upload-artifact@v3
+      with:
+        name: ntsc-rs-linux-openfx
+        path: openfx-plugin/build/NtscRs.ofx.bundle
     - name: Package Windows binary
       if: ${{ matrix.os == 'windows-latest' }}
       run: |
-        mkdir windows-bundle
-        cd windows-bundle
+        mkdir ntsc-rs-windows-standalone
+        cd ntsc-rs-windows-standalone
         robocopy C:\gstreamer\1.0\msvc_x86_64 .\ *.dll /s /copy:DT; if ($lastexitcode -lt 8) { $global:LASTEXITCODE = $null }
         cp ..\target\release\ntsc-rs-standalone.exe .\bin\
         cp ..\target\release\ntsc-rs-launcher.exe .\
         cd ..
-        Compress-Archive -Path windows-bundle -DestinationPath ntsc-rs-windows-standalone.zip
+        Compress-Archive -Path ntsc-rs-windows-standalone -DestinationPath ntsc-rs-windows-standalone.zip
     - name: Archive Windows binary
       if: ${{ matrix.os == 'windows-latest' }}
       uses: actions/upload-artifact@v3
       with:
         name: ntsc-rs-windows-standalone
         path: ntsc-rs-windows-standalone.zip
+    - name: Archive Linux binary
+      if: ${{ matrix.os == 'windows-latest' }}
+      uses: actions/upload-artifact@v3
+      with:
+        name: ntsc-rs-linux-standalone
+        path: target/release/ntsc-rs-standalone
 
   build-ae-plugin:
-    # disable for now
-    if: "false"
     runs-on: windows-latest
 
     steps:
@@ -91,3 +109,8 @@ jobs:
         cd build
         meson configure --buildtype=release
         meson compile
+    - name: Archive Windows AE plugin
+      uses: actions/upload-artifact@v3
+      with:
+        name: ntsc-rs-windows-afterfx
+        path: build/ntsc-rs-ae.aex
