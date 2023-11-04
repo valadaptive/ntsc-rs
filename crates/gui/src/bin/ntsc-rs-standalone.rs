@@ -111,6 +111,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
     let options = eframe::NativeOptions {
         initial_window_size: Some(egui::vec2(1200.0, 720.0)),
+        icon_data: None,
         ..Default::default()
     };
     Ok(eframe::run_native(
