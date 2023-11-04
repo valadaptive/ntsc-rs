@@ -25,5 +25,11 @@ waker-fn = "1.1.0"
 log = "0.4.20"
 rfd = { git = "https://github.com/PolyMeilex/rfd", rev = "4ea34bca1aeb4c4f47c8e53a7dffdfacd62ebca6" }
 
+[build-dependencies]
+embed-resource = "2.4"
+
 [[bin]]
 name = "ntsc-rs-standalone"
+
+[[bin]]
+name = "ntsc-rs-launcher"

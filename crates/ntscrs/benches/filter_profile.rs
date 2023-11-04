@@ -6,7 +6,7 @@ use ntscrs::ntsc::NtscEffect;
 use pprof::criterion::{Output, PProfProfiler};
 
 fn criterion_benchmark(c: &mut Criterion) {
-    let img = ImageReader::open("/home/va_erie/Pictures/ntsc-test-1.png")
+    let img = ImageReader::open("C:\\Users\\adroitwhiz\\Pictures\\eevee4_eevee.png")
         .unwrap()
         .decode()
         .unwrap();
