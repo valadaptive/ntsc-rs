@@ -39,7 +39,7 @@ jobs:
       run: |
         mkdir windows-bundle
         cd windows-bundle
-        robocopy C:\gstreamer\1.0\msvc_x86_64 .\ *.dll /s /copy:DT
+        robocopy C:\gstreamer\1.0\msvc_x86_64 .\ *.dll /s /copy:DT; if ($lastexitcode -lt 8) { $global:LASTEXITCODE = $null }
         cp ..\target\release\ntsc-rs-standalone.exe .\bin\
         cp ..\target\release\ntsc-rs-launcher.exe .\
         cd ..
