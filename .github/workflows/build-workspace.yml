@@ -11,8 +11,6 @@ env:
 
 jobs:
   build:
-    # disable for now
-    if: "false"
     strategy:
       matrix:
         os: [ubuntu-20.04, windows-latest]
@@ -54,6 +52,8 @@ jobs:
         path: ntsc-rs-windows-standalone.zip
 
   build-ae-plugin:
+    # disable for now
+    if: "false"
     runs-on: windows-latest
 
     steps:
