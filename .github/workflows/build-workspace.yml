@@ -177,14 +177,18 @@ jobs:
 
     - name: Download artifacts
       uses: actions/download-artifact@v3
+      working-directory: ./artifacts
 
     - name: Zip artifacts
-      run: for dir in */; do zip -r "$dir.zip" "$dir"; done
+      run: for dir in */; do zip -r "$dir.zip" "./$dir"; done
+      working-directory: ./artifacts
 
     - name: Display structure of downloaded files
       run: ls -l
+      working-directory: ./artifacts
 
     - name: Create release
       uses: ncipollo/release-action@v1
+      working-directory: ./artifacts
       with:
         artifacts: "ntsc-rs-*-standalone.zip,ntsc-rs-*-openfx.zip,ntsc-rs-*-afterfx.zip"
