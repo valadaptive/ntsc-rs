@@ -10,46 +10,66 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        os: [ubuntu-20.04, windows-latest]
-    runs-on: ${{ matrix.os }}
+  build-linux:
+    runs-on: ubuntu-20.04
 
     steps:
     - name: Checkout
       uses: actions/checkout@v3
       with:
         submodules: recursive
-    - name: Install gstreamer (Linux)
+
+    - name: Install gstreamer
       uses: awalsh128/cache-apt-pkgs-action@v1
       with:
         packages: libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libatk1.0-dev libgtk-3-dev
         version: 2.0
-      if: ${{ matrix.os == 'ubuntu-20.04' }}
-    - name: Install gstreamer (Windows)
-      if: ${{ matrix.os == 'windows-latest' }}
-      run: |
-        choco install gstreamer gstreamer-devel
-        echo "C:\gstreamer\1.0\msvc_x86_64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
     - name: Build
       run: cargo build --release --workspace
+
     - name: Build OpenFX plugin
       run: cargo run --bin build-plugin -- --release
-    - name: Archive Windows OpenFX plugin
-      if: ${{ matrix.os == 'windows-latest' }}
-      uses: actions/upload-artifact@v3
-      with:
-        name: ntsc-rs-windows-openfx
-        path: openfx-plugin/build/NtscRs.ofx.bundle
+
     - name: Archive Linux OpenFX plugin
-      if: ${{ matrix.os == 'ubuntu-20.04' }}
       uses: actions/upload-artifact@v3
       with:
         name: ntsc-rs-linux-openfx
         path: openfx-plugin/build/NtscRs.ofx.bundle
+
+    - name: Archive Linux binary
+      uses: actions/upload-artifact@v3
+      with:
+        name: ntsc-rs-linux-standalone
+        path: target/release/ntsc-rs-standalone
+
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+      with:
+        submodules: recursive
+
+    - name: Install gstreamer
+      run: |
+        choco install gstreamer gstreamer-devel
+        echo "C:\gstreamer\1.0\msvc_x86_64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+    - name: Build
+      run: cargo build --release --workspace
+
+    - name: Build OpenFX plugin
+      run: cargo run --bin build-plugin -- --release
+
+    - name: Archive Windows OpenFX plugin
+      uses: actions/upload-artifact@v3
+      with:
+        name: ntsc-rs-windows-openfx
+        path: openfx-plugin/build/NtscRs.ofx.bundle
+
     - name: Package Windows binary
-      if: ${{ matrix.os == 'windows-latest' }}
       run: |
         mkdir ntsc-rs-windows-standalone
         cd ntsc-rs-windows-standalone
@@ -58,18 +78,12 @@ jobs:
         cp ..\target\release\ntsc-rs-launcher.exe .\
         cd ..
         Compress-Archive -Path ntsc-rs-windows-standalone -DestinationPath ntsc-rs-windows-standalone.zip
+
     - name: Archive Windows binary
-      if: ${{ matrix.os == 'windows-latest' }}
       uses: actions/upload-artifact@v3
       with:
         name: ntsc-rs-windows-standalone
         path: ntsc-rs-windows-standalone.zip
-    - name: Archive Linux binary
-      if: ${{ matrix.os == 'windows-latest' }}
-      uses: actions/upload-artifact@v3
-      with:
-        name: ntsc-rs-linux-standalone
-        path: target/release/ntsc-rs-standalone
 
   build-ae-plugin:
     runs-on: windows-latest
@@ -113,4 +127,4 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: ntsc-rs-windows-afterfx
-        path: build/ntsc-rs-ae.aex
+        path: ae-plugin/build/ntsc-rs-ae.aex
