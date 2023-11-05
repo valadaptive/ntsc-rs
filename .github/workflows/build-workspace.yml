@@ -133,10 +133,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    needs: |
-      build-windows
-      build-linux
-      build-ae-plugin
+    needs:
+      - build-windows
+      - build-linux
+      - build-ae-plugin
     steps:
     - uses: actions/checkout@v3
     - uses: ncipollo/release-action@v1
