@@ -106,8 +106,6 @@ fn format_percentage(n: f64, prec: RangeInclusive<usize>) -> String {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    initialize_gstreamer()?;
-
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
     let options = eframe::NativeOptions {
         initial_window_size: Some(egui::vec2(1200.0, 720.0)),
@@ -118,6 +116,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         "ntsc-rs",
         options,
         Box::new(|cc| {
+            initialize_gstreamer().unwrap();
+
             let ctx = &cc.egui_ctx;
             Box::new(NtscApp::new(ctx.clone()))
         }),
