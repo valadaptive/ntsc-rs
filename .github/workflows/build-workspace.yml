@@ -25,6 +25,8 @@ jobs:
         packages: libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libatk1.0-dev libgtk-3-dev
         version: 2.0
 
+    - uses: Swatinem/rust-cache@v2
+
     - name: Build
       run: cargo build --release --workspace
 
@@ -56,6 +58,8 @@ jobs:
       run: |
         choco install gstreamer gstreamer-devel
         echo "C:\gstreamer\1.0\msvc_x86_64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+    - uses: Swatinem/rust-cache@v2
 
     - name: Build
       run: cargo build --release --workspace
@@ -91,10 +95,12 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v3
+
     - name: Install Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.10'
+
     - name: Setup
       run: |
         python -m pip install meson ninja
@@ -103,6 +109,7 @@ jobs:
         [Environment]::SetEnvironmentVariable("Path", $env:PATH, "Machine")
         choco install gpg4win
         echo "C:\Program Files (x86)\Gpg4win\..\GnuPG\bin" >> $env:GITHUB_PATH
+
     - name: Get SDK
       env:
         WIN_SDK_KEY: ${{ secrets.WIN_SDK_KEY }}
@@ -112,10 +119,14 @@ jobs:
         gpg --quiet --batch --yes --decrypt --passphrase="$Env:WIN_SDK_KEY" --output=sdkwin.zip sdkwin.zip.gpg
         Expand-Archive sdkwin.zip .\ae-plugin\sdk\
         mv '.\ae-plugin\sdk\Adobe After Effects CC 15.0 Win SDK\*' .\ae-plugin\sdk\
+
     - name: Prepare MSVC
       uses: bus1/cabuild/action/msdevshell@v1
       with:
         architecture: x64
+
+    - uses: Swatinem/rust-cache@v2
+
     - name: Build
       run: |
         cd .\ae-plugin
@@ -123,6 +134,7 @@ jobs:
         cd build
         meson configure --buildtype=release
         meson compile
+
     - name: Archive Windows AE plugin
       uses: actions/upload-artifact@v3
       with:
@@ -137,8 +149,18 @@ jobs:
       - build-windows
       - build-linux
       - build-ae-plugin
+
     steps:
-    - uses: actions/checkout@v3
-    - uses: ncipollo/release-action@v1
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Download artifacts
+      uses: actions/download-artifact@v3
+
+    - name: Display structure of downloaded files
+      run: ls -R
+
+    - name: Create release
+      uses: ncipollo/release-action@v1
       with:
         artifacts: "ntsc-rs-*-standalone,ntsc-rs-*-openfx,ntsc-rs-*-afterfx"
