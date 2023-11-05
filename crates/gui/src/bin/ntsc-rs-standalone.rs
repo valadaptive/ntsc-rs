@@ -105,11 +105,13 @@ fn format_percentage(n: f64, prec: RangeInclusive<usize>) -> String {
     format!("{:.*}%", prec.start().max(&2) - 2, n * 100.0)
 }
 
+const ICON: &[u8] = include_bytes!("../../../../assets/icon.png");
+
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
     let options = eframe::NativeOptions {
         initial_window_size: Some(egui::vec2(1200.0, 720.0)),
-        icon_data: None,
+        icon_data: Some(eframe::IconData::try_from_png_bytes(ICON)?),
         ..Default::default()
     };
     Ok(eframe::run_native(
@@ -135,7 +137,6 @@ struct PipelineInfo {
     pipeline: gstreamer::Pipeline,
     state: Arc<Mutex<PipelineInfoState>>,
     path: PathBuf,
-    file_src: gstreamer::Element,
     egui_sink: gstreamer::Element,
     //filter: gstreamer::Element,
     last_seek_pos: gstreamer::ClockTime,
@@ -320,50 +321,6 @@ enum LeftPanelState {
 
 type AppFn = Box<dyn FnOnce(&mut NtscApp) -> Result<(), ApplicationError> + Send>;
 
-struct CallbackFutureInner<T: Unpin> {
-    waker: Option<Waker>,
-    resolved: Option<T>,
-}
-
-struct CallbackFuture<T: Unpin>(Arc<Mutex<CallbackFutureInner<T>>>);
-
-impl<T: Unpin> CallbackFuture<T> {
-    fn new() -> Self {
-        CallbackFuture(Arc::new(Mutex::new(CallbackFutureInner {
-            waker: None,
-            resolved: None,
-        })))
-    }
-
-    fn resolver(&self) -> impl FnOnce(T) {
-        let weak = Arc::downgrade(&self.0);
-        move |value| {
-            if let Some(inner) = weak.upgrade() {
-                let mut inner = inner.lock().unwrap();
-                inner.resolved = Some(value);
-                if let Some(waker) = inner.waker.take() {
-                    waker.wake();
-                }
-            }
-        }
-    }
-}
-
-impl<T: Unpin> Future for CallbackFuture<T> {
-    type Output = T;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut inner = self.0.lock().unwrap();
-        match inner.resolved.take() {
-            None => {
-                inner.waker = Some(cx.waker().clone());
-                Poll::Pending
-            }
-            Some(resolved) => Poll::Ready(resolved),
-        }
-    }
-}
-
 struct AppExecutor {
     waker: Waker,
     ctx: egui::Context,
@@ -467,16 +424,6 @@ impl NtscApp {
 
     fn spawn(&mut self, future: impl Future<Output = Option<AppFn>> + 'static + Send) {
         self.executor.lock().unwrap().spawn(future, false);
-    }
-
-    fn execute_fn<T: Future<Output = Option<AppFn>> + 'static + Send>(&self) -> impl Fn(T) + Send {
-        let weak_exec = self.executor.downgrade();
-
-        move |future: T| {
-            if let Some(exec) = weak_exec.upgrade() {
-                exec.lock().unwrap().spawn(future, false);
-            }
-        }
     }
 
     fn execute_fn_next_frame<T: Future<Output = Option<AppFn>> + 'static + Send>(
@@ -727,7 +674,6 @@ impl NtscApp {
             pipeline,
             state: pipeline_info_state,
             path,
-            file_src: src,
             egui_sink: video_sink,
             at_eos,
             last_seek_pos: gstreamer::ClockTime::ZERO,
