@@ -118,18 +118,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         "ntsc-rs",
         options,
         Box::new(|cc| {
-            //let mut app = Box::<NtscApp>::default();
             let ctx = &cc.egui_ctx;
-            let app = Box::new(NtscApp::new(ctx.clone()));
-            if let Some(storage) = cc.storage {
-                let path = storage.get_string("image_path");
-                if let Some(path) = path {
-                    if path != "" {
-                        // TODO
-                    }
-                }
-            }
-            app
+            Box::new(NtscApp::new(ctx.clone()))
         }),
     )?)
 }
@@ -536,6 +526,7 @@ impl NtscApp {
 
     fn rescale_video(
         pipeline: &gstreamer::Pipeline,
+        seek_pos: gstreamer::ClockTime,
         scanlines: Option<usize>,
     ) -> Result<(), GstreamerError> {
         let caps_filter = pipeline.by_name("caps_filter").unwrap();
@@ -565,7 +556,7 @@ impl NtscApp {
 
         pipeline.seek_simple(
             gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
-            pipeline.query_position::<gstreamer::ClockTime>().unwrap(),
+            pipeline.query_position::<gstreamer::ClockTime>().unwrap_or(seek_pos),
         )?;
 
         Ok(())
@@ -1970,6 +1961,7 @@ impl NtscApp {
                             if let Some(pipeline) = &self.pipeline {
                                 let res = Self::rescale_video(
                                     &pipeline.pipeline,
+                                    pipeline.last_seek_pos,
                                     if self.video_scale.enabled {
                                         Some(self.video_scale.scale)
                                     } else {
