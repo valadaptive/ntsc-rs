@@ -35,7 +35,7 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: ntsc-rs-linux-openfx
-        path: openfx-plugin/build/NtscRs.ofx.bundle
+        path: crates/openfx-plugin/build/NtscRs.ofx.bundle
 
     - name: Archive Linux binary
       uses: actions/upload-artifact@v3
@@ -67,7 +67,7 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: ntsc-rs-windows-openfx
-        path: openfx-plugin/build/NtscRs.ofx.bundle
+        path: crates/openfx-plugin/build/NtscRs.ofx.bundle
 
     - name: Package Windows binary
       run: |
@@ -128,3 +128,13 @@ jobs:
       with:
         name: ntsc-rs-windows-afterfx
         path: ae-plugin/build/ntsc-rs-ae.aex
+
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v3
+    - uses: ncipollo/release-action@v1
+      with:
+        artifacts: "ntsc-rs-*-standalone,ntsc-rs-*-openfx,ntsc-rs-*-afterfx"
