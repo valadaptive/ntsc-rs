@@ -37,12 +37,14 @@ jobs:
 
     - name: Archive Linux OpenFX plugin
       uses: actions/upload-artifact@v3
+      if: ${{ github.ref_type == 'tag' }}
       with:
         name: ntsc-rs-linux-openfx
         path: crates/openfx-plugin/build/
 
     - name: Archive Linux binary
       uses: actions/upload-artifact@v3
+      if: ${{ github.ref_type == 'tag' }}
       with:
         name: ntsc-rs-linux-standalone
         path: target/release/ntsc-rs-standalone
@@ -71,11 +73,13 @@ jobs:
 
     - name: Archive Windows OpenFX plugin
       uses: actions/upload-artifact@v3
+      if: ${{ github.ref_type == 'tag' }}
       with:
         name: ntsc-rs-windows-openfx
         path: crates/openfx-plugin/build/
 
     - name: Package Windows binary
+      if: ${{ github.ref_type == 'tag' }}
       run: |
         mkdir ntsc-rs-windows-standalone
         cd ntsc-rs-windows-standalone
@@ -85,6 +89,7 @@ jobs:
 
     - name: Archive Windows binary
       uses: actions/upload-artifact@v3
+      if: ${{ github.ref_type == 'tag' }}
       with:
         name: ntsc-rs-windows-standalone
         path: ntsc-rs-windows-standalone
@@ -137,6 +142,7 @@ jobs:
 
     - name: Archive Windows AE plugin
       uses: actions/upload-artifact@v3
+      if: ${{ github.ref_type == 'tag' }}
       with:
         name: ntsc-rs-windows-afterfx
         path: ae-plugin/build/ntsc-rs-ae.aex
