@@ -2,6 +2,8 @@ name: Build Workspace
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
@@ -94,14 +96,12 @@ jobs:
         robocopy C:\gstreamer\1.0\msvc_x86_64 .\ *.dll /s /copy:DT; if ($lastexitcode -lt 8) { $global:LASTEXITCODE = $null }
         cp ..\target\release\ntsc-rs-standalone.exe .\bin\
         cp ..\target\release\ntsc-rs-launcher.exe .\
-        cd ..
-        Compress-Archive -Path ntsc-rs-windows-standalone -DestinationPath ntsc-rs-windows-standalone.zip
 
     - name: Archive Windows binary
       uses: actions/upload-artifact@v3
       with:
         name: ntsc-rs-windows-standalone
-        path: ntsc-rs-windows-standalone.zip
+        path: ntsc-rs-windows-standalone
 
   build-ae-plugin:
     runs-on: windows-latest
@@ -181,7 +181,7 @@ jobs:
         path: ./artifacts
 
     - name: Zip artifacts
-      run: for dir in */; do zip -r "$dir.zip" "./$dir"; done
+      run: for dir in */; do zip -r "${dir%/}.zip" "${dir%/}"; done
       working-directory: ./artifacts
 
     - name: Display structure of downloaded files
