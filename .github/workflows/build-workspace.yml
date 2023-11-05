@@ -26,6 +26,13 @@ jobs:
         version: 2.0
 
     - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: |
+          crates/c-api
+          crates/gui
+          crates/macros
+          crates/ntscrs
+          crates/openfx-plugin
 
     - name: Build
       run: cargo build --release --workspace
@@ -60,6 +67,13 @@ jobs:
         echo "C:\gstreamer\1.0\msvc_x86_64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
     - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: |
+          crates/c-api
+          crates/gui
+          crates/macros
+          crates/ntscrs
+          crates/openfx-plugin
 
     - name: Build
       run: cargo build --release --workspace
@@ -126,6 +140,13 @@ jobs:
         architecture: x64
 
     - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: |
+          crates/c-api
+          crates/gui
+          crates/macros
+          crates/ntscrs
+          crates/openfx-plugin
 
     - name: Build
       run: |
@@ -159,6 +180,9 @@ jobs:
 
     - name: Zip artifacts
       run: for dir in */; do zip -r "$dir.zip" "$dir"; done
+
+    - name: Display structure of downloaded files
+      run: ls -l
 
     - name: Create release
       uses: ncipollo/release-action@v1
