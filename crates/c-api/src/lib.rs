@@ -100,7 +100,7 @@ impl Configurator {
         } else if let Some(field_ref) = id.get_field_mut::<u32>(&mut self.0) {
             *field_ref = value as u32;
         } else {
-            id.set_field_enum(&mut self.0, value as u32);
+            id.set_field_enum(&mut self.0, value as u32).unwrap();
         }
     }
 

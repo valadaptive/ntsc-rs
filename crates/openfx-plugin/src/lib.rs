@@ -559,7 +559,7 @@ unsafe fn apply_params(
                 ofx_err(paramGetValueAtTime(param, time, &mut selected_idx))?;
                 descriptor
                     .id
-                    .set_field_enum(dst, options[selected_idx as usize].index);
+                    .set_field_enum(dst, options[selected_idx as usize].index).unwrap();
             }
             SettingKind::IntRange { .. } => {
                 let mut int_value: i32 = 0;
