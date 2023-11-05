@@ -230,9 +230,8 @@ impl<'a> YiqView<'a> {
 pub struct YiqOwned {
     /// Densely-packed planar YUV data. The Y plane comes first in memory, then I, then Q.
     data: Box<[f32]>,
-    /// This refers to the number of rendered rows. For instance, if the input frame is 480 pixels high but we're only
-    /// doing the effect on even-numbered fields, then resolution.1 will be 240.
-    //resolution: (usize, usize),
+    /// This refers to the "logical" dimensions, meaning that the number of scanlines is the same no matter whether any
+    /// fields are being skipped.
     dimensions: (usize, usize),
     /// The source field that this data is for.
     field: YiqField,
