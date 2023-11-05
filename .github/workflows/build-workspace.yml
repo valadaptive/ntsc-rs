@@ -37,7 +37,7 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: ntsc-rs-linux-openfx
-        path: crates/openfx-plugin/build/NtscRs.ofx.bundle
+        path: crates/openfx-plugin/build/
 
     - name: Archive Linux binary
       uses: actions/upload-artifact@v3
@@ -71,7 +71,7 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: ntsc-rs-windows-openfx
-        path: crates/openfx-plugin/build/NtscRs.ofx.bundle
+        path: crates/openfx-plugin/build/
 
     - name: Package Windows binary
       run: |
@@ -157,10 +157,10 @@ jobs:
     - name: Download artifacts
       uses: actions/download-artifact@v3
 
-    - name: Display structure of downloaded files
-      run: ls -R
+    - name: Zip artifacts
+      run: for dir in */; do zip -r "$dir.zip" "$dir"; done
 
     - name: Create release
       uses: ncipollo/release-action@v1
       with:
-        artifacts: "ntsc-rs-*-standalone,ntsc-rs-*-openfx,ntsc-rs-*-afterfx"
+        artifacts: "ntsc-rs-*-standalone.zip,ntsc-rs-*-openfx.zip,ntsc-rs-*-afterfx.zip"
