@@ -69,7 +69,7 @@ pub fn main() -> std::io::Result<()> {
             CURRENT_TARGET
         ));
 
-    let mut cargo_args: Vec<_> = vec![String::from("build")];
+    let mut cargo_args: Vec<_> = vec![String::from("build"), String::from("--package=openfx-plugin"), String::from("--lib")];
     cargo_args.extend(args().skip(1));
     Command::new("cargo").args(&cargo_args).status()?;
 
