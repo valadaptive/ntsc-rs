@@ -7,7 +7,7 @@
 
 ---
 
-**ntsc-rs** is a tool for replicating NTSC and VHS video artifacts, available as a standalone tool or as a plugin for After Effects or OpenFX hosts.
+**ntsc-rs** is a video effect which emulates NTSC and VHS video artifacts. It can be used as an After Effects or OpenFX plugin, or as a standalone application.
 
 ![Screenshot of the ntsc-rs standalone application](./docs/img/appdemo.png)
 
