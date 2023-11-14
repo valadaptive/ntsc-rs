@@ -65,6 +65,7 @@ jobs:
         refreshenv
         echo "$($Env:GSTREAMER_1_0_ROOT_MSVC_X86_64)bin"
         echo "$($Env:GSTREAMER_1_0_ROOT_MSVC_X86_64)bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "GSTREAMER_1_0_ROOT_MSVC_X86_64=$Env:GSTREAMER_1_0_ROOT_MSVC_X86_64" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
     - uses: Swatinem/rust-cache@v2
 
@@ -86,7 +87,7 @@ jobs:
       run: |
         mkdir ntsc-rs-windows-standalone
         cd ntsc-rs-windows-standalone
-        robocopy C:\gstreamer\1.0\msvc_x86_64 .\ *.dll /s /copy:DT; if ($lastexitcode -lt 8) { $global:LASTEXITCODE = $null }
+        robocopy $Env:GSTREAMER_1_0_ROOT_MSVC_X86_64 .\ *.dll /s /copy:DT; if ($lastexitcode -lt 8) { $global:LASTEXITCODE = $null }
         cp ..\target\release\ntsc-rs-standalone.exe .\bin\
         cp ..\target\release\ntsc-rs-launcher.exe .\
 
