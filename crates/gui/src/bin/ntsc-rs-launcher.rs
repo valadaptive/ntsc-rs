@@ -7,7 +7,15 @@ pub fn main() -> Result<(), std::io::Error> {
     launcher_path.pop();
     launcher_path.extend(["bin", "ntsc-rs-standalone.exe"]);
 
-    process::Command::new(launcher_path).spawn()?;
+    if let Err(e) = process::Command::new(launcher_path).spawn() {
+        rfd::MessageDialog::new()
+            .set_level(rfd::MessageLevel::Error)
+            .set_title("Could not launch ntsc-rs")
+            .set_description(format!("ntsc-rs could not be launched. This may happen if you move the ntsc-rs launcher \
+                out of its folder without copying the \"bin\" and \"lib\" folders along with it.\n\n\
+                Error message: {}", e))
+            .show();
+    }
 
     Ok(())
 }
