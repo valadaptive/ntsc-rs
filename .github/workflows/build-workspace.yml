@@ -61,14 +61,12 @@ jobs:
     - name: Install gstreamer
       run: |
         choco install gstreamer gstreamer-devel
-        echo "C:\gstreamer\1.0\msvc_x86_64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "D:\gstreamer\1.0\msvc_x86_64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
     - uses: Swatinem/rust-cache@v2
 
     - name: Build
-      run: |
-        echo $Env:PATH
-        cargo build --release --workspace
+      run: cargo build --release --workspace
 
     - name: Build OpenFX plugin
       run: cargo run --bin build-plugin -- --release
