@@ -517,6 +517,15 @@ unsafe fn setup_params(
                 0,
                 descriptor_label_cstr.as_ptr(),
             ))?;
+            if let Some(description) = descriptor.description {
+                let descriptor_desc_cstr = CString::new(description).unwrap();
+                ofx_err(propSetString(
+                    paramProps,
+                    ofx_str!(kOfxParamPropHint),
+                    0,
+                    descriptor_desc_cstr.as_ptr(),
+                ))?;
+            }
             ofx_err(propSetString(
                 paramProps,
                 ofx_str!(kOfxParamPropParent),
