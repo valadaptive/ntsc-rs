@@ -120,8 +120,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         Box::new(|cc| {
             initialize_gstreamer().unwrap();
 
+            // Load previous effect settings from storage
+            let settings_list = SettingsList::new();
+            let settings = cc
+                .storage
+                .and_then(|storage| storage.get_string("effect_settings"))
+                .and_then(|saved_settings| settings_list.from_json(&saved_settings).ok())
+                .unwrap_or_default();
+
             let ctx = &cc.egui_ctx;
-            Box::new(NtscApp::new(ctx.clone()))
+            Box::new(NtscApp::new(ctx.clone(), settings_list, settings))
         }),
     )?)
 }
@@ -400,9 +408,13 @@ struct NtscApp {
 }
 
 impl NtscApp {
-    fn new(ctx: egui::Context) -> Self {
+    fn new(
+        ctx: egui::Context,
+        settings_list: SettingsList,
+        effect_settings: NtscEffectFullSettings,
+    ) -> Self {
         Self {
-            settings_list: SettingsList::new(),
+            settings_list,
             pipeline: None,
             executor: Arc::new(Mutex::new(AppExecutor::new(ctx.clone()))),
             video_zoom: VideoZoom {
@@ -414,7 +426,7 @@ impl NtscApp {
                 enabled: false,
             },
             left_panel_state: LeftPanelState::default(),
-            effect_settings: NtscEffectFullSettings::default(),
+            effect_settings,
             render_settings: RenderSettings::default(),
             render_jobs: Vec::new(),
             settings_json_paste: String::new(),
@@ -503,7 +515,9 @@ impl NtscApp {
 
         pipeline.seek_simple(
             gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
-            pipeline.query_position::<gstreamer::ClockTime>().unwrap_or(seek_pos),
+            pipeline
+                .query_position::<gstreamer::ClockTime>()
+                .unwrap_or(seek_pos),
         )?;
 
         Ok(())
@@ -559,7 +573,10 @@ impl NtscApp {
         let video_sink = gstreamer::ElementFactory::make("eguisink")
             .property("texture", tex_sink)
             .property("ctx", egui_ctx)
-            .property("settings", NtscFilterSettings((&self.effect_settings).into()))
+            .property(
+                "settings",
+                NtscFilterSettings((&self.effect_settings).into()),
+            )
             .build()?;
 
         let pipeline_info_state = Arc::new(Mutex::new(PipelineInfoState::Loading));
@@ -631,7 +648,8 @@ impl NtscApp {
 
                                 let video_rate = pipeline.by_name("video_rate");
                                 if let Some(video_rate) = video_rate {
-                                    let caps = video_rate.static_pad("src").and_then(|pad| pad.caps());
+                                    let caps =
+                                        video_rate.static_pad("src").and_then(|pad| pad.caps());
 
                                     *framerate.lock().unwrap() = if let Some(caps) = caps {
                                         let structure = caps.structure(0);
@@ -2155,6 +2173,16 @@ impl eframe::App for NtscApp {
         }
 
         self.show_app(ctx, frame);
+    }
+
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        if let Ok(settings_json) = self
+            .settings_list
+            .to_json(&self.effect_settings)
+            .stringify()
+        {
+            storage.set_string("effect_settings", settings_json);
+        }
     }
 }
 
