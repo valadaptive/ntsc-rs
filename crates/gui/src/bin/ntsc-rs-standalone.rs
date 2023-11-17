@@ -1457,11 +1457,10 @@ impl NtscApp {
                     ui.label(match job_state {
                         RenderJobState::Waiting => Cow::Borrowed("Waiting..."),
                         RenderJobState::Rendering => {
-                            if job_position.is_some() && job_duration.is_some() {
+                            if let (Some(position), Some(duration)) = (job_position, job_duration) {
                                 Cow::Owned(format!(
                                     "Rendering... ({:.2} / {:.2})",
-                                    job_position.unwrap(),
-                                    job_duration.unwrap()
+                                    position, duration
                                 ))
                             } else {
                                 Cow::Borrowed("Rendering...")
