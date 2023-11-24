@@ -607,7 +607,7 @@ unsafe fn apply_params(
                     .ok_or(OfxStat::kOfxStatFailed)?;
                 *field_ref = bool_value != 0;
 
-                apply_params(param_suite, param_set, time, &children, dst)?;
+                apply_params(param_suite, param_set, time, children, dst)?;
             }
         }
     }
@@ -855,7 +855,7 @@ unsafe fn action_instance_changed(
     let mut time: f64 = 0.0;
     propGetDouble(inArgs, ofx_str!(kOfxPropTime), 0, &mut time);
 
-    update_controls_disabled(&data, param_set, &data.settings_list.settings, time, true)?;
+    update_controls_disabled(data, param_set, &data.settings_list.settings, time, true)?;
 
     Ok(())
 }
@@ -959,36 +959,36 @@ trait Normalize {
 impl Normalize for f32 {
     #[inline(always)]
     fn from_norm(value: f32) -> Self {
-        return value;
+        value
     }
 
     #[inline(always)]
     fn to_norm(self) -> f32 {
-        return self;
+        self
     }
 }
 
 impl Normalize for u16 {
     #[inline(always)]
     fn from_norm(value: f32) -> Self {
-        return (value.clamp(0.0, 1.0) * Self::MAX as f32) as Self;
+        (value.clamp(0.0, 1.0) * Self::MAX as f32) as Self
     }
 
     #[inline(always)]
     fn to_norm(self) -> f32 {
-        return (self as f32) / Self::MAX as f32;
+        (self as f32) / Self::MAX as f32
     }
 }
 
 impl Normalize for u8 {
     #[inline(always)]
     fn from_norm(value: f32) -> Self {
-        return (value.clamp(0.0, 1.0) * Self::MAX as f32) as Self;
+        (value.clamp(0.0, 1.0) * Self::MAX as f32) as Self
     }
 
     #[inline(always)]
     fn to_norm(self) -> f32 {
-        return (self as f32) / Self::MAX as f32;
+        (self as f32) / Self::MAX as f32
     }
 }
 
@@ -1098,7 +1098,7 @@ unsafe fn pixel_processing<S: Normalize + Sized, D: Normalize + Sized>(
             let rowPtr = srcPtr.offset((srcRowBytes * row_idx as i32) as isize);
             for x in 0..srcWidth {
                 // Now that we have the row pointer, we offset by the actual datatype to get the pixel
-                let pixPtr = (rowPtr as *mut S).offset((x * num_source_components) as isize);
+                let pixPtr = (rowPtr as *mut S).add(x * num_source_components);
                 let r = pixPtr.read().to_norm();
                 let g = pixPtr.offset(1).read().to_norm();
                 let b = pixPtr.offset(2).read().to_norm();
@@ -1144,7 +1144,7 @@ unsafe fn pixel_processing<S: Normalize + Sized, D: Normalize + Sized>(
 
         for x in 0..dstWidth {
             // Now that we have the row pointer, we offset by the actual datatype to get the pixel
-            let pixPtr = (dstRowPtr as *mut D).offset((x * num_output_components) as isize);
+            let pixPtr = (dstRowPtr as *mut D).add(x * num_output_components);
             let src_x = x as i32 + (dstBounds.x1 - srcBounds.x1);
             if src_x < 0 || src_x >= srcWidth as i32 || src_y < 0 || src_y >= srcHeight as i32 {
                 pixPtr.write(D::from_norm(0.0));

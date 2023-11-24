@@ -13,11 +13,11 @@ pub fn clock_time_parser(input: &str) -> Option<f64> {
     let mut out_value: Option<u64> = None;
     const MULTIPLIERS: &[u64] = &[1_000, 60 * 1_000, 60 * 60 * 1_000];
     input
-        .rsplit(":")
+        .rsplit(':')
         .enumerate()
         .try_for_each(|(index, item)| -> Option<()> {
             let multiplier = MULTIPLIERS.get(index)?;
-            if item.contains(".") {
+            if item.contains('.') {
                 if index != 0 {
                     return None;
                 }

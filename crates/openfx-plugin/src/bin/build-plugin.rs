@@ -20,7 +20,7 @@ struct Target {
 }
 
 // "Supported" target triples
-const TARGETS: &'static [Target] = &[
+const TARGETS: &[Target] = &[
     Target {
         target_triple: "x86_64-unknown-linux-gnu",
         ofx_architecture: "Linux-x86-64",
@@ -64,10 +64,8 @@ pub fn main() -> std::io::Result<()> {
     let target = TARGETS
         .iter()
         .find(|candidate_target| candidate_target.target_triple == CURRENT_TARGET)
-        .expect(&format!(
-            "Your target \"{}\" is not supported",
-            CURRENT_TARGET
-        ));
+        .unwrap_or_else(|| panic!("Your target \"{}\" is not supported",
+            CURRENT_TARGET));
 
     let mut cargo_args: Vec<_> = vec![String::from("build"), String::from("--package=openfx-plugin"), String::from("--lib")];
     cargo_args.extend(args().skip(1));

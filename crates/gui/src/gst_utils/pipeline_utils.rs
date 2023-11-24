@@ -110,7 +110,7 @@ pub fn create_pipeline<
 
                 if let Some(pipeline) = pipeline.upgrade() {
                     let audio_sink = audio_sink.lock().unwrap().take();
-                    if let Some(sink) = audio_sink.and_then(|sink| Some(sink(&pipeline))) {
+                    if let Some(sink) = audio_sink.map(|sink| sink(&pipeline)) {
                         if let Some(sink) = sink? {
                             let audio_queue = gstreamer::ElementFactory::make("queue").build()?;
                             let audio_convert =
@@ -194,11 +194,9 @@ pub fn create_pipeline<
                         let caps = src_pad.current_caps();
 
                         let framerate = caps.as_ref().and_then(|caps| {
-                            Some(
-                                caps.structure(0)?
+                            caps.structure(0)?
                                     .get::<gstreamer::Fraction>("framerate")
-                                    .ok()?,
-                            )
+                                    .ok()
                         });
 
                         let is_still_image = match framerate {
@@ -206,9 +204,9 @@ pub fn create_pipeline<
                             None => false,
                         };
 
-                        if caps.is_some() && initial_scale.is_some() {
+                        if let (Some(caps), Some(initial_scale)) = (caps, initial_scale) {
                             if let Some((width, height)) =
-                                scale_from_caps(&caps.unwrap(), initial_scale.unwrap())
+                                scale_from_caps(&caps, initial_scale)
                             {
                                 caps_filter.set_property(
                                     "caps",

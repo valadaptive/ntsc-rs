@@ -21,7 +21,7 @@ impl ObjectSubclass for VideoPadFilter {
 
 impl ObjectImpl for VideoPadFilter {
     fn properties() -> &'static [glib::ParamSpec] {
-        static PROPERTIES: Lazy<Vec<glib::ParamSpec>> = Lazy::new(|| vec![]);
+        static PROPERTIES: Lazy<Vec<glib::ParamSpec>> = Lazy::new(Vec::new);
 
         PROPERTIES.as_ref()
     }
@@ -99,13 +99,13 @@ impl BaseTransformImpl for VideoPadFilter {
             gstreamer::PadDirection::Src => Some({
                 let mut caps = caps.clone();
                 for s in caps.make_mut().iter_mut() {
-                    if let Some(width) = s.value("width").ok()?.get::<i32>().ok() {
+                    if let Ok(width) = s.value("width").ok()?.get::<i32>() {
                         if width % 2 == 0 {
                             s.set_value("width", (&gstreamer::IntRange::<i32>::new(width - 1, width)).into());
                         }
                     }
 
-                    if let Some(height) = s.value("height").ok()?.get::<i32>().ok() {
+                    if let Ok(height) = s.value("height").ok()?.get::<i32>() {
                         if height % 2 == 0 {
                             s.set_value("height", (&gstreamer::IntRange::<i32>::new(height - 1, height)).into());
                         }
@@ -121,12 +121,12 @@ impl BaseTransformImpl for VideoPadFilter {
 
                     for (idx, s) in caps.iter().enumerate() {
                         let mut s_out = s.to_owned();
-                        if let Some(mut width) = s_out.value("width").ok()?.get::<i32>().ok() {
+                        if let Ok(mut width) = s_out.value("width").ok()?.get::<i32>() {
                             width += width % 2;
                             s_out.set_value("width", (&width).into());
                         }
 
-                        if let Some(mut height) = s_out.value("height").ok()?.get::<i32>().ok() {
+                        if let Ok(mut height) = s_out.value("height").ok()?.get::<i32>() {
                             height += height % 2;
                             s_out.set_value("height", (&height).into());
                         }
@@ -134,7 +134,7 @@ impl BaseTransformImpl for VideoPadFilter {
                         out_caps.append_structure(s_out);
                         out_caps.set_features(
                             idx as u32,
-                            caps.features(idx as u32).and_then(|f| Some(f.to_owned())),
+                            caps.features(idx as u32).map(|f| f.to_owned()),
                         );
                     }
                 }

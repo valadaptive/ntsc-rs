@@ -254,20 +254,14 @@ impl Ffv1BitDepth {
 }
 
 #[derive(Debug, Clone)]
+#[derive(Default)]
 struct Ffv1Settings {
     bit_depth: Ffv1BitDepth,
     // Subsample chroma to 4:2:0
     chroma_subsampling: bool,
 }
 
-impl Default for Ffv1Settings {
-    fn default() -> Self {
-        Self {
-            bit_depth: Ffv1BitDepth::default(),
-            chroma_subsampling: false,
-        }
-    }
-}
+
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 enum OutputCodec {
@@ -460,7 +454,7 @@ impl NtscApp {
             };
 
             // If there are none, we're done. If there are, loop--executing them may spawn more futures.
-            if app_fns.len() == 0 {
+            if app_fns.is_empty() {
                 break;
             }
 
@@ -961,7 +955,7 @@ impl NtscApp {
                     if let Some(pipeline) = src.downcast_ref::<gstreamer::Pipeline>() {
                         let pipeline_for_handler = pipeline.clone();
                         if let gstreamer::MessageView::Eos(_) = msg.view() {
-                            let job_state_inner = Arc::clone(&job_state);
+                            let job_state_inner = Arc::clone(job_state);
                             exec(async move {
                                 let _ = pipeline_for_handler.set_state(gstreamer::State::Null);
                                 *job_state_inner.lock().unwrap() = RenderJobState::Complete;
@@ -1207,7 +1201,7 @@ impl NtscApp {
                                 .unwrap(),
                         );
 
-                        changed |= Self::settings_from_descriptors(effect_settings, ui, &children);
+                        changed |= Self::settings_from_descriptors(effect_settings, ui, children);
 
                         checkbox
                     })
@@ -1399,9 +1393,9 @@ impl NtscApp {
                                 job.pipeline.query_duration::<gstreamer::ClockTime>();
 
                             (
-                                if job_position.is_some() && job_duration.is_some() {
-                                    job_position.unwrap().nseconds() as f64
-                                        / job_duration.unwrap().nseconds() as f64
+                                if let (Some(job_position), Some(job_duration)) = (job_position, job_duration) {
+                                    job_position.nseconds() as f64
+                                        / job_duration.nseconds() as f64
                                 } else {
                                     job.last_progress
                                 },
@@ -1419,8 +1413,7 @@ impl NtscApp {
                         let current_time = ui.ctx().input(|input| input.time);
                         let most_recent_sample = job
                             .progress_samples
-                            .back()
-                            .and_then(|sample| Some(sample.clone()));
+                            .back().copied();
                         let should_update_estimate =
                             if let Some((_, sample_time)) = most_recent_sample {
                                 current_time - sample_time > PROGRESS_SAMPLE_TIME_DELTA
@@ -1437,8 +1430,7 @@ impl NtscApp {
                                     job.progress_samples.pop_front()
                                 } else {
                                     job.progress_samples
-                                        .front()
-                                        .and_then(|sample| Some(sample.clone()))
+                                        .front().copied()
                                 };
                             job.progress_samples.push_back(new_sample);
                             if let Some((old_progress, old_sample_time)) = oldest_sample {
@@ -1610,7 +1602,7 @@ impl NtscApp {
                     }
 
                     let file_dialog = file_dialog.save_file();
-                    let _ = self.spawn(async move {
+                    self.spawn(async move {
                         let handle = file_dialog.await;
                         Some(Box::new(|app: &mut NtscApp| {
                             if let Some(handle) = handle {
@@ -1623,7 +1615,7 @@ impl NtscApp {
                 }
             });
 
-            let src_path = self.pipeline.as_ref().and_then(|info| Some(&info.path));
+            let src_path = self.pipeline.as_ref().map(|info| &info.path);
 
             let mut duration = self.render_settings.duration.mseconds();
             if self
@@ -1655,7 +1647,7 @@ impl NtscApp {
 
             if ui
                 .add_enabled(
-                    self.render_settings.output_path.as_os_str().len() > 0 && src_path.is_some(),
+                    !self.render_settings.output_path.as_os_str().is_empty() && src_path.is_some(),
                     egui::Button::new("Render"),
                 )
                 .clicked()
@@ -1756,10 +1748,8 @@ impl NtscApp {
                                 if let Some(f) = framerate_fraction {
                                     let changed_framerate =
                                         Self::set_still_image_framerate(&info.pipeline, f);
-                                    if let Ok(new_framerate) = changed_framerate {
-                                        if let Some(new_framerate) = new_framerate {
-                                            *framerate = Some(new_framerate);
-                                        }
+                                    if let Ok(Some(new_framerate)) = changed_framerate {
+                                        *framerate = Some(new_framerate);
                                     }
 
                                     res = Some(changed_framerate);
@@ -1834,8 +1824,7 @@ impl NtscApp {
                     {
                         let res = self
                             .pipeline
-                            .as_mut()
-                            .and_then(|p| Some(p.toggle_playing()));
+                            .as_mut().map(|p| p.toggle_playing());
                         if let Some(res) = res {
                             self.handle_result(res);
                         }
@@ -1844,8 +1833,7 @@ impl NtscApp {
                     if btn.clicked() {
                         let res = self
                             .pipeline
-                            .as_mut()
-                            .and_then(|p| Some(p.toggle_playing()));
+                            .as_mut().map(|p| p.toggle_playing());
                         if let Some(res) = res {
                             self.handle_result(res);
                         }
@@ -1941,8 +1929,7 @@ impl NtscApp {
 
                     let src_path = self
                         .pipeline
-                        .as_ref()
-                        .and_then(|info| Some(info.path.clone()));
+                        .as_ref().map(|info| info.path.clone());
                     if ui.button("Save image").clicked() {
                         let ctx = ctx.clone();
                         if let Some(src_path) = src_path {
@@ -1957,8 +1944,7 @@ impl NtscApp {
                                     .save_file()
                                     .await;
 
-                                if let Some(handle) = handle {
-                                    Some(Box::new(move |app: &mut NtscApp| {
+                                handle.map(|handle| Box::new(move |app: &mut NtscApp| {
                                         let res = app.create_render_job(
                                             &ctx,
                                             &src_path.clone(),
@@ -1976,9 +1962,6 @@ impl NtscApp {
                                         }
                                         Ok(())
                                     }) as _)
-                                } else {
-                                    None
-                                }
                             });
                         }
                     }

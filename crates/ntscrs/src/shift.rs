@@ -108,7 +108,7 @@ mod tests {
     const TEST_DATA: &[f32] = &[1.0, 2.5, -0.7, 0.0, 0.0, 2.2, 0.3];
 
     fn assert_almost_eq(a: &[f32], b: &[f32]) {
-        let all_almost_equal = a.into_iter().zip(b.into_iter()).all(|(a, b)| {
+        let all_almost_equal = a.iter().zip(b).all(|(a, b)| {
             (a - b).abs() <= 0.01
         });
         assert!(all_almost_equal, "{a:?} is almost equal to {b:?}");

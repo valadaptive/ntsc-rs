@@ -76,36 +76,36 @@ pub trait Normalize: Sized + Copy + Send + Sync {
 impl Normalize for f32 {
     #[inline(always)]
     fn from_norm(value: f32) -> Self {
-        return value;
+        value
     }
 
     #[inline(always)]
     fn to_norm(self) -> f32 {
-        return self;
+        self
     }
 }
 
 impl Normalize for u16 {
     #[inline(always)]
     fn from_norm(value: f32) -> Self {
-        return (value.clamp(0.0, 1.0) * Self::MAX as f32) as Self;
+        (value.clamp(0.0, 1.0) * Self::MAX as f32) as Self
     }
 
     #[inline(always)]
     fn to_norm(self) -> f32 {
-        return (self as f32) / Self::MAX as f32;
+        (self as f32) / Self::MAX as f32
     }
 }
 
 impl Normalize for u8 {
     #[inline(always)]
     fn from_norm(value: f32) -> Self {
-        return (value.clamp(0.0, 1.0) * Self::MAX as f32) as Self;
+        (value.clamp(0.0, 1.0) * Self::MAX as f32) as Self
     }
 
     #[inline(always)]
     fn to_norm(self) -> f32 {
-        return (self as f32) / Self::MAX as f32;
+        (self as f32) / Self::MAX as f32
     }
 }
 

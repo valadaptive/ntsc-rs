@@ -75,7 +75,7 @@ impl<'a> LexerWrapper<'a> {
         })
     }
 
-    fn advance<'b>(&'b mut self) -> Result<Option<&'b Token>, ParseError> {
+    fn advance(&mut self) -> Result<Option<&Token>, ParseError> {
         let next = self
             .lexer
             .next()

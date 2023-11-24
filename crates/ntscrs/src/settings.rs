@@ -190,7 +190,7 @@ impl<T: Default> From<Option<T>> for SettingsBlock<T> {
     fn from(opt: Option<T>) -> Self {
         Self {
             enabled: opt.is_some(),
-            settings: opt.unwrap_or_else(T::default),
+            settings: opt.unwrap_or_default(),
         }
     }
 }
@@ -1179,7 +1179,7 @@ impl SettingsList {
                 },
                 SettingKind::Group { children, .. } => {
                     *descriptor.id.get_field_mut::<bool>(settings).unwrap() = setting_value.expect_bool()?;
-                    Self::settings_from_json(json, &children, settings)?;
+                    Self::settings_from_json(json, children, settings)?;
                 },
             }
         }
@@ -1195,11 +1195,11 @@ impl SettingsList {
 
         let version = parsed_map.get("version").ok_or_else(|| ParseSettingsError::new("No version field"))?.expect_number()?;
         if version != 1.0 {
-            return Err(ParseSettingsError::new(format!("Unsupported version: {version}")).into());
+            return Err(ParseSettingsError::new(format!("Unsupported version: {version}")));
         }
 
         let mut dst_settings = NtscEffectFullSettings::default();
-        Self::settings_from_json(&parsed_map, &self.settings, &mut dst_settings)?;
+        Self::settings_from_json(parsed_map, &self.settings, &mut dst_settings)?;
 
         Ok(dst_settings)
     }

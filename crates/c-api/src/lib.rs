@@ -270,8 +270,8 @@ impl SettingsList {
 
         let descs_slice = slice::from_raw_parts(self.descriptors, self.len);
         drop_stack.push(descs_slice);
-        while drop_stack.len() > 0 {
-            let descriptors = drop_stack.pop().unwrap();
+        while let Some(descriptors) = drop_stack.pop() {
+            
             for descriptor in descriptors {
                 match descriptor.kind {
                     SettingKind::Enumeration {
@@ -330,7 +330,7 @@ impl SettingsList {
                 let mut descs = self.descriptors;
                 let mut desc: Option<&SettingDescriptor> = None;
                 for (iter_index, descriptor_index) in id_path.iter().enumerate() {
-                    let cur_desc = &*descs.offset(*descriptor_index as isize);
+                    let cur_desc = &*descs.add(*descriptor_index);
                     desc = Some(cur_desc);
                     match cur_desc.kind {
                         SettingKind::Group { children, .. } => {
@@ -350,7 +350,7 @@ impl SettingsList {
                     panic!("Path was empty")
                 }
             } else {
-                return ptr::null();
+                ptr::null()
             }
         }
     }

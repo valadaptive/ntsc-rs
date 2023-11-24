@@ -48,7 +48,7 @@ pub fn make_lowpass_triple(cutoff: f32, rate: f32) -> TransferFunction {
 pub fn make_notch_filter(freq: f32, quality: f32) -> TransferFunction {
     // Adapted from scipy and simplified
     // https://github.com/scipy/scipy/blob/686422c4f0a71be1b4258309590fd3e9de102e18/scipy/signal/_filter_design.py#L5099-L5171
-    if freq > 1.0 || freq < 0.0 {
+    if !(0.0..=1.0).contains(&freq) {
         panic!("Frequency outside valid range");
     }
 
@@ -85,7 +85,7 @@ impl ScratchBuffer {
     pub fn new(len: usize) -> Self {
         ScratchBuffer {
             cell: OnceCell::new(),
-            len: len,
+            len,
         }
     }
     pub fn get(&mut self) -> &mut [f32] {
@@ -173,7 +173,7 @@ fn composite_chroma_lowpass(frame: &mut YiqView, info: &CommonInfo) {
     let width = frame.dimensions.0;
 
     filter_plane(
-        &mut frame.i,
+        frame.i,
         width,
         &i_filter,
         InitialCondition::Zero,
@@ -181,7 +181,7 @@ fn composite_chroma_lowpass(frame: &mut YiqView, info: &CommonInfo) {
         2,
     );
     filter_plane(
-        &mut frame.q,
+        frame.q,
         width,
         &q_filter,
         InitialCondition::Zero,
@@ -196,8 +196,8 @@ fn composite_chroma_lowpass_lite(frame: &mut YiqView, info: &CommonInfo) {
 
     let width = frame.dimensions.0;
 
-    filter_plane(&mut frame.i, width, &filter, InitialCondition::Zero, 1.0, 1);
-    filter_plane(&mut frame.q, width, &filter, InitialCondition::Zero, 1.0, 1);
+    filter_plane(frame.i, width, &filter, InitialCondition::Zero, 1.0, 1);
+    filter_plane(frame.q, width, &filter, InitialCondition::Zero, 1.0, 1);
 }
 
 /// Calculate the chroma subcarrier phase for a given row/field
@@ -226,8 +226,8 @@ fn chroma_into_luma_line(
     xi: usize,
     subcarrier_amplitude: f32,
 ) {
-    y.into_iter()
-        .zip(i.into_iter().zip(q.into_iter()))
+    y.iter_mut()
+        .zip(i.iter_mut().zip(q))
         .enumerate()
         .for_each(|(index, (y, (i, q)))| {
             let phase = (index + (xi & 3)) & 3;
@@ -499,7 +499,7 @@ fn video_noise_line(
         .0;
 
     row.iter_mut().enumerate().for_each(|(x, pixel)| {
-        *pixel += noise[x] as f32 * 0.25 * intensity;
+        *pixel += noise[x] * 0.25 * intensity;
     });
 }
 
@@ -984,7 +984,7 @@ impl NtscEffect {
                 NTSC_RATE * self.bandwidth_scale,
             );
             filter_plane(
-                &mut yiq.y,
+                yiq.y,
                 width,
                 &preemphasis_filter,
                 InitialCondition::Zero,
@@ -1045,7 +1045,7 @@ impl NtscEffect {
                 ringing.power,
             );
             filter_plane(
-                &mut yiq.y,
+                yiq.y,
                 width,
                 &notch_filter,
                 InitialCondition::FirstSample,
@@ -1098,7 +1098,7 @@ impl NtscEffect {
                 let chroma_filter =
                     make_lowpass_triple(chroma_cut, NTSC_RATE * self.bandwidth_scale);
                 filter_plane(
-                    &mut yiq.y,
+                    yiq.y,
                     width,
                     &luma_filter,
                     InitialCondition::Zero,
@@ -1106,7 +1106,7 @@ impl NtscEffect {
                     0,
                 );
                 filter_plane(
-                    &mut yiq.i,
+                    yiq.i,
                     width,
                     &chroma_filter,
                     InitialCondition::Zero,
@@ -1114,7 +1114,7 @@ impl NtscEffect {
                     chroma_delay,
                 );
                 filter_plane(
-                    &mut yiq.q,
+                    yiq.q,
                     width,
                     &chroma_filter,
                     InitialCondition::Zero,
@@ -1123,7 +1123,7 @@ impl NtscEffect {
                 );
                 let luma_filter_single = make_lowpass(luma_cut, NTSC_RATE * self.bandwidth_scale);
                 filter_plane(
-                    &mut yiq.y,
+                    yiq.y,
                     width,
                     &luma_filter_single,
                     InitialCondition::Zero,
@@ -1149,7 +1149,7 @@ impl NtscEffect {
                     // I'm not sure if I'm implementing it wrong, but chroma sharpening looks awful.
                     // let chroma_sharpen_filter = make_lowpass_triple(chroma_cut * 4.0, 0.0, NTSC_RATE);
                     filter_plane(
-                        &mut yiq.y,
+                        yiq.y,
                         width,
                         &luma_sharpen_filter,
                         InitialCondition::Zero,
