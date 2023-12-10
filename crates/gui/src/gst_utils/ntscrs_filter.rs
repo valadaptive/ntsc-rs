@@ -7,7 +7,8 @@ use gstreamer_video::subclass::prelude::*;
 use gstreamer_video::VideoFormat;
 
 use ntscrs::ntsc::NtscEffect;
-use ntscrs::yiq_fielding::{Bgrx8, Rgbx8, Xbgr8, Xrgb8, YiqField, YiqOwned, YiqView, Xrgb16};
+use ntscrs::settings::UseField;
+use ntscrs::yiq_fielding::{Bgrx8, Rgbx8, Xbgr8, Xrgb16, Xrgb8, YiqField, YiqOwned, YiqView};
 
 #[derive(Clone, glib::Boxed, Default)]
 #[boxed_type(name = "NtscFilterSettings")]
@@ -169,7 +170,26 @@ impl VideoFilterImpl for NtscFilter {
             / info.fps().denom() as u128) as u64
             / gstreamer::ClockTime::SECOND.nseconds();
 
-        let field = YiqField::Upper;
+        let settings = self
+            .settings
+            .read()
+            .or(Err(gstreamer::FlowError::Error))?
+            .clone()
+            .0;
+
+        let field = match settings.use_field {
+            UseField::Alternating => {
+                if frame & 1 == 0 {
+                    YiqField::Lower
+                } else {
+                    YiqField::Upper
+                }
+            }
+            UseField::Upper => YiqField::Upper,
+            UseField::Lower => YiqField::Lower,
+            UseField::Both => YiqField::Both,
+        };
+
         let mut yiq = match in_format {
             VideoFormat::Rgbx | VideoFormat::Rgba => {
                 YiqOwned::from_strided_buffer::<Rgbx8>(in_data, in_stride, width, height, field)
@@ -185,19 +205,13 @@ impl VideoFilterImpl for NtscFilter {
             }
 
             VideoFormat::Argb64 => {
-                let data_16 = unsafe {in_data.align_to::<u16>()}.1;
+                let data_16 = unsafe { in_data.align_to::<u16>() }.1;
                 YiqOwned::from_strided_buffer::<Xrgb16>(data_16, in_stride, width, height, field)
             }
             _ => Err(gstreamer::FlowError::NotSupported)?,
         };
         let mut view = YiqView::from(&mut yiq);
 
-        let settings = self
-            .settings
-            .read()
-            .or(Err(gstreamer::FlowError::Error))?
-            .clone()
-            .0;
         settings.apply_effect_to_yiq(&mut view, frame as usize);
 
         match out_format {
@@ -214,7 +228,7 @@ impl VideoFilterImpl for NtscFilter {
                 view.write_to_strided_buffer::<Xbgr8>(out_data, out_stride)
             }
             VideoFormat::Argb64 => {
-                let data_16 = unsafe {out_data.align_to_mut::<u16>()}.1;
+                let data_16 = unsafe { out_data.align_to_mut::<u16>() }.1;
                 view.write_to_strided_buffer::<Xrgb16>(data_16, out_stride)
             }
             _ => Err(gstreamer::FlowError::NotSupported)?,
