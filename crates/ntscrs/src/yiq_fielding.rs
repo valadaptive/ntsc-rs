@@ -126,7 +126,11 @@ impl<'a> YiqView<'a> {
         self.field.num_image_rows(self.dimensions.1)
     }
 
-    pub fn set_from_strided_buffer<S: PixelFormat>(&mut self, buf: &[S::DataFormat], row_bytes: usize) {
+    pub fn set_from_strided_buffer<S: PixelFormat>(
+        &mut self,
+        buf: &[S::DataFormat],
+        row_bytes: usize,
+    ) {
         let num_components = S::ORDER.num_components();
         let (r_idx, g_idx, b_idx) = S::ORDER.rgb_indices();
         assert!(num_components >= 3);
@@ -143,7 +147,7 @@ impl<'a> YiqView<'a> {
             YiqField::Both => (0, 0),
         };
 
-        let Self {y, i, q, ..} = self;
+        let Self { y, i, q, .. } = self;
         let (width, ..) = self.dimensions;
 
         y.par_chunks_mut(width)
@@ -166,7 +170,11 @@ impl<'a> YiqView<'a> {
             });
     }
 
-    pub fn write_to_strided_buffer<S: PixelFormat>(&self, dst: &mut [S::DataFormat], row_bytes: usize) {
+    pub fn write_to_strided_buffer<S: PixelFormat>(
+        &self,
+        dst: &mut [S::DataFormat],
+        row_bytes: usize,
+    ) {
         let num_components = S::ORDER.num_components();
         let (r_idx, g_idx, b_idx) = S::ORDER.rgb_indices();
         assert!(num_components >= 3);
@@ -271,7 +279,6 @@ pub trait PixelFormat {
     type DataFormat: Normalize;
 }
 
-
 macro_rules! impl_pix_fmt {
     ($ty: ident, $order: expr, $format: ty) => {
         pub struct $ty();
@@ -300,7 +307,13 @@ impl YiqOwned {
         self.field.num_image_rows(self.dimensions.1)
     }
 
-    pub fn from_strided_buffer<S: PixelFormat>(buf: &[S::DataFormat], row_bytes: usize, width: usize, height: usize, field: YiqField) -> Self {
+    pub fn from_strided_buffer<S: PixelFormat>(
+        buf: &[S::DataFormat],
+        row_bytes: usize,
+        width: usize,
+        height: usize,
+        field: YiqField,
+    ) -> Self {
         let num_rows = field.num_image_rows(height);
         let num_pixels = width * num_rows;
 

@@ -567,7 +567,8 @@ unsafe fn apply_params(
                 ofx_err(paramGetValueAtTime(param, time, &mut selected_idx))?;
                 descriptor
                     .id
-                    .set_field_enum(dst, options[selected_idx as usize].index).unwrap();
+                    .set_field_enum(dst, options[selected_idx as usize].index)
+                    .unwrap();
             }
             SettingKind::IntRange { .. } => {
                 let mut int_value: i32 = 0;
@@ -1003,8 +1004,8 @@ fn getRowInfo(cur_field: YiqField, src_height: usize) -> RowInfo {
         return RowInfo {
             row_lshift: 0,
             row_offset: 0,
-            num_rows: 1
-        }
+            num_rows: 1,
+        };
     }
 
     // We write into the destination array differently depending on whether we're using the upper field, lower

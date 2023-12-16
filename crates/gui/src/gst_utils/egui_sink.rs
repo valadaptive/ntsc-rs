@@ -77,17 +77,18 @@ impl EguiSink {
         let _ = self.update_texture();
     }
 
-    fn apply_effect(&self, frame_num: usize, stride: usize, buf: &[u8], size: (usize, usize), image: &mut ColorImage) {
+    fn apply_effect(
+        &self,
+        frame_num: usize,
+        stride: usize,
+        buf: &[u8],
+        size: (usize, usize),
+        image: &mut ColorImage,
+    ) {
         let settings = self.settings.lock().unwrap();
         let field = settings.0.use_field.to_yiq_field(frame_num as usize);
 
-        let mut yiq = YiqOwned::from_strided_buffer::<Rgbx8>(
-            buf,
-            stride,
-            size.0,
-            size.1,
-            field,
-        );
+        let mut yiq = YiqOwned::from_strided_buffer::<Rgbx8>(buf, stride, size.0, size.1, field);
         let mut view = YiqView::from(&mut yiq);
         settings
             .0
@@ -109,24 +110,41 @@ impl EguiSink {
         match *self.preview_mode.lock().unwrap() {
             EffectPreviewSetting::Enabled => {
                 let buf = vframe.plane_data(0).or(Err(gstreamer::FlowError::Error))?;
-                self.apply_effect(*frame_num as usize, stride, buf, (width, height), &mut image);
-            },
+                self.apply_effect(
+                    *frame_num as usize,
+                    stride,
+                    buf,
+                    (width, height),
+                    &mut image,
+                );
+            }
             #[allow(illegal_floating_point_literal_pattern)]
             EffectPreviewSetting::Disabled | EffectPreviewSetting::SplitScreen(0f64) => {
                 // Copy directly to egui image when effect is disabled
                 let src_buf = vframe.plane_data(0).or(Err(gstreamer::FlowError::Error))?;
                 image.as_raw_mut().copy_from_slice(src_buf);
-            },
+            }
             EffectPreviewSetting::SplitScreen(split) => {
                 let buf = vframe.plane_data(0).or(Err(gstreamer::FlowError::Error))?;
-                self.apply_effect(*frame_num as usize, stride, buf, (width, height), &mut image);
+                self.apply_effect(
+                    *frame_num as usize,
+                    stride,
+                    buf,
+                    (width, height),
+                    &mut image,
+                );
 
-                let split_boundary = (split * width as f64).round().clamp(0.0, width as f64) as usize;
+                let split_boundary =
+                    (split * width as f64).round().clamp(0.0, width as f64) as usize;
                 let image_data = image.as_raw_mut();
-                image_data.chunks_exact_mut(width * 4).zip(buf.chunks_exact(width * 4)).for_each(|(img_row, vid_row)| {
-                    img_row[split_boundary * 4..].copy_from_slice(&vid_row[split_boundary * 4..]);
-                });
-            },
+                image_data
+                    .chunks_exact_mut(width * 4)
+                    .zip(buf.chunks_exact(width * 4))
+                    .for_each(|(img_row, vid_row)| {
+                        img_row[split_boundary * 4..]
+                            .copy_from_slice(&vid_row[split_boundary * 4..]);
+                    });
+            }
         }
 
         tex.0

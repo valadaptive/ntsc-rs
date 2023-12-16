@@ -1,4 +1,4 @@
-use std::{fmt::Display, error::Error};
+use std::{error::Error, fmt::Display};
 
 use gstreamer::glib;
 

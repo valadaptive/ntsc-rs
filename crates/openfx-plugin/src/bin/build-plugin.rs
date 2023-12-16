@@ -1,7 +1,7 @@
-use std::process::Command;
 use std::env::args;
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 const CURRENT_TARGET: &str = env!("TARGET");
 const OUT_DIR: &str = env!("OUT_DIR");
@@ -25,7 +25,7 @@ const TARGETS: &[Target] = &[
         target_triple: "x86_64-unknown-linux-gnu",
         ofx_architecture: "Linux-x86-64",
         library_extension: "so",
-        library_prefix: "lib"
+        library_prefix: "lib",
     },
     Target {
         target_triple: "i686-unknown-linux-gnu",
@@ -64,10 +64,13 @@ pub fn main() -> std::io::Result<()> {
     let target = TARGETS
         .iter()
         .find(|candidate_target| candidate_target.target_triple == CURRENT_TARGET)
-        .unwrap_or_else(|| panic!("Your target \"{}\" is not supported",
-            CURRENT_TARGET));
+        .unwrap_or_else(|| panic!("Your target \"{}\" is not supported", CURRENT_TARGET));
 
-    let mut cargo_args: Vec<_> = vec![String::from("build"), String::from("--package=openfx-plugin"), String::from("--lib")];
+    let mut cargo_args: Vec<_> = vec![
+        String::from("build"),
+        String::from("--package=openfx-plugin"),
+        String::from("--lib"),
+    ];
     cargo_args.extend(args().skip(1));
     Command::new("cargo").args(&cargo_args).status()?;
 

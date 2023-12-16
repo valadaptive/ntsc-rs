@@ -2,7 +2,7 @@ extern crate criterion;
 use criterion::{criterion_group, criterion_main, Criterion};
 use image::io::Reader as ImageReader;
 use ntscrs::ntsc::NtscEffect;
-#[cfg(not(target_os="windows"))]
+#[cfg(not(target_os = "windows"))]
 use pprof::criterion::{Output, PProfProfiler};
 
 fn criterion_benchmark(c: &mut Criterion) {

@@ -2,11 +2,11 @@ use core::slice;
 use std::ffi::CString;
 use std::{ffi::c_char, mem::ManuallyDrop, ptr};
 
-use ntscrs::{ntsc::NtscEffect, yiq_fielding::YiqView};
 use ntscrs::settings::{
-    NtscEffectFullSettings, SettingDescriptor as RsSettingDescriptor,
-    SettingID as RsSettingID, SettingKind as RsSettingKind, SettingsList as RsSettingsList,
+    NtscEffectFullSettings, SettingDescriptor as RsSettingDescriptor, SettingID as RsSettingID,
+    SettingKind as RsSettingKind, SettingsList as RsSettingsList,
 };
+use ntscrs::{ntsc::NtscEffect, yiq_fielding::YiqView};
 use ntscrs::{FromPrimitive, ToPrimitive};
 
 #[repr(C)]
@@ -147,7 +147,7 @@ impl Configurator {
 fn descriptors_to_c(descs: &[RsSettingDescriptor]) -> (*mut SettingDescriptor, usize, usize) {
     let mut c_settings = Vec::<SettingDescriptor>::new();
 
-    let mut num_group_children  = 0;
+    let mut num_group_children = 0;
 
     for setting in descs {
         let c_desc = SettingDescriptor {
@@ -236,7 +236,11 @@ fn descriptors_to_c(descs: &[RsSettingDescriptor]) -> (*mut SettingDescriptor, u
 
     let mut p = ManuallyDrop::new(c_settings.into_boxed_slice());
 
-    (p.as_mut_ptr(), descs.len(), descs.len() + num_group_children)
+    (
+        p.as_mut_ptr(),
+        descs.len(),
+        descs.len() + num_group_children,
+    )
 }
 
 #[repr(transparent)]
@@ -255,7 +259,12 @@ impl SettingsList {
     pub extern "C" fn ntscrs_settingslist_create() -> Self {
         let settings = RsSettingsList::new();
         let (descriptors, len, total_num_params) = descriptors_to_c(&settings.settings);
-        SettingsList { descriptors, len, total_num_settings: total_num_params, by_id: Box::into_raw(Box::new(DescriptorsById(settings.by_id))) }
+        SettingsList {
+            descriptors,
+            len,
+            total_num_settings: total_num_params,
+            by_id: Box::into_raw(Box::new(DescriptorsById(settings.by_id))),
+        }
     }
 
     #[no_mangle]
@@ -309,7 +318,10 @@ impl SettingsList {
     }
 
     #[no_mangle]
-    pub extern "C" fn ntscrs_settingslist_get_descriptor_by_id(&self, id: u32) -> *const SettingDescriptor {
+    pub extern "C" fn ntscrs_settingslist_get_descriptor_by_id(
+        &self,
+        id: u32,
+    ) -> *const SettingDescriptor {
         unsafe {
             let by_id = &(*self.by_id).0;
 
@@ -328,7 +340,7 @@ impl SettingsList {
                     match cur_desc.kind {
                         SettingKind::Group { children, .. } => {
                             descs = children;
-                        },
+                        }
                         _ => {
                             if iter_index != id_path.len() - 1 {
                                 panic!("Tried to iterate into a descriptor that isn't a Group")

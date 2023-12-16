@@ -1,7 +1,11 @@
-use std::{sync::{atomic::AtomicBool, Arc, Mutex}, error::Error, fmt::Display};
+use super::{gstreamer_error::GstreamerError, scale_from_caps};
 use gstreamer::{element_error, element_warning, glib, prelude::*};
-use super::{scale_from_caps, gstreamer_error::GstreamerError};
 use log::debug;
+use std::{
+    error::Error,
+    fmt::Display,
+    sync::{atomic::AtomicBool, Arc, Mutex},
+};
 
 #[derive(Clone, Debug, glib::Boxed)]
 #[boxed_type(name = "ErrorValue")]
@@ -10,14 +14,14 @@ struct ErrorValue(Arc<Mutex<Option<GstreamerError>>>);
 #[derive(Debug, Clone)]
 pub enum PipelineError {
     GlibError(glib::Error),
-    NoVideoError
+    NoVideoError,
 }
 
 impl Display for PipelineError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::GlibError(e) => e.fmt(f),
-            Self::NoVideoError => f.write_str("Pipeline source has no video")
+            Self::NoVideoError => f.write_str("Pipeline source has no video"),
         }
     }
 }
@@ -26,7 +30,7 @@ impl Error for PipelineError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::GlibError(e) => Some(e),
-            Self::NoVideoError => None
+            Self::NoVideoError => None,
         }
     }
 }
@@ -117,10 +121,12 @@ pub fn create_pipeline<
                                 gstreamer::ElementFactory::make("audioconvert").build()?;
                             let audio_resample =
                                 gstreamer::ElementFactory::make("audioresample").build()?;
-                            let audio_volume =
-                                gstreamer::ElementFactory::make("volume").name("audio_volume").build()?;
+                            let audio_volume = gstreamer::ElementFactory::make("volume")
+                                .name("audio_volume")
+                                .build()?;
 
-                            let audio_elements = &[&audio_queue, &audio_convert, &audio_resample, &audio_volume];
+                            let audio_elements =
+                                &[&audio_queue, &audio_convert, &audio_resample, &audio_volume];
                             pipeline.add_many(audio_elements)?;
                             gstreamer::Element::link_many(audio_elements)?;
 
@@ -197,8 +203,8 @@ pub fn create_pipeline<
 
                         let framerate = caps.as_ref().and_then(|caps| {
                             caps.structure(0)?
-                                    .get::<gstreamer::Fraction>("framerate")
-                                    .ok()
+                                .get::<gstreamer::Fraction>("framerate")
+                                .ok()
                         });
 
                         let is_still_image = match framerate {
@@ -207,9 +213,7 @@ pub fn create_pipeline<
                         };
 
                         if let (Some(caps), Some(initial_scale)) = (caps, initial_scale) {
-                            if let Some((width, height)) =
-                                scale_from_caps(&caps, initial_scale)
-                            {
+                            if let Some((width, height)) = scale_from_caps(&caps, initial_scale) {
                                 caps_filter.set_property(
                                     "caps",
                                     gstreamer_video::VideoCapsBuilder::default()
@@ -319,7 +323,7 @@ pub fn create_pipeline<
                         }
                         finished_loading.store(true, std::sync::atomic::Ordering::SeqCst);
                     }
-                },
+                }
                 gstreamer::MessageView::Error(e) => {
                     if let Some(callback) = handler_callback.lock().unwrap().take() {
                         callback(Err(PipelineError::GlibError(e.error())));

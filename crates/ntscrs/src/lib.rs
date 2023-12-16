@@ -8,4 +8,4 @@ pub mod yiq_fielding;
 #[macro_use]
 extern crate num_derive;
 
-pub use num_traits::cast::{ToPrimitive, FromPrimitive};
+pub use num_traits::cast::{FromPrimitive, ToPrimitive};

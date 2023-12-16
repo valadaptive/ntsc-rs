@@ -1,13 +1,13 @@
-pub mod egui_sink;
 pub mod clock_format;
+pub mod egui_sink;
 pub mod gstreamer_error;
 pub mod ntscrs_filter;
 pub mod pipeline_utils;
 pub mod video_pad_filter;
 
 pub mod elements {
-    use gstreamer::glib;
     use super::{egui_sink, ntscrs_filter, video_pad_filter};
+    use gstreamer::glib;
     glib::wrapper! {
         pub struct EguiSink(ObjectSubclass<egui_sink::EguiSink>) @extends gstreamer_video::VideoSink, gstreamer_base::BaseSink, gstreamer::Element, gstreamer::Object;
     }

@@ -25,15 +25,15 @@ use gui::{
     expression_parser::eval_expression_string,
     gst_utils::{
         clock_format::{clock_time_format, clock_time_parser},
-        egui_sink::{EguiCtx, SinkTexture, EffectPreviewSetting},
+        egui_sink::{EffectPreviewSetting, EguiCtx, SinkTexture},
         elements::{EguiSink, NtscFilter, VideoPadFilter},
         gstreamer_error::GstreamerError,
         ntscrs_filter::NtscFilterSettings,
         pipeline_utils::{create_pipeline, PipelineError},
         scale_from_caps,
     },
-    timeline::Timeline,
     splitscreen::SplitScreen,
+    timeline::Timeline,
 };
 
 use ntscrs::settings::{
@@ -219,7 +219,7 @@ struct AudioVolume {
     // volume to 25%, dragging it down to 0%, then clicking unmute and having it reset to some really loud default
     // value.
     gain_pre_mute: f64,
-    mute: bool
+    mute: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -238,7 +238,10 @@ struct EffectPreviewSettings {
 
 impl Default for EffectPreviewSettings {
     fn default() -> Self {
-        Self { mode: Default::default(), split_location: 0.5 }
+        Self {
+            mode: Default::default(),
+            split_location: 0.5,
+        }
     }
 }
 
@@ -323,15 +326,12 @@ impl Ffv1BitDepth {
     }
 }
 
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 struct Ffv1Settings {
     bit_depth: Ffv1BitDepth,
     // Subsample chroma to 4:2:0
     chroma_subsampling: bool,
 }
-
-
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 enum OutputCodec {
@@ -440,7 +440,11 @@ trait LayoutHelper {
     fn rtl<R>(&mut self, add_contents: impl FnOnce(&mut Self) -> R) -> egui::InnerResponse<R>;
 }
 
-fn ui_with_layout<'c, R>(ui: &mut egui::Ui, layout: egui::Layout, add_contents: Box<dyn FnOnce(&mut egui::Ui) -> R + 'c>) -> egui::InnerResponse<R> {
+fn ui_with_layout<'c, R>(
+    ui: &mut egui::Ui,
+    layout: egui::Layout,
+    add_contents: Box<dyn FnOnce(&mut egui::Ui) -> R + 'c>,
+) -> egui::InnerResponse<R> {
     let initial_size = vec2(
         ui.available_size_before_wrap().x,
         ui.spacing().interact_size.y,
@@ -453,11 +457,19 @@ fn ui_with_layout<'c, R>(ui: &mut egui::Ui, layout: egui::Layout, add_contents: 
 
 impl LayoutHelper for egui::Ui {
     fn ltr<R>(&mut self, add_contents: impl FnOnce(&mut egui::Ui) -> R) -> egui::InnerResponse<R> {
-        ui_with_layout(self, egui::Layout::left_to_right(egui::Align::Center), Box::new(add_contents))
+        ui_with_layout(
+            self,
+            egui::Layout::left_to_right(egui::Align::Center),
+            Box::new(add_contents),
+        )
     }
 
     fn rtl<R>(&mut self, add_contents: impl FnOnce(&mut egui::Ui) -> R) -> egui::InnerResponse<R> {
-        ui_with_layout(self, egui::Layout::right_to_left(egui::Align::Center), Box::new(add_contents))
+        ui_with_layout(
+            self,
+            egui::Layout::right_to_left(egui::Align::Center),
+            Box::new(add_contents),
+        )
     }
 }
 
@@ -704,7 +716,9 @@ impl NtscApp {
         match preview_settings.mode {
             EffectPreviewMode::Enabled => EffectPreviewSetting::Enabled,
             EffectPreviewMode::Disabled => EffectPreviewSetting::Disabled,
-            EffectPreviewMode::SplitScreen => EffectPreviewSetting::SplitScreen(preview_settings.split_location),
+            EffectPreviewMode::SplitScreen => {
+                EffectPreviewSetting::SplitScreen(preview_settings.split_location)
+            }
         }
     }
 
@@ -1242,12 +1256,17 @@ impl NtscApp {
     }
 }
 
-fn control_row<R>(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui) -> R, label: &str) -> R {
+fn control_row<R>(
+    ui: &mut egui::Ui,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+    label: &str,
+) -> R {
     ui.horizontal(|ui| {
         let resp = add_contents(ui);
         ui.add(egui::Label::new(label).truncate(true));
         resp
-    }).inner
+    })
+    .inner
 }
 
 impl NtscApp {
@@ -1264,89 +1283,110 @@ impl NtscApp {
                     options,
                     default_value: _,
                 } => {
-                    control_row(ui, |ui| {
-                        let selected_index = descriptor.id.get_field_enum(effect_settings).unwrap();
-                        let selected_item = options
-                            .iter()
-                            .find(|option| option.index == selected_index)
-                            .unwrap();
-                        egui::ComboBox::from_id_source(descriptor.id)
-                            .selected_text(selected_item.label)
-                            .show_ui(ui, |ui| {
-                                for item in options {
-                                    let mut label =
-                                        ui.selectable_label(selected_index == item.index, item.label);
+                    control_row(
+                        ui,
+                        |ui| {
+                            let selected_index =
+                                descriptor.id.get_field_enum(effect_settings).unwrap();
+                            let selected_item = options
+                                .iter()
+                                .find(|option| option.index == selected_index)
+                                .unwrap();
+                            egui::ComboBox::from_id_source(descriptor.id)
+                                .selected_text(selected_item.label)
+                                .show_ui(ui, |ui| {
+                                    for item in options {
+                                        let mut label = ui.selectable_label(
+                                            selected_index == item.index,
+                                            item.label,
+                                        );
 
-                                    if let Some(desc) = item.description {
-                                        label = label.on_hover_text(desc);
+                                        if let Some(desc) = item.description {
+                                            label = label.on_hover_text(desc);
+                                        }
+
+                                        if label.clicked() {
+                                            let _ = descriptor
+                                                .id
+                                                .set_field_enum(effect_settings, item.index);
+                                            // a selectable_label being clicked doesn't set response.changed
+                                            changed = true;
+                                        };
                                     }
-
-                                    if label.clicked() {
-                                        let _ =
-                                            descriptor.id.set_field_enum(effect_settings, item.index);
-                                        // a selectable_label being clicked doesn't set response.changed
-                                        changed = true;
-                                    };
-                                }
-                            })
-                            .response
-                    }, descriptor.label)
+                                })
+                                .response
+                        },
+                        descriptor.label,
+                    )
                 }
                 ntscrs::settings::SettingKind::Percentage {
                     logarithmic,
                     default_value: _,
-                } => control_row(ui, |ui| {
-                    ui.add(
-                        egui::Slider::new(
-                            descriptor.id.get_field_mut::<f32>(effect_settings).unwrap(),
-                            0.0..=1.0,
+                } => control_row(
+                    ui,
+                    |ui| {
+                        ui.add(
+                            egui::Slider::new(
+                                descriptor.id.get_field_mut::<f32>(effect_settings).unwrap(),
+                                0.0..=1.0,
+                            )
+                            .custom_parser(parser)
+                            .custom_formatter(format_percentage)
+                            .logarithmic(*logarithmic),
                         )
-                        .custom_parser(parser)
-                        .custom_formatter(format_percentage)
-                        .logarithmic(*logarithmic))
-                }, descriptor.label),
+                    },
+                    descriptor.label,
+                ),
                 ntscrs::settings::SettingKind::IntRange {
                     range,
                     default_value: _,
-                } => {
-                    control_row(ui, |ui| {
+                } => control_row(
+                    ui,
+                    |ui| {
                         let mut value = 0i32;
                         if let Some(v) = descriptor.id.get_field_mut::<i32>(effect_settings) {
                             value = *v;
-                        } else if let Some(v) = descriptor.id.get_field_mut::<u32>(effect_settings) {
+                        } else if let Some(v) = descriptor.id.get_field_mut::<u32>(effect_settings)
+                        {
                             value = *v as i32;
                         }
 
                         let slider = ui.add(
-                            egui::Slider::new(&mut value, range.clone())
-                                .custom_parser(parser),
+                            egui::Slider::new(&mut value, range.clone()).custom_parser(parser),
                         );
 
                         if slider.changed() {
                             if let Some(v) = descriptor.id.get_field_mut::<i32>(effect_settings) {
                                 *v = value;
-                            } else if let Some(v) = descriptor.id.get_field_mut::<u32>(effect_settings)
+                            } else if let Some(v) =
+                                descriptor.id.get_field_mut::<u32>(effect_settings)
                             {
                                 *v = value as u32;
                             }
                         }
 
                         slider
-                    }, descriptor.label)
-
-                }
+                    },
+                    descriptor.label,
+                ),
                 ntscrs::settings::SettingKind::FloatRange {
                     range,
                     logarithmic,
                     default_value: _,
-                } => control_row(ui, |ui| ui.add(
-                    egui::Slider::new(
-                        descriptor.id.get_field_mut::<f32>(effect_settings).unwrap(),
-                        range.clone(),
-                    )
-                    .custom_parser(parser)
-                    .logarithmic(*logarithmic),
-                ), descriptor.label),
+                } => control_row(
+                    ui,
+                    |ui| {
+                        ui.add(
+                            egui::Slider::new(
+                                descriptor.id.get_field_mut::<f32>(effect_settings).unwrap(),
+                                range.clone(),
+                            )
+                            .custom_parser(parser)
+                            .logarithmic(*logarithmic),
+                        )
+                    },
+                    descriptor.label,
+                ),
                 ntscrs::settings::SettingKind::Boolean { default_value: _ } => {
                     // We should really be using control_row for this, but then the label wouldn't be clickable
                     let checkbox = ui.checkbox(
@@ -1364,28 +1404,30 @@ impl NtscApp {
                     default_value: _,
                 } => {
                     ui.add_space(2.0);
-                    let resp = ui.group(|ui| {
-                        ui.set_width(ui.max_rect().width());
-                        let checkbox = ui.checkbox(
-                            descriptor
-                                .id
-                                .get_field_mut::<bool>(effect_settings)
-                                .unwrap(),
-                            descriptor.label,
-                        );
+                    let resp = ui
+                        .group(|ui| {
+                            ui.set_width(ui.max_rect().width());
+                            let checkbox = ui.checkbox(
+                                descriptor
+                                    .id
+                                    .get_field_mut::<bool>(effect_settings)
+                                    .unwrap(),
+                                descriptor.label,
+                            );
 
-                        ui.set_enabled(
-                            *descriptor
-                                .id
-                                .get_field_mut::<bool>(effect_settings)
-                                .unwrap(),
-                        );
+                            ui.set_enabled(
+                                *descriptor
+                                    .id
+                                    .get_field_mut::<bool>(effect_settings)
+                                    .unwrap(),
+                            );
 
-                        changed |= Self::settings_from_descriptors(effect_settings, ui, children);
+                            changed |=
+                                Self::settings_from_descriptors(effect_settings, ui, children);
 
-                        checkbox
-                    })
-                    .inner;
+                            checkbox
+                        })
+                        .inner;
                     ui.add_space(2.0);
                     resp
                 }
@@ -1542,7 +1584,8 @@ impl NtscApp {
                     let spacing = ui.spacing_mut();
                     spacing.slider_width = remaining_width - 48.0;
                     spacing.interact_size.x = 48.0;
-                    spacing.combo_width = spacing.slider_width + spacing.interact_size.x + spacing.item_spacing.x;
+                    spacing.combo_width =
+                        spacing.slider_width + spacing.interact_size.x + spacing.item_spacing.x;
                     let Self {
                         settings_list,
                         effect_settings,
@@ -1583,9 +1626,10 @@ impl NtscApp {
                                 job.pipeline.query_duration::<gstreamer::ClockTime>();
 
                             (
-                                if let (Some(job_position), Some(job_duration)) = (job_position, job_duration) {
-                                    job_position.nseconds() as f64
-                                        / job_duration.nseconds() as f64
+                                if let (Some(job_position), Some(job_duration)) =
+                                    (job_position, job_duration)
+                                {
+                                    job_position.nseconds() as f64 / job_duration.nseconds() as f64
                                 } else {
                                     job.last_progress
                                 },
@@ -1601,9 +1645,7 @@ impl NtscApp {
                         RenderJobState::Rendering | RenderJobState::Waiting
                     ) {
                         let current_time = ui.ctx().input(|input| input.time);
-                        let most_recent_sample = job
-                            .progress_samples
-                            .back().copied();
+                        let most_recent_sample = job.progress_samples.back().copied();
                         let should_update_estimate =
                             if let Some((_, sample_time)) = most_recent_sample {
                                 current_time - sample_time > PROGRESS_SAMPLE_TIME_DELTA
@@ -1619,8 +1661,7 @@ impl NtscApp {
                                 if job.progress_samples.len() >= NUM_PROGRESS_SAMPLES {
                                     job.progress_samples.pop_front()
                                 } else {
-                                    job.progress_samples
-                                        .front().copied()
+                                    job.progress_samples.front().copied()
                                 };
                             job.progress_samples.push_back(new_sample);
                             if let Some((old_progress, old_sample_time)) = oldest_sample {
@@ -1992,7 +2033,8 @@ impl NtscApp {
                             .save_file()
                             .await;
 
-                        handle.map(|handle| Box::new(move |app: &mut NtscApp| {
+                        handle.map(|handle| {
+                            Box::new(move |app: &mut NtscApp| {
                                 let res = app.create_render_job(
                                     &ctx,
                                     &src_path.clone(),
@@ -2009,7 +2051,8 @@ impl NtscApp {
                                     app.handle_result(res);
                                 }
                                 Ok(())
-                            }) as _)
+                            }) as _
+                        })
                     });
                 }
             });
@@ -2060,18 +2103,14 @@ impl NtscApp {
                             })
                         })
                     {
-                        let res = self
-                            .pipeline
-                            .as_mut().map(|p| p.toggle_playing());
+                        let res = self.pipeline.as_mut().map(|p| p.toggle_playing());
                         if let Some(res) = res {
                             self.handle_result(res);
                         }
                     }
 
                     if btn.clicked() {
-                        let res = self
-                            .pipeline
-                            .as_mut().map(|p| p.toggle_playing());
+                        let res = self.pipeline.as_mut().map(|p| p.toggle_playing());
                         if let Some(res) = res {
                             self.handle_result(res);
                         }
@@ -2158,7 +2197,8 @@ impl NtscApp {
 
                     ui.separator();
 
-                    let has_audio = self.pipeline
+                    let has_audio = self
+                        .pipeline
                         .as_ref()
                         .and_then(|info| Some(*info.has_audio.lock().unwrap()))
                         .unwrap_or(false);
@@ -2168,18 +2208,20 @@ impl NtscApp {
 
                         // Not actually being made into an error and some want to remove the lint entirely
                         #[allow(illegal_floating_point_literal_pattern)]
-                        if ui.button(match self.audio_volume.gain {
-                            0.0 => "🔇",
-                            0.0..=0.33 => "🔈",
-                            0.0..=0.67 => "🔉",
-                            _ => "🔊"
-                        })
-                        .on_hover_text(if self.audio_volume.mute {
-                            "Unmute"
-                        } else {
-                            "Mute"
-                        })
-                        .clicked() {
+                        if ui
+                            .button(match self.audio_volume.gain {
+                                0.0 => "🔇",
+                                0.0..=0.33 => "🔈",
+                                0.0..=0.67 => "🔉",
+                                _ => "🔊",
+                            })
+                            .on_hover_text(if self.audio_volume.mute {
+                                "Unmute"
+                            } else {
+                                "Mute"
+                            })
+                            .clicked()
+                        {
                             self.audio_volume.mute = !self.audio_volume.mute;
                             // "<= 0.0" to handle negative zero (not sure if it'll ever happen; better safe than sorry)
                             if !self.audio_volume.mute && self.audio_volume.gain <= 0.0 {
@@ -2189,13 +2231,13 @@ impl NtscApp {
                             update_volume = true;
                         }
 
-                        let resp = ui.add_enabled(!self.audio_volume.mute, egui::Slider::new(
-                            &mut self.audio_volume.gain,
-                            0.0..=1.25,
-                        )
-                            // Treat as a percentage above 125% volume
-                            .custom_parser(|input| parse_decimal_or_percentage(input, 1.25))
-                            .custom_formatter(format_percentage));
+                        let resp = ui.add_enabled(
+                            !self.audio_volume.mute,
+                            egui::Slider::new(&mut self.audio_volume.gain, 0.0..=1.25)
+                                // Treat as a percentage above 125% volume
+                                .custom_parser(|input| parse_decimal_or_percentage(input, 1.25))
+                                .custom_formatter(format_percentage),
+                        );
 
                         if resp.drag_released() {
                             if self.audio_volume.gain > 0.0 {
@@ -2218,7 +2260,7 @@ impl NtscApp {
                                     // Unlogarithmify volume (at least to my ears, this gives more control at the low end
                                     // of the slider)
                                     10f64.powf(self.audio_volume.gain - 1.0).max(0.0),
-                                    self.audio_volume.mute
+                                    self.audio_volume.mute,
                                 );
                             }
                         }
@@ -2228,13 +2270,34 @@ impl NtscApp {
 
                     let mut update_effect_preview = false;
                     ui.label("Effect preview: ");
-                    update_effect_preview |= ui.selectable_value(&mut self.effect_preview.mode, EffectPreviewMode::Enabled, "Enable").changed();
-                    update_effect_preview |= ui.selectable_value(&mut self.effect_preview.mode, EffectPreviewMode::Disabled, "Disable").changed();
-                    update_effect_preview |= ui.selectable_value(&mut self.effect_preview.mode, EffectPreviewMode::SplitScreen, "Split").changed();
+                    update_effect_preview |= ui
+                        .selectable_value(
+                            &mut self.effect_preview.mode,
+                            EffectPreviewMode::Enabled,
+                            "Enable",
+                        )
+                        .changed();
+                    update_effect_preview |= ui
+                        .selectable_value(
+                            &mut self.effect_preview.mode,
+                            EffectPreviewMode::Disabled,
+                            "Disable",
+                        )
+                        .changed();
+                    update_effect_preview |= ui
+                        .selectable_value(
+                            &mut self.effect_preview.mode,
+                            EffectPreviewMode::SplitScreen,
+                            "Split",
+                        )
+                        .changed();
 
                     if update_effect_preview {
-                        if let Some(PipelineInfo {egui_sink, ..}) = &self.pipeline {
-                            egui_sink.set_property("preview_mode", Self::sink_preview_mode(&self.effect_preview));
+                        if let Some(PipelineInfo { egui_sink, .. }) = &self.pipeline {
+                            egui_sink.set_property(
+                                "preview_mode",
+                                Self::sink_preview_mode(&self.effect_preview),
+                            );
                         }
                     }
                 });
@@ -2272,7 +2335,10 @@ impl NtscApp {
                             ui.with_layout(
                                 egui::Layout::centered_and_justified(egui::Direction::TopDown),
                                 |ui| {
-                                    if let Some(PipelineInfo { preview, egui_sink, .. }) = &mut self.pipeline {
+                                    if let Some(PipelineInfo {
+                                        preview, egui_sink, ..
+                                    }) = &mut self.pipeline
+                                    {
                                         let texture_size = if self.video_scale.enabled {
                                             let texture_actual_size = preview.size_vec2();
                                             let scale_factor = self.video_scale.scale as f32
@@ -2298,11 +2364,28 @@ impl NtscApp {
                                         // We need to render the splitscreen bar in the same area as the image. The
                                         // Response returned from ui.image() fills the entire scroll area, so we need
                                         // to do the layout ourselves.
-                                        let image = egui::Image::from_texture((preview.id(), texture_size * scale_factor));
-                                        let (rect, _) = ui.allocate_exact_size(texture_size * scale_factor, egui::Sense::hover());
+                                        let image = egui::Image::from_texture((
+                                            preview.id(),
+                                            texture_size * scale_factor,
+                                        ));
+                                        let (rect, _) = ui.allocate_exact_size(
+                                            texture_size * scale_factor,
+                                            egui::Sense::hover(),
+                                        );
                                         ui.put(rect, image);
-                                        if ui.put(rect, SplitScreen::new(&mut self.effect_preview.split_location)).changed() {
-                                            egui_sink.set_property("preview_mode", Self::sink_preview_mode(&self.effect_preview))
+                                        if ui
+                                            .put(
+                                                rect,
+                                                SplitScreen::new(
+                                                    &mut self.effect_preview.split_location,
+                                                ),
+                                            )
+                                            .changed()
+                                        {
+                                            egui_sink.set_property(
+                                                "preview_mode",
+                                                Self::sink_preview_mode(&self.effect_preview),
+                                            )
                                         }
                                     } else {
                                         ui.heading("No media loaded");
@@ -2468,7 +2551,10 @@ impl eframe::App for NtscApp {
             storage.set_string("effect_settings", settings_json);
         }
 
-        storage.set_string("color_theme", <&ColorTheme as Into<&str>>::into(&self.color_theme).to_owned());
+        storage.set_string(
+            "color_theme",
+            <&ColorTheme as Into<&str>>::into(&self.color_theme).to_owned(),
+        );
     }
 }
 

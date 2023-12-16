@@ -7,7 +7,7 @@ use std::{
     ops::RangeInclusive,
 };
 
-use crate::{FromPrimitive, ToPrimitive, yiq_fielding::YiqField};
+use crate::{yiq_fielding::YiqField, FromPrimitive, ToPrimitive};
 use macros::FullSettings;
 use tinyjson::JsonValue;
 
@@ -512,7 +512,11 @@ impl Error for ParseSettingsError {
 }
 
 impl SettingID {
-    pub fn set_field_enum(&self, settings: &mut NtscEffectFullSettings, value: u32) -> Result<(), ()> {
+    pub fn set_field_enum(
+        &self,
+        settings: &mut NtscEffectFullSettings,
+        value: u32,
+    ) -> Result<(), ()> {
         // We have to handle each enum manually since FromPrimitive isn't object-safe
         match self {
             SettingID::INPUT_LUMA_FILTER => {
@@ -630,15 +634,20 @@ trait Expect {
 
 impl Expect for JsonValue {
     fn expect_bool(&self) -> Result<bool, ParseSettingsError> {
-        self.get::<bool>().ok_or_else(|| ParseSettingsError::new("Expected a bool")).cloned()
+        self.get::<bool>()
+            .ok_or_else(|| ParseSettingsError::new("Expected a bool"))
+            .cloned()
     }
 
     fn expect_number(&self) -> Result<f64, ParseSettingsError> {
-        self.get::<f64>().ok_or_else(|| ParseSettingsError::new("Expected a number")).cloned()
+        self.get::<f64>()
+            .ok_or_else(|| ParseSettingsError::new("Expected a number"))
+            .cloned()
     }
 
     fn expect_object(&self) -> Result<&HashMap<String, JsonValue>, ParseSettingsError> {
-        self.get::<HashMap<_, _>>().ok_or_else(|| ParseSettingsError::new("Expected an object"))
+        self.get::<HashMap<_, _>>()
+            .ok_or_else(|| ParseSettingsError::new("Expected an object"))
     }
 }
 
@@ -1133,9 +1142,7 @@ impl SettingsList {
                     JsonValue::Number(descriptor.id.get_field_enum(settings).unwrap() as f64)
                 }
                 SettingKind::Percentage { .. } | SettingKind::FloatRange { .. } => {
-                    JsonValue::Number(
-                        *descriptor.id.get_field_ref::<f32>(settings).unwrap() as f64
-                    )
+                    JsonValue::Number(*descriptor.id.get_field_ref::<f32>(settings).unwrap() as f64)
                 }
                 SettingKind::IntRange { .. } => JsonValue::Number(
                     if let Some(n) = descriptor.id.get_field_ref::<u32>(settings) {
@@ -1148,17 +1155,14 @@ impl SettingsList {
                 ),
                 SettingKind::Boolean { .. } => {
                     JsonValue::Boolean(*descriptor.id.get_field_ref::<bool>(settings).unwrap())
-                },
+                }
                 SettingKind::Group { children, .. } => {
                     self.settings_to_json(dst, children, settings);
                     JsonValue::Boolean(*descriptor.id.get_field_ref::<bool>(settings).unwrap())
                 }
             };
 
-            dst.insert(
-                descriptor.id.name().to_string(),
-                value
-            );
+            dst.insert(descriptor.id.name().to_string(), value);
         }
     }
 
@@ -1171,33 +1175,43 @@ impl SettingsList {
         JsonValue::Object(dst_map)
     }
 
-    fn settings_from_json(json: &HashMap<String, JsonValue>, descriptors: &[SettingDescriptor], settings: &mut NtscEffectFullSettings) -> Result<(), ParseSettingsError> {
+    fn settings_from_json(
+        json: &HashMap<String, JsonValue>,
+        descriptors: &[SettingDescriptor],
+        settings: &mut NtscEffectFullSettings,
+    ) -> Result<(), ParseSettingsError> {
         for descriptor in descriptors {
             let setting_value = match json.get(descriptor.id.name()) {
                 Some(value) => value,
-                None => continue
+                None => continue,
             };
             match &descriptor.kind {
                 SettingKind::Enumeration { .. } => {
-                    descriptor.id.set_field_enum(settings, setting_value.expect_number()? as u32).map_err(|_| ParseSettingsError::new("Invalid enum value"))?;
-                },
+                    descriptor
+                        .id
+                        .set_field_enum(settings, setting_value.expect_number()? as u32)
+                        .map_err(|_| ParseSettingsError::new("Invalid enum value"))?;
+                }
                 SettingKind::Percentage { .. } | SettingKind::FloatRange { .. } => {
-                    *descriptor.id.get_field_mut::<f32>(settings).unwrap() = setting_value.expect_number()? as f32;
-                },
+                    *descriptor.id.get_field_mut::<f32>(settings).unwrap() =
+                        setting_value.expect_number()? as f32;
+                }
                 SettingKind::IntRange { .. } => {
                     if let Some(field) = descriptor.id.get_field_mut::<u32>(settings) {
                         *field = setting_value.expect_number()? as u32;
                     } else if let Some(field) = descriptor.id.get_field_mut::<i32>(settings) {
                         *field = setting_value.expect_number()? as i32;
                     }
-                },
+                }
                 SettingKind::Boolean { .. } => {
-                    *descriptor.id.get_field_mut::<bool>(settings).unwrap() = setting_value.expect_bool()?;
-                },
+                    *descriptor.id.get_field_mut::<bool>(settings).unwrap() =
+                        setting_value.expect_bool()?;
+                }
                 SettingKind::Group { children, .. } => {
-                    *descriptor.id.get_field_mut::<bool>(settings).unwrap() = setting_value.expect_bool()?;
+                    *descriptor.id.get_field_mut::<bool>(settings).unwrap() =
+                        setting_value.expect_bool()?;
                     Self::settings_from_json(json, children, settings)?;
-                },
+                }
             }
         }
 
@@ -1206,13 +1220,19 @@ impl SettingsList {
 
     pub fn from_json(&self, json: &str) -> Result<NtscEffectFullSettings, ParseSettingsError> {
         let parsed = json
-            .parse::<JsonValue>().map_err(|_| ParseSettingsError::new("Cound not parse JSON"))?;
+            .parse::<JsonValue>()
+            .map_err(|_| ParseSettingsError::new("Cound not parse JSON"))?;
 
         let parsed_map = parsed.expect_object()?;
 
-        let version = parsed_map.get("version").ok_or_else(|| ParseSettingsError::new("No version field"))?.expect_number()?;
+        let version = parsed_map
+            .get("version")
+            .ok_or_else(|| ParseSettingsError::new("No version field"))?
+            .expect_number()?;
         if version != 1.0 {
-            return Err(ParseSettingsError::new(format!("Unsupported version: {version}")));
+            return Err(ParseSettingsError::new(format!(
+                "Unsupported version: {version}"
+            )));
         }
 
         let mut dst_settings = NtscEffectFullSettings::default();

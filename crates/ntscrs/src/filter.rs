@@ -116,15 +116,22 @@ impl TransferFunction {
     }
 
     #[inline(always)]
-    fn filter_sample(filter_len: usize, num: &[f32], den: &[f32], z: &mut [f32], sample: f32, scale: f32) -> f32 {
-            // This function gets auto-vectorized by the compiler. The following attempts to optimize it have backfired:
-            // - Special-casing a function for when there's only one nonzero coefficient in the numerator: slower.
-            // - Using a smallvec to store all the coefficients: slower.
-            let filt_sample = z[0] + (num[0] * sample);
-            for i in 0..filter_len - 1 {
-                z[i] = z[i + 1] + (num[i + 1] * sample) - (den[i + 1] * filt_sample);
-            }
-            (filt_sample - sample) * scale + sample
+    fn filter_sample(
+        filter_len: usize,
+        num: &[f32],
+        den: &[f32],
+        z: &mut [f32],
+        sample: f32,
+        scale: f32,
+    ) -> f32 {
+        // This function gets auto-vectorized by the compiler. The following attempts to optimize it have backfired:
+        // - Special-casing a function for when there's only one nonzero coefficient in the numerator: slower.
+        // - Using a smallvec to store all the coefficients: slower.
+        let filt_sample = z[0] + (num[0] * sample);
+        for i in 0..filter_len - 1 {
+            z[i] = z[i + 1] + (num[i + 1] * sample) - (den[i + 1] * filt_sample);
+        }
+        (filt_sample - sample) * scale + sample
     }
 
     /// Filter a signal, reading from one slice and writing into another.
@@ -143,7 +150,11 @@ impl TransferFunction {
         delay: usize,
     ) {
         if dst.len() != src.len() {
-            panic!("Source slice is {} samples but destination is {} samples", src.len(), src.len());
+            panic!(
+                "Source slice is {} samples but destination is {} samples",
+                src.len(),
+                src.len()
+            );
         }
 
         let filter_len = usize::max(self.num.len(), self.den.len());
@@ -154,7 +165,8 @@ impl TransferFunction {
             // determining that we're in-bounds here. Since i.min(items.len() - 1) never exceeds items.len() - 1 by
             // definition, this is safe.
             let sample = unsafe { src.get_unchecked(i.min(src.len() - 1)) };
-            let filt_sample = Self::filter_sample(filter_len, &self.num, &self.den, &mut z, *sample, scale);
+            let filt_sample =
+                Self::filter_sample(filter_len, &self.num, &self.den, &mut z, *sample, scale);
             if i >= delay {
                 dst[i - delay] = filt_sample;
             }
@@ -204,7 +216,14 @@ impl TransferFunction {
         let mut z_fixed: [f32; SIZE] = [0f32; SIZE];
         z_fixed.copy_from_slice(&z);
 
-        self.filter_signal_in_place_impl(signal, &num_fixed, &den_fixed, &mut z_fixed, scale, delay);
+        self.filter_signal_in_place_impl(
+            signal,
+            &num_fixed,
+            &den_fixed,
+            &mut z_fixed,
+            scale,
+            delay,
+        );
     }
 
     /// Filter a signal in-place, modifying the given slice.
@@ -235,7 +254,9 @@ impl TransferFunction {
             8 => self.filter_signal_in_place_fixed_size::<8>(signal, initial, scale, delay),
             _ => {
                 let mut z = self.initial_condition(initial);
-                self.filter_signal_in_place_impl(signal, &self.num, &self.den, &mut z, scale, delay);
+                self.filter_signal_in_place_impl(
+                    signal, &self.num, &self.den, &mut z, scale, delay,
+                );
             }
         }
     }

@@ -1,6 +1,6 @@
-use std::hash::{Hasher, Hash};
 use rand::distributions::Distribution;
 use siphasher::sip::SipHasher;
+use std::hash::{Hash, Hasher};
 
 pub struct Geometric {
     lambda: f64,
@@ -69,9 +69,7 @@ impl Seeder {
     pub fn new<T: Hash>(seed: T) -> Self {
         let mut hasher = SipHasher::new_with_keys(0, 0);
         seed.hash(&mut hasher);
-        Seeder {
-            state: hasher,
-        }
+        Seeder { state: hasher }
     }
 
     pub fn mix<T: Hash>(mut self, input: T) -> Self {

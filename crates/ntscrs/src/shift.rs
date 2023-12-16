@@ -6,7 +6,11 @@ pub enum BoundaryHandling {
     Constant(f32),
 }
 
-fn shift_row_initial_conditions(row: &[f32], shift: f32, boundary_handling: BoundaryHandling) -> (isize, f32, f32, f32) {
+fn shift_row_initial_conditions(
+    row: &[f32],
+    shift: f32,
+    boundary_handling: BoundaryHandling,
+) -> (isize, f32, f32, f32) {
     // Floor the shift (conversions round towards zero)
     let shift_int = shift as isize - if shift < 0.0 { 1 } else { 0 };
 
@@ -41,7 +45,8 @@ fn shift_row_initial_conditions(row: &[f32], shift: f32, boundary_handling: Boun
 /// Shift a row by a non-integer amount using linear interpolation.
 pub fn shift_row(row: &mut [f32], shift: f32, boundary_handling: BoundaryHandling) {
     let width = row.len();
-    let (shift_int, shift_frac, boundary_value, mut prev) = shift_row_initial_conditions(row, shift, boundary_handling);
+    let (shift_int, shift_frac, boundary_value, mut prev) =
+        shift_row_initial_conditions(row, shift, boundary_handling);
 
     if shift_int >= 0 {
         // Shift forwards; iterate the list backwards
@@ -73,7 +78,8 @@ pub fn shift_row(row: &mut [f32], shift: f32, boundary_handling: BoundaryHandlin
 /// Shift a row by a non-integer amount using linear interpolation.
 pub fn shift_row_to(src: &[f32], dst: &mut [f32], shift: f32, boundary_handling: BoundaryHandling) {
     let width = src.len();
-    let (shift_int, shift_frac, boundary_value, mut prev) = shift_row_initial_conditions(src, shift, boundary_handling);
+    let (shift_int, shift_frac, boundary_value, mut prev) =
+        shift_row_initial_conditions(src, shift, boundary_handling);
     if shift_int >= 0 {
         // Shift forwards; iterate the list backwards
         let offset = shift_int as usize + 1;
@@ -108,9 +114,7 @@ mod tests {
     const TEST_DATA: &[f32] = &[1.0, 2.5, -0.7, 0.0, 0.0, 2.2, 0.3];
 
     fn assert_almost_eq(a: &[f32], b: &[f32]) {
-        let all_almost_equal = a.iter().zip(b).all(|(a, b)| {
-            (a - b).abs() <= 0.01
-        });
+        let all_almost_equal = a.iter().zip(b).all(|(a, b)| (a - b).abs() <= 0.01);
         assert!(all_almost_equal, "{a:?} is almost equal to {b:?}");
     }
 
@@ -126,105 +130,73 @@ mod tests {
 
     #[test]
     fn test_shift_pos_1() {
-        test_case(0.5, BoundaryHandling::Extend, &[
-            1.0,
-            1.75,
-            0.9,
-            -0.35,
-            0.0,
-            1.1,
-            1.25,
-        ]);
+        test_case(
+            0.5,
+            BoundaryHandling::Extend,
+            &[1.0, 1.75, 0.9, -0.35, 0.0, 1.1, 1.25],
+        );
     }
 
     #[test]
     fn test_shift_pos_2() {
-        test_case(5.5, BoundaryHandling::Extend, &[
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.75,
-        ]);
+        test_case(
+            5.5,
+            BoundaryHandling::Extend,
+            &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.75],
+        );
     }
 
     #[test]
     fn test_shift_neg_1() {
-        test_case(-0.01, BoundaryHandling::Extend, &[
-            1.015,
-            2.468,
-            -0.693,
-            0.0,
-            0.02199998,
-            2.181,
-            0.3,
-        ]);
+        test_case(
+            -0.01,
+            BoundaryHandling::Extend,
+            &[1.015, 2.468, -0.693, 0.0, 0.02199998, 2.181, 0.3],
+        );
     }
 
     #[test]
     fn test_shift_neg_2() {
-        test_case(-1.01, BoundaryHandling::Extend, &[
-            2.468,
-            -0.693,
-            0.0,
-            0.02199998,
-            2.181,
-            0.3,
-            0.3,
-        ]);
+        test_case(
+            -1.01,
+            BoundaryHandling::Extend,
+            &[2.468, -0.693, 0.0, 0.02199998, 2.181, 0.3, 0.3],
+        );
     }
 
     #[test]
     fn test_shift_neg_full() {
-        test_case(-6.0, BoundaryHandling::Extend, &[
-            0.3,
-            0.3,
-            0.3,
-            0.3,
-            0.3,
-            0.3,
-            0.3,
-        ]);
+        test_case(
+            -6.0,
+            BoundaryHandling::Extend,
+            &[0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3],
+        );
     }
 
     #[test]
     fn test_shift_neg_full_ext() {
-        test_case(-7.0, BoundaryHandling::Extend, &[
-            0.3,
-            0.3,
-            0.3,
-            0.3,
-            0.3,
-            0.3,
-            0.3,
-        ]);
+        test_case(
+            -7.0,
+            BoundaryHandling::Extend,
+            &[0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3],
+        );
     }
 
     #[test]
     fn test_shift_pos_full() {
-        test_case(6.0, BoundaryHandling::Extend, &[
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-        ]);
+        test_case(
+            6.0,
+            BoundaryHandling::Extend,
+            &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+        );
     }
 
     #[test]
     fn test_shift_pos_full_ext() {
-        test_case(7.0, BoundaryHandling::Extend, &[
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-        ]);
+        test_case(
+            7.0,
+            BoundaryHandling::Extend,
+            &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+        );
     }
 }

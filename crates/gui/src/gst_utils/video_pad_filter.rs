@@ -101,13 +101,19 @@ impl BaseTransformImpl for VideoPadFilter {
                 for s in caps.make_mut().iter_mut() {
                     if let Ok(width) = s.value("width").ok()?.get::<i32>() {
                         if width % 2 == 0 {
-                            s.set_value("width", (&gstreamer::IntRange::<i32>::new(width - 1, width)).into());
+                            s.set_value(
+                                "width",
+                                (&gstreamer::IntRange::<i32>::new(width - 1, width)).into(),
+                            );
                         }
                     }
 
                     if let Ok(height) = s.value("height").ok()?.get::<i32>() {
                         if height % 2 == 0 {
-                            s.set_value("height", (&gstreamer::IntRange::<i32>::new(height - 1, height)).into());
+                            s.set_value(
+                                "height",
+                                (&gstreamer::IntRange::<i32>::new(height - 1, height)).into(),
+                            );
                         }
                     }
                 }
@@ -192,13 +198,17 @@ impl VideoFilterImpl for VideoPadFilter {
 
         let pixel_stride = in_frame.comp_pstride(0) as usize;
 
-        out_data.chunks_exact_mut(out_stride).enumerate().for_each(|(row_idx, chunk)| {
-            let dst_row = &mut chunk[0..(out_width * pixel_stride)];
-            let src_idx = row_idx.min(in_height - 1);
-            let src_row = &in_data[in_stride * src_idx..in_stride * src_idx + (in_width * pixel_stride)];
-            dst_row[0..(in_width * pixel_stride)].copy_from_slice(src_row);
-            dst_row[(in_width * pixel_stride)..].fill(*src_row.last().unwrap());
-        });
+        out_data
+            .chunks_exact_mut(out_stride)
+            .enumerate()
+            .for_each(|(row_idx, chunk)| {
+                let dst_row = &mut chunk[0..(out_width * pixel_stride)];
+                let src_idx = row_idx.min(in_height - 1);
+                let src_row =
+                    &in_data[in_stride * src_idx..in_stride * src_idx + (in_width * pixel_stride)];
+                dst_row[0..(in_width * pixel_stride)].copy_from_slice(src_row);
+                dst_row[(in_width * pixel_stride)..].fill(*src_row.last().unwrap());
+            });
 
         Ok(gstreamer::FlowSuccess::Ok)
     }

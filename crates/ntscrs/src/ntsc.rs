@@ -172,22 +172,8 @@ fn composite_chroma_lowpass(frame: &mut YiqView, info: &CommonInfo) {
 
     let width = frame.dimensions.0;
 
-    filter_plane(
-        frame.i,
-        width,
-        &i_filter,
-        InitialCondition::Zero,
-        1.0,
-        2,
-    );
-    filter_plane(
-        frame.q,
-        width,
-        &q_filter,
-        InitialCondition::Zero,
-        1.0,
-        4,
-    );
+    filter_plane(frame.i, width, &i_filter, InitialCondition::Zero, 1.0, 2);
+    filter_plane(frame.q, width, &q_filter, InitialCondition::Zero, 1.0, 4);
 }
 
 /// Apply a less intense lowpass filter to the input chroma.
@@ -1097,14 +1083,7 @@ impl NtscEffect {
                 let luma_filter = make_lowpass_triple(luma_cut, NTSC_RATE * self.bandwidth_scale);
                 let chroma_filter =
                     make_lowpass_triple(chroma_cut, NTSC_RATE * self.bandwidth_scale);
-                filter_plane(
-                    yiq.y,
-                    width,
-                    &luma_filter,
-                    InitialCondition::Zero,
-                    1.0,
-                    0,
-                );
+                filter_plane(yiq.y, width, &luma_filter, InitialCondition::Zero, 1.0, 0);
                 filter_plane(
                     yiq.i,
                     width,

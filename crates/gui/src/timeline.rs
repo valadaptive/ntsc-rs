@@ -1,5 +1,5 @@
-use std::ops::RangeInclusive;
 use std::f32;
+use std::ops::RangeInclusive;
 
 use eframe::{
     egui::{self, vec2, Context, Id, Sense, TextStyle, Widget},
@@ -90,7 +90,7 @@ fn make_cursor_shape(
         vertices.push(egui::epaint::Vertex {
             pos: pos2(x, y),
             uv: egui::epaint::WHITE_UV,
-            color: if feather {Color32::TRANSPARENT} else {color},
+            color: if feather { Color32::TRANSPARENT } else { color },
         });
         (vertices.len() - 1) as u32
     };
@@ -100,62 +100,70 @@ fn make_cursor_shape(
     let top_left = add_vertex(
         bottom_center.x - (thickness * 0.5) + feather_radius,
         bottom_center.y - height,
-        false
+        false,
     );
     let top_left_feather = add_vertex(
         bottom_center.x - (thickness * 0.5) - feather_radius,
         bottom_center.y - height,
-        true
+        true,
     );
     let top_right = add_vertex(
         bottom_center.x + (thickness * 0.5) - feather_radius,
         bottom_center.y - height,
-        false
+        false,
     );
     let top_right_feather = add_vertex(
         bottom_center.x + (thickness * 0.5) + feather_radius,
         bottom_center.y - height,
-        true
+        true,
     );
     let bottom_left_rect = add_vertex(
         bottom_center.x - (thickness * 0.5) + feather_radius,
         bottom_center.y - triangle_radius + (feather_radius * angle_y_scale),
-        false
+        false,
     );
     let bottom_left_rect_feather = add_vertex(
         bottom_center.x - (thickness * 0.5) - feather_radius,
         bottom_center.y - triangle_radius - (feather_radius * angle_y_scale),
-        true
+        true,
     );
     let bottom_right_rect = add_vertex(
         bottom_center.x + (thickness * 0.5) - feather_radius,
         bottom_center.y - triangle_radius + (feather_radius * angle_y_scale),
-        false
+        false,
     );
     let bottom_right_rect_feather = add_vertex(
         bottom_center.x + (thickness * 0.5) + feather_radius,
         bottom_center.y - triangle_radius - (feather_radius * angle_y_scale),
-        true
+        true,
     );
     let bottom_left_tri = add_vertex(
-        bottom_center.x - (thickness * 0.5) - triangle_radius + (feather_radius * (1.0 + angle_y_scale)),
+        bottom_center.x - (thickness * 0.5) - triangle_radius
+            + (feather_radius * (1.0 + angle_y_scale)),
         bottom_center.y,
-        false
+        false,
     );
     let bottom_left_tri_feather = add_vertex(
-        bottom_center.x - (thickness * 0.5) - triangle_radius - (feather_radius * (1.0 + angle_y_scale)),
+        bottom_center.x
+            - (thickness * 0.5)
+            - triangle_radius
+            - (feather_radius * (1.0 + angle_y_scale)),
         bottom_center.y,
-        true
+        true,
     );
     let bottom_right_tri = add_vertex(
-        bottom_center.x + (thickness * 0.5) + triangle_radius - (feather_radius * (1.0 + angle_y_scale)),
+        bottom_center.x + (thickness * 0.5) + triangle_radius
+            - (feather_radius * (1.0 + angle_y_scale)),
         bottom_center.y,
-        false
+        false,
     );
     let bottom_right_tri_feather = add_vertex(
-        bottom_center.x + (thickness * 0.5) + triangle_radius + (feather_radius * (1.0 + angle_y_scale)),
+        bottom_center.x
+            + (thickness * 0.5)
+            + triangle_radius
+            + (feather_radius * (1.0 + angle_y_scale)),
         bottom_center.y,
-        true
+        true,
     );
 
     #[rustfmt::skip]
@@ -283,7 +291,10 @@ impl<'a> Widget for Timeline<'a> {
             let visuals = ui.style().interact(&response);
 
             let painter = ui.painter().with_clip_rect(rect);
-            let feathering = ui.ctx().tessellation_options(|t| t.feathering_size_in_pixels) / ui.ctx().pixels_per_point();
+            let feathering = ui
+                .ctx()
+                .tessellation_options(|t| t.feathering_size_in_pixels)
+                / ui.ctx().pixels_per_point();
 
             // Draw background
             painter.rect_filled(rect, egui::Rounding::ZERO, visuals.bg_fill);
@@ -356,7 +367,7 @@ impl<'a> Widget for Timeline<'a> {
                     2.0,
                     TRIANGLE_RADIUS,
                     visuals.fg_stroke.color,
-                    feathering
+                    feathering,
                 ));
             }
 
