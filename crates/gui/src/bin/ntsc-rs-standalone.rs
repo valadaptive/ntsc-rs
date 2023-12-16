@@ -569,7 +569,6 @@ impl NtscApp {
             self.create_preview_pipeline(ctx, path)
                 .context(LoadVideoSnafu)?,
         );
-        println!("new pipeline");
 
         Ok(())
     }

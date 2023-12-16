@@ -1,6 +1,5 @@
 use core::slice;
 use std::ffi::CString;
-use std::ptr::addr_of;
 use std::{ffi::c_char, mem::ManuallyDrop, ptr};
 
 use ntscrs::{ntsc::NtscEffect, yiq_fielding::YiqView};
@@ -236,11 +235,6 @@ fn descriptors_to_c(descs: &[RsSettingDescriptor]) -> (*mut SettingDescriptor, u
     }
 
     let mut p = ManuallyDrop::new(c_settings.into_boxed_slice());
-
-    for i in 0..p.len() {
-        let addr = addr_of!(p[i]);
-        println!("element {i} has address {addr:?}");
-    }
 
     (p.as_mut_ptr(), descs.len(), descs.len() + num_group_children)
 }
