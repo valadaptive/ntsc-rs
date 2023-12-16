@@ -127,7 +127,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1200.0, 720.0])
+            .with_inner_size([1300.0, 720.0])
             .with_icon(eframe::icon_data::from_png_bytes(ICON)?),
         ..Default::default()
     };
@@ -432,6 +432,32 @@ impl TryFrom<&str> for ColorTheme {
             "System" => Ok(ColorTheme::System),
             _ => Err(()),
         }
+    }
+}
+
+trait LayoutHelper {
+    fn ltr<R>(&mut self, add_contents: impl FnOnce(&mut Self) -> R) -> egui::InnerResponse<R>;
+    fn rtl<R>(&mut self, add_contents: impl FnOnce(&mut Self) -> R) -> egui::InnerResponse<R>;
+}
+
+fn ui_with_layout<'c, R>(ui: &mut egui::Ui, layout: egui::Layout, add_contents: Box<dyn FnOnce(&mut egui::Ui) -> R + 'c>) -> egui::InnerResponse<R> {
+    let initial_size = vec2(
+        ui.available_size_before_wrap().x,
+        ui.spacing().interact_size.y,
+    );
+
+    ui.allocate_ui_with_layout(initial_size, layout, |ui| {
+        add_contents(ui)
+    })
+}
+
+impl LayoutHelper for egui::Ui {
+    fn ltr<R>(&mut self, add_contents: impl FnOnce(&mut egui::Ui) -> R) -> egui::InnerResponse<R> {
+        ui_with_layout(self, egui::Layout::left_to_right(egui::Align::Center), Box::new(add_contents))
+    }
+
+    fn rtl<R>(&mut self, add_contents: impl FnOnce(&mut egui::Ui) -> R) -> egui::InnerResponse<R> {
+        ui_with_layout(self, egui::Layout::right_to_left(egui::Align::Center), Box::new(add_contents))
     }
 }
 
@@ -1216,6 +1242,14 @@ impl NtscApp {
     }
 }
 
+fn control_row<R>(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui) -> R, label: &str) -> R {
+    ui.horizontal(|ui| {
+        let resp = add_contents(ui);
+        ui.add(egui::Label::new(label).truncate(true));
+        resp
+    }).inner
+}
+
 impl NtscApp {
     fn settings_from_descriptors(
         effect_settings: &mut NtscEffectFullSettings,
@@ -1230,87 +1264,91 @@ impl NtscApp {
                     options,
                     default_value: _,
                 } => {
-                    let selected_index = descriptor.id.get_field_enum(effect_settings).unwrap();
-                    let selected_item = options
-                        .iter()
-                        .find(|option| option.index == selected_index)
-                        .unwrap();
-                    egui::ComboBox::from_label(descriptor.label)
-                        .selected_text(selected_item.label)
-                        .show_ui(ui, |ui| {
-                            for item in options {
-                                let mut label =
-                                    ui.selectable_label(selected_index == item.index, item.label);
+                    control_row(ui, |ui| {
+                        let selected_index = descriptor.id.get_field_enum(effect_settings).unwrap();
+                        let selected_item = options
+                            .iter()
+                            .find(|option| option.index == selected_index)
+                            .unwrap();
+                        egui::ComboBox::from_id_source(descriptor.id)
+                            .selected_text(selected_item.label)
+                            .show_ui(ui, |ui| {
+                                for item in options {
+                                    let mut label =
+                                        ui.selectable_label(selected_index == item.index, item.label);
 
-                                if let Some(desc) = item.description {
-                                    label = label.on_hover_text(desc);
+                                    if let Some(desc) = item.description {
+                                        label = label.on_hover_text(desc);
+                                    }
+
+                                    if label.clicked() {
+                                        let _ =
+                                            descriptor.id.set_field_enum(effect_settings, item.index);
+                                        // a selectable_label being clicked doesn't set response.changed
+                                        changed = true;
+                                    };
                                 }
-
-                                if label.clicked() {
-                                    let _ =
-                                        descriptor.id.set_field_enum(effect_settings, item.index);
-                                    // a selectable_label being clicked doesn't set response.changed
-                                    changed = true;
-                                };
-                            }
-                        })
-                        .response
+                            })
+                            .response
+                    }, descriptor.label)
                 }
                 ntscrs::settings::SettingKind::Percentage {
                     logarithmic,
                     default_value: _,
-                } => ui.add(
-                    egui::Slider::new(
-                        descriptor.id.get_field_mut::<f32>(effect_settings).unwrap(),
-                        0.0..=1.0,
-                    )
-                    .custom_parser(parser)
-                    .custom_formatter(format_percentage)
-                    .logarithmic(*logarithmic)
-                    .text(descriptor.label),
-                ),
+                } => control_row(ui, |ui| {
+                    ui.add(
+                        egui::Slider::new(
+                            descriptor.id.get_field_mut::<f32>(effect_settings).unwrap(),
+                            0.0..=1.0,
+                        )
+                        .custom_parser(parser)
+                        .custom_formatter(format_percentage)
+                        .logarithmic(*logarithmic))
+                }, descriptor.label),
                 ntscrs::settings::SettingKind::IntRange {
                     range,
                     default_value: _,
                 } => {
-                    let mut value = 0i32;
-                    if let Some(v) = descriptor.id.get_field_mut::<i32>(effect_settings) {
-                        value = *v;
-                    } else if let Some(v) = descriptor.id.get_field_mut::<u32>(effect_settings) {
-                        value = *v as i32;
-                    }
-
-                    let slider = ui.add(
-                        egui::Slider::new(&mut value, range.clone())
-                            .custom_parser(parser)
-                            .text(descriptor.label),
-                    );
-
-                    if slider.changed() {
+                    control_row(ui, |ui| {
+                        let mut value = 0i32;
                         if let Some(v) = descriptor.id.get_field_mut::<i32>(effect_settings) {
-                            *v = value;
-                        } else if let Some(v) = descriptor.id.get_field_mut::<u32>(effect_settings)
-                        {
-                            *v = value as u32;
+                            value = *v;
+                        } else if let Some(v) = descriptor.id.get_field_mut::<u32>(effect_settings) {
+                            value = *v as i32;
                         }
-                    }
 
-                    slider
+                        let slider = ui.add(
+                            egui::Slider::new(&mut value, range.clone())
+                                .custom_parser(parser),
+                        );
+
+                        if slider.changed() {
+                            if let Some(v) = descriptor.id.get_field_mut::<i32>(effect_settings) {
+                                *v = value;
+                            } else if let Some(v) = descriptor.id.get_field_mut::<u32>(effect_settings)
+                            {
+                                *v = value as u32;
+                            }
+                        }
+
+                        slider
+                    }, descriptor.label)
+
                 }
                 ntscrs::settings::SettingKind::FloatRange {
                     range,
                     logarithmic,
                     default_value: _,
-                } => ui.add(
+                } => control_row(ui, |ui| ui.add(
                     egui::Slider::new(
                         descriptor.id.get_field_mut::<f32>(effect_settings).unwrap(),
                         range.clone(),
                     )
                     .custom_parser(parser)
-                    .logarithmic(*logarithmic)
-                    .text(descriptor.label),
-                ),
+                    .logarithmic(*logarithmic),
+                ), descriptor.label),
                 ntscrs::settings::SettingKind::Boolean { default_value: _ } => {
+                    // We should really be using control_row for this, but then the label wouldn't be clickable
                     let checkbox = ui.checkbox(
                         descriptor
                             .id
@@ -1325,7 +1363,9 @@ impl NtscApp {
                     children,
                     default_value: _,
                 } => {
-                    ui.group(|ui| {
+                    ui.add_space(2.0);
+                    let resp = ui.group(|ui| {
+                        ui.set_width(ui.max_rect().width());
                         let checkbox = ui.checkbox(
                             descriptor
                                 .id
@@ -1345,7 +1385,9 @@ impl NtscApp {
 
                         checkbox
                     })
-                    .inner
+                    .inner;
+                    ui.add_space(2.0);
+                    resp
                 }
             };
 
@@ -1493,7 +1535,14 @@ impl NtscApp {
             egui::ScrollArea::vertical()
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
-                    ui.style_mut().spacing.slider_width = 200.0;
+                    const LABEL_WIDTH: f32 = 180.0;
+
+                    let remaining_width = ui.max_rect().width() - LABEL_WIDTH;
+
+                    let spacing = ui.spacing_mut();
+                    spacing.slider_width = remaining_width - 48.0;
+                    spacing.interact_size.x = 48.0;
+                    spacing.combo_width = spacing.slider_width + spacing.interact_size.x + spacing.item_spacing.x;
                     let Self {
                         settings_list,
                         effect_settings,
@@ -1709,14 +1758,18 @@ impl NtscApp {
 
             ui.separator();
 
-            ui.horizontal(|ui| {
-                let path = &self.render_settings.output_path;
-                let mut path = path.to_string_lossy();
-                ui.label("Destination file:");
-                if ui.text_edit_singleline(&mut path).changed() {
-                    self.render_settings.output_path = PathBuf::from(OsStr::new(path.as_ref()));
-                }
-                if ui.button("📁").clicked() {
+            ui.rtl(|ui| {
+                let save_file = ui.button("📁").clicked();
+
+                ui.ltr(|ui| {
+                    ui.label("Destination file:");
+                    let mut path = self.render_settings.output_path.to_string_lossy();
+                    if ui.text_edit_singleline(&mut path).changed() {
+                        self.render_settings.output_path = PathBuf::from(OsStr::new(path.as_ref()));
+                    }
+                });
+
+                if save_file {
                     let mut dialog_path = &self.render_settings.output_path;
                     if dialog_path.components().next().is_none() {
                         if let Some(PipelineInfo { path, .. }) = &self.pipeline {
@@ -1967,6 +2020,7 @@ impl NtscApp {
             .show_inside(ui, |ui| {
                 ui.set_enabled(self.pipeline.is_some());
                 ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
                     let btn_widget = egui::Button::new(match &self.pipeline {
                         Some(PipelineInfo { pipeline, .. }) => {
                             let state = pipeline.current_state();
@@ -2333,8 +2387,8 @@ impl NtscApp {
         egui::SidePanel::left("controls")
             .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(0.0))
             .resizable(true)
-            .default_width(400.0)
-            .width_range(200.0..=800.0)
+            .default_width(425.0)
+            .width_range(300.0..=800.0)
             .show(ctx, |ui| {
                 ui.visuals_mut().clip_rect_margin = 0.0;
                 egui::TopBottomPanel::top("left_tabs").show_inside(ui, |ui| {
