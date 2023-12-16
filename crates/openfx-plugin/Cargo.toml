@@ -10,7 +10,7 @@ license = "MIT OR ISC OR Apache-2.0"
 ntscrs = { path = "../ntscrs" }
 
 [build-dependencies]
-bindgen = "0.66.1"
+bindgen = "0.69.1"
 
 [lib]
 crate-type = ["cdylib"]

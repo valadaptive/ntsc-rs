@@ -8,14 +8,14 @@ license = "MIT OR ISC OR Apache-2.0"
 
 [dependencies]
 image = { version = "0.24.7", default-features = false }
-glam = "0.24.1"
+glam = "0.24.2"
 rand = { version = "0.8.5", default-features = false }
 rand_xoshiro = "0.6.0"
 simdnoise = "3.1.6"
 num-traits = "0.2"
 macros = {path = "../macros"}
-siphasher = "0.3.10"
-num-derive = "0.4"
+siphasher = "1.0.0"
+num-derive = "0.4.1"
 tinyjson = "2.5.1"
 rayon = "1.8.0"
 
@@ -23,7 +23,7 @@ rayon = "1.8.0"
 criterion = { version = "0.5", features = ["html_reports"] }
 
 [target.'cfg(not(windows))'.dev-dependencies]
-pprof = { version = "0.12.1", features = ["flamegraph", "criterion"] }
+pprof = { version = "0.13.0", features = ["flamegraph", "criterion"] }
 
 [[bench]]
 name = "filter_profile"

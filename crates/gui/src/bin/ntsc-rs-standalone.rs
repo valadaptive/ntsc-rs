@@ -110,8 +110,9 @@ const ICON: &[u8] = include_bytes!("../../../../assets/icon.png");
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
     let options = eframe::NativeOptions {
-        initial_window_size: Some(egui::vec2(1200.0, 720.0)),
-        icon_data: Some(eframe::IconData::try_from_png_bytes(ICON)?),
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1200.0, 720.0])
+            .with_icon(eframe::icon_data::from_png_bytes(ICON)?),
         ..Default::default()
     };
     Ok(eframe::run_native(
@@ -2033,7 +2034,7 @@ impl NtscApp {
             });
     }
 
-    fn show_app(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn show_app(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.heading("ntsc-rs");
@@ -2056,7 +2057,7 @@ impl NtscApp {
                         ui.close_menu();
                     }
                     if ui.button("Quit").clicked() {
-                        frame.close();
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         ui.close_menu();
                     }
                 });
@@ -2127,7 +2128,7 @@ impl NtscApp {
 }
 
 impl eframe::App for NtscApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.tick();
 
         let mut pipeline_error = None::<PipelineError>;
@@ -2155,7 +2156,7 @@ impl eframe::App for NtscApp {
             self.handle_error(&err);
         }
 
-        self.show_app(ctx, frame);
+        self.show_app(ctx);
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {

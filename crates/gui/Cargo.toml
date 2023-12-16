@@ -9,7 +9,7 @@ license = "GPL-2.0-or-later"
 
 [dependencies]
 ntscrs = { path = "../ntscrs" }
-eframe = { version = "0.23.0", features=["persistence"] }
+eframe = { version = "0.24.1", features=["persistence"] }
 env_logger = "0.10.0"
 image = "0.24.7"
 snafu = "0.7.5"
@@ -18,12 +18,12 @@ gstreamer = "0.21.0"
 gstreamer-base = "0.21.0"
 gstreamer-video = "0.21.0"
 gstreamer-controller = "0.21.0"
-futures-lite = "1.13.0"
+futures-lite = "2.1.0"
 async-executor = "1.5.1"
 async-task = "4.4.0"
 waker-fn = "1.1.0"
 log = "0.4.20"
-rfd = { git = "https://github.com/PolyMeilex/rfd", rev = "4ea34bca1aeb4c4f47c8e53a7dffdfacd62ebca6" }
+rfd = "0.12.1"
 
 [build-dependencies]
 embed-resource = "2.4"
