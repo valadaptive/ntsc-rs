@@ -105,6 +105,21 @@ fn format_percentage(n: f64, prec: RangeInclusive<usize>) -> String {
     format!("{:.*}%", prec.start().max(&2) - 2, n * 100.0)
 }
 
+/// Parse a textbox input as either a decimal or percentage, depending on whether it's greater than a certain threshold.
+/// Returns a decimal.
+///
+/// # Arguments
+/// - `input` - The text input from the user.
+/// - `threshold` - The number above which the input will be treated as a percentage rather than a decimal.
+fn parse_decimal_or_percentage(input: &str, threshold: f64) -> Option<f64> {
+    let mut expr = eval_expression_string(input).ok()?;
+    if expr >= threshold {
+        // The user probably meant to input a raw percentage and not a decimal in 0..1
+        expr /= 100.0;
+    }
+    Some(expr)
+}
+
 const ICON: &[u8] = include_bytes!("../../../../assets/icon.png");
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -192,6 +207,27 @@ struct VideoZoom {
 struct VideoScale {
     scale: usize,
     enabled: bool,
+}
+
+#[derive(Debug)]
+struct AudioVolume {
+    gain: f64,
+    // If the user drags the volume slider all the way to 0, we want to keep track of what it was before they did that
+    // so we can reset the volume to it when they click the unmute button. This prevents e.g. the user setting the
+    // volume to 25%, dragging it down to 0%, then clicking unmute and having it reset to some really loud default
+    // value.
+    gain_pre_mute: f64,
+    mute: bool
+}
+
+impl Default for AudioVolume {
+    fn default() -> Self {
+        Self {
+            gain: 1.0,
+            gain_pre_mute: 1.0,
+            mute: false,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -449,6 +485,7 @@ struct NtscApp {
     pipeline: Option<PipelineInfo>,
     video_zoom: VideoZoom,
     video_scale: VideoScale,
+    audio_volume: AudioVolume,
     left_panel_state: LeftPanelState,
     effect_settings: NtscEffectFullSettings,
     render_settings: RenderSettings,
@@ -477,6 +514,7 @@ impl NtscApp {
                 scale: 480,
                 enabled: false,
             },
+            audio_volume: AudioVolume::default(),
             left_panel_state: LeftPanelState::default(),
             effect_settings,
             render_settings: RenderSettings::default(),
@@ -580,29 +618,37 @@ impl NtscApp {
         pipeline: &gstreamer::Pipeline,
         framerate: gstreamer::Fraction,
     ) -> Result<Option<gstreamer::Fraction>, GstreamerError> {
-        let caps_filter = pipeline.by_name("framerate_caps_filter");
-        if let Some(caps_filter) = caps_filter {
-            caps_filter.set_property(
-                "caps",
-                VideoCapsBuilder::default().framerate(framerate).build(),
-            );
-            // This seek is necessary to prevent caps negotiation from failing due to race conditions, for some reason.
-            // It seems like in some cases, there would be "tearing" in the caps between different elements, where some
-            // elements' caps would use the old framerate and some would use the new framerate. This would cause caps
-            // negotiation to fail, even though the caps filter sends a "reconfigure" event. This in turn woulc make the
-            // entire pipeline error out.
-            if let Some(seek_pos) = pipeline.query_position::<gstreamer::ClockTime>() {
-                pipeline.seek_simple(
-                    gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
-                    seek_pos,
-                )?;
-                Ok(Some(framerate))
-            } else {
-                Ok(None)
-            }
+        let Some(caps_filter) = pipeline.by_name("framerate_caps_filter") else {
+            return Ok(None);
+        };
+
+        caps_filter.set_property(
+            "caps",
+            VideoCapsBuilder::default().framerate(framerate).build(),
+        );
+        // This seek is necessary to prevent caps negotiation from failing due to race conditions, for some reason.
+        // It seems like in some cases, there would be "tearing" in the caps between different elements, where some
+        // elements' caps would use the old framerate and some would use the new framerate. This would cause caps
+        // negotiation to fail, even though the caps filter sends a "reconfigure" event. This in turn woulc make the
+        // entire pipeline error out.
+        if let Some(seek_pos) = pipeline.query_position::<gstreamer::ClockTime>() {
+            pipeline.seek_simple(
+                gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
+                seek_pos,
+            )?;
+            Ok(Some(framerate))
         } else {
             Ok(None)
         }
+    }
+
+    fn set_volume(pipeline: &gstreamer::Pipeline, volume: f64, mute: bool) {
+        let Some(audio_volume) = pipeline.by_name("audio_volume") else {
+            return;
+        };
+
+        audio_volume.set_property("volume", volume);
+        audio_volume.set_property("mute", mute);
     }
 
     fn create_preview_pipeline(
@@ -1947,15 +1993,8 @@ impl NtscApp {
                             .clamp_range(0.0..=8.0)
                             .speed(0.01)
                             .custom_formatter(format_percentage)
-                            .custom_parser(|input: &str| {
-                                let mut expr = eval_expression_string(input).ok()?;
-                                // greater than 800% zoom? the user probably meant to input a raw percentage and
-                                // not a decimal in 0..1
-                                if expr >= 8.0 {
-                                    expr /= 100.0;
-                                }
-                                Some(expr)
-                            }),
+                            // Treat as a percentage above 8x zoom
+                            .custom_parser(|input| parse_decimal_or_percentage(input, 8.0)),
                     );
                     ui.checkbox(&mut self.video_zoom.fit, "Fit");
 
@@ -1986,44 +2025,108 @@ impl NtscApp {
 
                     ui.separator();
 
-                    let src_path = self
-                        .pipeline
-                        .as_ref().map(|info| info.path.clone());
-                    if ui.button("Save image").clicked() {
-                        let ctx = ctx.clone();
-                        if let Some(src_path) = src_path {
-                            let dst_path = src_path.with_extension("");
-                            self.spawn(async move {
-                                let handle = rfd::AsyncFileDialog::new()
-                                    .set_directory(dst_path.parent().unwrap_or(Path::new("/")))
-                                    .set_file_name(format!(
-                                        "{}_ntsc.png",
-                                        dst_path.file_name().to_owned().unwrap().to_string_lossy()
-                                    ))
-                                    .save_file()
-                                    .await;
+                    let mut update_volume = false;
 
-                                handle.map(|handle| Box::new(move |app: &mut NtscApp| {
-                                        let res = app.create_render_job(
-                                            &ctx,
-                                            &src_path.clone(),
-                                            RenderPipelineSettings {
-                                                codec_settings: RenderPipelineCodec::Png,
-                                                output_path: handle.into(),
-                                                duration: gstreamer::ClockTime::from_seconds(1),
-                                                effect_settings: (&app.effect_settings).into(),
-                                            },
-                                        );
-                                        if let Ok(job) = res {
-                                            app.render_jobs.push(job);
-                                        } else {
-                                            app.handle_result(res);
-                                        }
-                                        Ok(())
-                                    }) as _)
-                            });
+                    // Not actually being made into an error and some want to remove the lint entirely
+                    #[allow(illegal_floating_point_literal_pattern)]
+                    if ui.button(match self.audio_volume.gain {
+                        0.0 => "🔇",
+                        0.0..=0.33 => "🔈",
+                        0.0..=0.67 => "🔉",
+                        _ => "🔊"
+                    })
+                    .on_hover_text(if self.audio_volume.mute {
+                        "Unmute"
+                    } else {
+                        "Mute"
+                    })
+                    .clicked() {
+                        self.audio_volume.mute = !self.audio_volume.mute;
+                        // "<= 0.0" to handle negative zero (not sure if it'll ever happen; better safe than sorry)
+                        if !self.audio_volume.mute && self.audio_volume.gain <= 0.0 {
+                            // Restore the previous gain after the user mutes by dragging the slider to 0 then unmutes
+                            self.audio_volume.gain = self.audio_volume.gain_pre_mute;
+                        }
+                        update_volume = true;
+                    }
+
+                    ui.add_enabled_ui(true, |ui| {
+                        let resp = ui.add_enabled(!self.audio_volume.mute, egui::Slider::new(
+                            &mut self.audio_volume.gain,
+                            0.0..=1.25,
+                        )
+                            // Treat as a percentage above 125% volume
+                            .custom_parser(|input| parse_decimal_or_percentage(input, 1.25))
+                            .custom_formatter(format_percentage));
+
+                        if resp.drag_released() {
+                            if self.audio_volume.gain > 0.0 {
+                                // Set the gain to restore after dragging the slider to 0
+                                self.audio_volume.gain_pre_mute = self.audio_volume.gain;
+                            } else {
+                                // Wait for drag release to mute because it disables the slider
+                                self.audio_volume.mute = true;
+                            }
+                        }
+
+                        if resp.changed() {
+                            update_volume = true;
+                        }
+                    });
+
+                    if update_volume {
+                        if let Some(pipeline_info) = &self.pipeline {
+                            NtscApp::set_volume(
+                                &pipeline_info.pipeline,
+                                // Unlogarithmify volume (at least to my ears, this gives more control at the low end
+                                // of the slider)
+                                10f64.powf(self.audio_volume.gain - 1.0).max(0.0),
+                                self.audio_volume.mute
+                            );
                         }
                     }
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("Save image").clicked() {
+                            let src_path = self
+                                .pipeline
+                                .as_ref().map(|info| info.path.clone());
+
+                            let ctx = ctx.clone();
+                            if let Some(src_path) = src_path {
+                                let dst_path = src_path.with_extension("");
+                                self.spawn(async move {
+                                    let handle = rfd::AsyncFileDialog::new()
+                                        .set_directory(dst_path.parent().unwrap_or(Path::new("/")))
+                                        .set_file_name(format!(
+                                            "{}_ntsc.png",
+                                            dst_path.file_name().to_owned().unwrap().to_string_lossy()
+                                        ))
+                                        .save_file()
+                                        .await;
+
+                                    handle.map(|handle| Box::new(move |app: &mut NtscApp| {
+                                            let res = app.create_render_job(
+                                                &ctx,
+                                                &src_path.clone(),
+                                                RenderPipelineSettings {
+                                                    codec_settings: RenderPipelineCodec::Png,
+                                                    output_path: handle.into(),
+                                                    duration: gstreamer::ClockTime::from_seconds(1),
+                                                    effect_settings: (&app.effect_settings).into(),
+                                                },
+                                            );
+                                            if let Ok(job) = res {
+                                                app.render_jobs.push(job);
+                                            } else {
+                                                app.handle_result(res);
+                                            }
+                                            Ok(())
+                                        }) as _)
+                                });
+                            }
+                        }
+                    });
                 });
             });
 

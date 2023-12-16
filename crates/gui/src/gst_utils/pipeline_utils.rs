@@ -117,12 +117,14 @@ pub fn create_pipeline<
                                 gstreamer::ElementFactory::make("audioconvert").build()?;
                             let audio_resample =
                                 gstreamer::ElementFactory::make("audioresample").build()?;
+                            let audio_volume =
+                                gstreamer::ElementFactory::make("volume").name("audio_volume").build()?;
 
-                            let audio_elements = &[&audio_queue, &audio_convert, &audio_resample];
+                            let audio_elements = &[&audio_queue, &audio_convert, &audio_resample, &audio_volume];
                             pipeline.add_many(audio_elements)?;
                             gstreamer::Element::link_many(audio_elements)?;
 
-                            audio_resample.link(&sink)?;
+                            audio_volume.link(&sink)?;
                             sink.sync_state_with_parent()?;
 
                             for e in audio_elements {
