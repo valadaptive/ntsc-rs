@@ -16,7 +16,6 @@ use ntscrs::ToPrimitive;
 use ntscrs::{
     ntsc::NtscEffect,
     yiq_fielding::{rgb_to_yiq, yiq_to_rgb, YiqField, YiqView},
-    settings::UseField,
 };
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
@@ -1062,18 +1061,7 @@ unsafe fn pixel_processing<S: Normalize + Sized, D: Normalize + Sized>(
     let srcWidth = (srcBounds.x2 - srcBounds.x1) as usize;
     let srcHeight = (srcBounds.y2 - srcBounds.y1) as usize;
 
-    let cur_field = match effect.use_field {
-        UseField::Alternating => {
-            if frame_num & 1 == 0 {
-                YiqField::Lower
-            } else {
-                YiqField::Upper
-            }
-        }
-        UseField::Upper => YiqField::Upper,
-        UseField::Lower => YiqField::Lower,
-        UseField::Both => YiqField::Both,
-    };
+    let cur_field = effect.use_field.to_yiq_field(frame_num);
 
     let RowInfo {
         row_lshift,

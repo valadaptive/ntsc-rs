@@ -5,8 +5,7 @@ use gstreamer::glib::once_cell::sync::Lazy;
 use gstreamer::prelude::*;
 use gstreamer::{glib, PadTemplate};
 use gstreamer_video::subclass::prelude::*;
-use ntscrs::settings::UseField;
-use ntscrs::yiq_fielding::{Rgbx8, YiqField, YiqOwned, YiqView};
+use ntscrs::yiq_fielding::{Rgbx8, YiqOwned, YiqView};
 use std::fmt::Debug;
 use std::sync::Mutex;
 
@@ -15,6 +14,15 @@ use super::ntscrs_filter::NtscFilterSettings;
 #[derive(Clone, glib::Boxed, Default)]
 #[boxed_type(name = "SinkTexture")]
 pub struct SinkTexture(pub Option<TextureHandle>);
+
+#[derive(Debug, Clone, Copy, PartialEq, glib::Boxed, Default)]
+#[boxed_type(name = "VideoPreviewSetting")]
+pub enum EffectPreviewSetting {
+    #[default]
+    Enabled,
+    Disabled,
+    SplitScreen(f64),
+}
 
 impl Debug for SinkTexture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -42,6 +50,8 @@ pub struct EguiSink {
     ctx: Mutex<EguiCtx>,
     #[property(get, set = Self::set_settings)]
     settings: Mutex<NtscFilterSettings>,
+    #[property(get, set = Self::set_video_preview_mode)]
+    preview_mode: Mutex<EffectPreviewSetting>,
 
     video_info: Mutex<Option<gstreamer_video::VideoInfo>>,
     last_frame: Mutex<
@@ -62,6 +72,29 @@ impl EguiSink {
         let _ = self.update_texture();
     }
 
+    fn set_video_preview_mode(&self, value: EffectPreviewSetting) {
+        *self.preview_mode.lock().unwrap() = value;
+        let _ = self.update_texture();
+    }
+
+    fn apply_effect(&self, frame_num: usize, stride: usize, buf: &[u8], size: (usize, usize), image: &mut ColorImage) {
+        let settings = self.settings.lock().unwrap();
+        let field = settings.0.use_field.to_yiq_field(frame_num as usize);
+
+        let mut yiq = YiqOwned::from_strided_buffer::<Rgbx8>(
+            buf,
+            stride,
+            size.0,
+            size.1,
+            field,
+        );
+        let mut view = YiqView::from(&mut yiq);
+        settings
+            .0
+            .apply_effect_to_yiq(&mut view, frame_num as usize);
+        view.write_to_strided_buffer::<Rgbx8>(image.as_raw_mut(), size.0 * 4);
+    }
+
     pub fn update_texture(&self) -> Result<(), gstreamer::FlowError> {
         let mut tex = self.texture.lock().unwrap();
         let vframe = self.last_frame.lock().unwrap();
@@ -73,32 +106,28 @@ impl EguiSink {
 
         let stride = vframe.plane_stride()[0] as usize;
 
-        let settings = self.settings.lock().unwrap();
-        let field = match settings.0.use_field {
-            UseField::Alternating => {
-                if frame_num & 1 == 0 {
-                    YiqField::Lower
-                } else {
-                    YiqField::Upper
-                }
-            }
-            UseField::Upper => YiqField::Upper,
-            UseField::Lower => YiqField::Lower,
-            UseField::Both => YiqField::Both,
-        };
+        match *self.preview_mode.lock().unwrap() {
+            EffectPreviewSetting::Enabled => {
+                let buf = vframe.plane_data(0).or(Err(gstreamer::FlowError::Error))?;
+                self.apply_effect(*frame_num as usize, stride, buf, (width, height), &mut image);
+            },
+            #[allow(illegal_floating_point_literal_pattern)]
+            EffectPreviewSetting::Disabled | EffectPreviewSetting::SplitScreen(0f64) => {
+                // Copy directly to egui image when effect is disabled
+                let src_buf = vframe.plane_data(0).or(Err(gstreamer::FlowError::Error))?;
+                image.as_raw_mut().copy_from_slice(src_buf);
+            },
+            EffectPreviewSetting::SplitScreen(split) => {
+                let buf = vframe.plane_data(0).or(Err(gstreamer::FlowError::Error))?;
+                self.apply_effect(*frame_num as usize, stride, buf, (width, height), &mut image);
 
-        let mut yiq = YiqOwned::from_strided_buffer::<Rgbx8>(
-            vframe.plane_data(0).or(Err(gstreamer::FlowError::Error))?,
-            stride,
-            width,
-            height,
-            field,
-        );
-        let mut view = YiqView::from(&mut yiq);
-        settings
-            .0
-            .apply_effect_to_yiq(&mut view, *frame_num as usize);
-        view.write_to_strided_buffer::<Rgbx8>(image.as_raw_mut(), width * 4);
+                let split_boundary = (split * width as f64).round().clamp(0.0, width as f64) as usize;
+                let image_data = image.as_raw_mut();
+                image_data.chunks_exact_mut(width * 4).zip(buf.chunks_exact(width * 4)).for_each(|(img_row, vid_row)| {
+                    img_row[split_boundary * 4..].copy_from_slice(&vid_row[split_boundary * 4..]);
+                });
+            },
+        }
 
         tex.0
             .as_mut()

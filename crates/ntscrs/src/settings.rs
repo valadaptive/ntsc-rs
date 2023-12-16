@@ -7,7 +7,7 @@ use std::{
     ops::RangeInclusive,
 };
 
-use crate::{FromPrimitive, ToPrimitive};
+use crate::{FromPrimitive, ToPrimitive, yiq_fielding::YiqField};
 use macros::FullSettings;
 use tinyjson::JsonValue;
 
@@ -23,6 +23,23 @@ pub enum UseField {
     Upper,
     Lower,
     Both,
+}
+
+impl UseField {
+    pub fn to_yiq_field(&self, frame_num: usize) -> YiqField {
+        match self {
+            UseField::Alternating => {
+                if frame_num & 1 == 0 {
+                    YiqField::Lower
+                } else {
+                    YiqField::Upper
+                }
+            }
+            UseField::Upper => YiqField::Upper,
+            UseField::Lower => YiqField::Lower,
+            UseField::Both => YiqField::Both,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]

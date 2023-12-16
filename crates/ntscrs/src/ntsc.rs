@@ -12,7 +12,7 @@ use crate::{
     filter::TransferFunction,
     random::{Geometric, Seeder},
     shift::{shift_row, shift_row_to, BoundaryHandling},
-    yiq_fielding::{YiqField, YiqOwned, YiqView},
+    yiq_fielding::{YiqOwned, YiqView},
 };
 
 pub use crate::settings::*;
@@ -1174,18 +1174,7 @@ impl NtscEffect {
     }
 
     pub fn apply_effect(&self, input_frame: &RgbImage, frame_num: usize) -> RgbImage {
-        let field = match self.use_field {
-            UseField::Alternating => {
-                if frame_num & 1 == 0 {
-                    YiqField::Upper
-                } else {
-                    YiqField::Lower
-                }
-            }
-            UseField::Upper => YiqField::Upper,
-            UseField::Lower => YiqField::Lower,
-            UseField::Both => YiqField::Both,
-        };
+        let field = self.use_field.to_yiq_field(frame_num);
         let mut yiq = YiqOwned::from_image(input_frame, field);
         let mut view = YiqView::from(&mut yiq);
         self.apply_effect_to_yiq(&mut view, frame_num);

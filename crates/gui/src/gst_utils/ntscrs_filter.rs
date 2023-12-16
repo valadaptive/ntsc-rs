@@ -7,8 +7,7 @@ use gstreamer_video::subclass::prelude::*;
 use gstreamer_video::VideoFormat;
 
 use ntscrs::ntsc::NtscEffect;
-use ntscrs::settings::UseField;
-use ntscrs::yiq_fielding::{Bgrx8, Rgbx8, Xbgr8, Xrgb16, Xrgb8, YiqField, YiqOwned, YiqView};
+use ntscrs::yiq_fielding::{Bgrx8, Rgbx8, Xbgr8, Xrgb16, Xrgb8, YiqOwned, YiqView};
 
 #[derive(Clone, glib::Boxed, Default)]
 #[boxed_type(name = "NtscFilterSettings")]
@@ -177,18 +176,7 @@ impl VideoFilterImpl for NtscFilter {
             .clone()
             .0;
 
-        let field = match settings.use_field {
-            UseField::Alternating => {
-                if frame & 1 == 0 {
-                    YiqField::Lower
-                } else {
-                    YiqField::Upper
-                }
-            }
-            UseField::Upper => YiqField::Upper,
-            UseField::Lower => YiqField::Lower,
-            UseField::Both => YiqField::Both,
-        };
+        let field = settings.use_field.to_yiq_field(frame as usize);
 
         let mut yiq = match in_format {
             VideoFormat::Rgbx | VideoFormat::Rgba => {

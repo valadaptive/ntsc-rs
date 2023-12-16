@@ -25,7 +25,7 @@ use gui::{
     expression_parser::eval_expression_string,
     gst_utils::{
         clock_format::{clock_time_format, clock_time_parser},
-        egui_sink::{EguiCtx, SinkTexture},
+        egui_sink::{EguiCtx, SinkTexture, EffectPreviewSetting},
         elements::{EguiSink, NtscFilter, VideoPadFilter},
         gstreamer_error::GstreamerError,
         ntscrs_filter::NtscFilterSettings,
@@ -33,6 +33,7 @@ use gui::{
         scale_from_caps,
     },
     timeline::Timeline,
+    splitscreen::SplitScreen,
 };
 
 use ntscrs::settings::{
@@ -178,6 +179,7 @@ struct PipelineInfo {
     preview: egui::TextureHandle,
     at_eos: Arc<Mutex<bool>>,
     is_still_image: Arc<Mutex<bool>>,
+    has_audio: Arc<Mutex<bool>>,
     framerate: Arc<Mutex<Option<gstreamer::Fraction>>>,
 }
 
@@ -218,6 +220,26 @@ struct AudioVolume {
     // value.
     gain_pre_mute: f64,
     mute: bool
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum EffectPreviewMode {
+    #[default]
+    Enabled,
+    Disabled,
+    SplitScreen,
+}
+
+#[derive(Debug)]
+struct EffectPreviewSettings {
+    mode: EffectPreviewMode,
+    split_location: f64,
+}
+
+impl Default for EffectPreviewSettings {
+    fn default() -> Self {
+        Self { mode: Default::default(), split_location: 0.5 }
+    }
 }
 
 impl Default for AudioVolume {
@@ -486,6 +508,7 @@ struct NtscApp {
     video_zoom: VideoZoom,
     video_scale: VideoScale,
     audio_volume: AudioVolume,
+    effect_preview: EffectPreviewSettings,
     left_panel_state: LeftPanelState,
     effect_settings: NtscEffectFullSettings,
     render_settings: RenderSettings,
@@ -515,6 +538,7 @@ impl NtscApp {
                 enabled: false,
             },
             audio_volume: AudioVolume::default(),
+            effect_preview: EffectPreviewSettings::default(),
             left_panel_state: LeftPanelState::default(),
             effect_settings,
             render_settings: RenderSettings::default(),
@@ -650,6 +674,14 @@ impl NtscApp {
         audio_volume.set_property("mute", mute);
     }
 
+    fn sink_preview_mode(preview_settings: &EffectPreviewSettings) -> EffectPreviewSetting {
+        match preview_settings.mode {
+            EffectPreviewMode::Enabled => EffectPreviewSetting::Enabled,
+            EffectPreviewMode::Disabled => EffectPreviewSetting::Disabled,
+            EffectPreviewMode::SplitScreen => EffectPreviewSetting::SplitScreen(preview_settings.split_location),
+        }
+    }
+
     fn create_preview_pipeline(
         &mut self,
         ctx: &egui::Context,
@@ -686,6 +718,8 @@ impl NtscApp {
         let is_still_image_for_handler = Arc::clone(&is_still_image);
         let framerate = Arc::new(Mutex::new(None));
         let framerate_for_handler = Arc::clone(&framerate);
+        let has_audio = Arc::new(Mutex::new(false));
+        let has_audio_for_closure = has_audio.clone();
         let ctx_for_handler = ctx.clone();
         let ctx_for_callback = ctx.clone();
 
@@ -694,11 +728,12 @@ impl NtscApp {
 
         let pipeline = create_pipeline(
             src.clone(),
-            |pipeline| {
+            move |pipeline| {
                 pipeline.add(&audio_sink_for_closure)?;
+                *has_audio_for_closure.lock().unwrap() = true;
                 Ok(Some(audio_sink_for_closure))
             },
-            |pipeline| {
+            move |pipeline| {
                 pipeline.add(&video_sink_for_closure)?;
                 Ok(video_sink_for_closure)
             },
@@ -795,6 +830,7 @@ impl NtscApp {
             last_seek_pos: gstreamer::ClockTime::ZERO,
             preview: tex,
             is_still_image,
+            has_audio,
             framerate,
         })
     }
@@ -1449,6 +1485,7 @@ impl NtscApp {
 
                     if ui.button("Reset").clicked() {
                         self.effect_settings = NtscEffectFullSettings::default();
+                        self.update_effect();
                     }
                 });
             });
@@ -1828,10 +1865,20 @@ impl NtscApp {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let mut remove_pipeline = false;
                 let mut res = None;
+                let mut save_image_to: Option<(PathBuf, PathBuf)> = None;
                 if let Some(info) = &mut self.pipeline {
                     let mut framerate = info.framerate.lock().unwrap();
                     if ui.button("🗙").clicked() {
                         remove_pipeline = true;
+                    }
+
+                    ui.separator();
+
+                    if ui.button("Save image").clicked() {
+                        let src_path = info.path.clone();
+
+                        let dst_path = src_path.with_extension("");
+                        save_image_to = Some((src_path, dst_path));
                     }
 
                     if let Some(current_framerate) = *framerate {
@@ -1878,6 +1925,39 @@ impl NtscApp {
 
                 if remove_pipeline {
                     self.handle_result_with(|app| app.remove_pipeline());
+                }
+
+                if let Some((src_path, dst_path)) = save_image_to {
+                    let ctx = ctx.clone();
+                    self.spawn(async move {
+                        let handle = rfd::AsyncFileDialog::new()
+                            .set_directory(dst_path.parent().unwrap_or(Path::new("/")))
+                            .set_file_name(format!(
+                                "{}_ntsc.png",
+                                dst_path.file_name().to_owned().unwrap().to_string_lossy()
+                            ))
+                            .save_file()
+                            .await;
+
+                        handle.map(|handle| Box::new(move |app: &mut NtscApp| {
+                                let res = app.create_render_job(
+                                    &ctx,
+                                    &src_path.clone(),
+                                    RenderPipelineSettings {
+                                        codec_settings: RenderPipelineCodec::Png,
+                                        output_path: handle.into(),
+                                        duration: gstreamer::ClockTime::from_seconds(1),
+                                        effect_settings: (&app.effect_settings).into(),
+                                    },
+                                );
+                                if let Ok(job) = res {
+                                    app.render_jobs.push(job);
+                                } else {
+                                    app.handle_result(res);
+                                }
+                                Ok(())
+                            }) as _)
+                    });
                 }
             });
         });
@@ -2024,32 +2104,37 @@ impl NtscApp {
 
                     ui.separator();
 
-                    let mut update_volume = false;
+                    let has_audio = self.pipeline
+                        .as_ref()
+                        .and_then(|info| Some(*info.has_audio.lock().unwrap()))
+                        .unwrap_or(false);
 
-                    // Not actually being made into an error and some want to remove the lint entirely
-                    #[allow(illegal_floating_point_literal_pattern)]
-                    if ui.button(match self.audio_volume.gain {
-                        0.0 => "🔇",
-                        0.0..=0.33 => "🔈",
-                        0.0..=0.67 => "🔉",
-                        _ => "🔊"
-                    })
-                    .on_hover_text(if self.audio_volume.mute {
-                        "Unmute"
-                    } else {
-                        "Mute"
-                    })
-                    .clicked() {
-                        self.audio_volume.mute = !self.audio_volume.mute;
-                        // "<= 0.0" to handle negative zero (not sure if it'll ever happen; better safe than sorry)
-                        if !self.audio_volume.mute && self.audio_volume.gain <= 0.0 {
-                            // Restore the previous gain after the user mutes by dragging the slider to 0 then unmutes
-                            self.audio_volume.gain = self.audio_volume.gain_pre_mute;
+                    ui.add_enabled_ui(has_audio, |ui| {
+                        let mut update_volume = false;
+
+                        // Not actually being made into an error and some want to remove the lint entirely
+                        #[allow(illegal_floating_point_literal_pattern)]
+                        if ui.button(match self.audio_volume.gain {
+                            0.0 => "🔇",
+                            0.0..=0.33 => "🔈",
+                            0.0..=0.67 => "🔉",
+                            _ => "🔊"
+                        })
+                        .on_hover_text(if self.audio_volume.mute {
+                            "Unmute"
+                        } else {
+                            "Mute"
+                        })
+                        .clicked() {
+                            self.audio_volume.mute = !self.audio_volume.mute;
+                            // "<= 0.0" to handle negative zero (not sure if it'll ever happen; better safe than sorry)
+                            if !self.audio_volume.mute && self.audio_volume.gain <= 0.0 {
+                                // Restore the previous gain after the user mutes by dragging the slider to 0 then unmutes
+                                self.audio_volume.gain = self.audio_volume.gain_pre_mute;
+                            }
+                            update_volume = true;
                         }
-                        update_volume = true;
-                    }
 
-                    ui.add_enabled_ui(true, |ui| {
                         let resp = ui.add_enabled(!self.audio_volume.mute, egui::Slider::new(
                             &mut self.audio_volume.gain,
                             0.0..=1.25,
@@ -2071,61 +2156,33 @@ impl NtscApp {
                         if resp.changed() {
                             update_volume = true;
                         }
-                    });
 
-                    if update_volume {
-                        if let Some(pipeline_info) = &self.pipeline {
-                            NtscApp::set_volume(
-                                &pipeline_info.pipeline,
-                                // Unlogarithmify volume (at least to my ears, this gives more control at the low end
-                                // of the slider)
-                                10f64.powf(self.audio_volume.gain - 1.0).max(0.0),
-                                self.audio_volume.mute
-                            );
-                        }
-                    }
-
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Save image").clicked() {
-                            let src_path = self
-                                .pipeline
-                                .as_ref().map(|info| info.path.clone());
-
-                            let ctx = ctx.clone();
-                            if let Some(src_path) = src_path {
-                                let dst_path = src_path.with_extension("");
-                                self.spawn(async move {
-                                    let handle = rfd::AsyncFileDialog::new()
-                                        .set_directory(dst_path.parent().unwrap_or(Path::new("/")))
-                                        .set_file_name(format!(
-                                            "{}_ntsc.png",
-                                            dst_path.file_name().to_owned().unwrap().to_string_lossy()
-                                        ))
-                                        .save_file()
-                                        .await;
-
-                                    handle.map(|handle| Box::new(move |app: &mut NtscApp| {
-                                            let res = app.create_render_job(
-                                                &ctx,
-                                                &src_path.clone(),
-                                                RenderPipelineSettings {
-                                                    codec_settings: RenderPipelineCodec::Png,
-                                                    output_path: handle.into(),
-                                                    duration: gstreamer::ClockTime::from_seconds(1),
-                                                    effect_settings: (&app.effect_settings).into(),
-                                                },
-                                            );
-                                            if let Ok(job) = res {
-                                                app.render_jobs.push(job);
-                                            } else {
-                                                app.handle_result(res);
-                                            }
-                                            Ok(())
-                                        }) as _)
-                                });
+                        if update_volume {
+                            if let Some(pipeline_info) = &self.pipeline {
+                                NtscApp::set_volume(
+                                    &pipeline_info.pipeline,
+                                    // Unlogarithmify volume (at least to my ears, this gives more control at the low end
+                                    // of the slider)
+                                    10f64.powf(self.audio_volume.gain - 1.0).max(0.0),
+                                    self.audio_volume.mute
+                                );
                             }
                         }
                     });
+
+                    ui.separator();
+
+                    let mut update_effect_preview = false;
+                    ui.label("Effect preview: ");
+                    update_effect_preview |= ui.selectable_value(&mut self.effect_preview.mode, EffectPreviewMode::Enabled, "Enable").changed();
+                    update_effect_preview |= ui.selectable_value(&mut self.effect_preview.mode, EffectPreviewMode::Disabled, "Disable").changed();
+                    update_effect_preview |= ui.selectable_value(&mut self.effect_preview.mode, EffectPreviewMode::SplitScreen, "Split").changed();
+
+                    if update_effect_preview {
+                        if let Some(PipelineInfo {egui_sink, ..}) = &self.pipeline {
+                            egui_sink.set_property("preview_mode", Self::sink_preview_mode(&self.effect_preview));
+                        }
+                    }
                 });
             });
 
@@ -2161,7 +2218,7 @@ impl NtscApp {
                             ui.with_layout(
                                 egui::Layout::centered_and_justified(egui::Direction::TopDown),
                                 |ui| {
-                                    if let Some(PipelineInfo { preview, .. }) = &mut self.pipeline {
+                                    if let Some(PipelineInfo { preview, egui_sink, .. }) = &mut self.pipeline {
                                         let texture_size = if self.video_scale.enabled {
                                             let texture_actual_size = preview.size_vec2();
                                             let scale_factor = self.video_scale.scale as f32
@@ -2183,7 +2240,16 @@ impl NtscApp {
                                         } else {
                                             self.video_zoom.scale as f32
                                         };
-                                        ui.image((preview.id(), texture_size * scale_factor));
+
+                                        // We need to render the splitscreen bar in the same area as the image. The
+                                        // Response returned from ui.image() fills the entire scroll area, so we need
+                                        // to do the layout ourselves.
+                                        let image = egui::Image::from_texture((preview.id(), texture_size * scale_factor));
+                                        let (rect, _) = ui.allocate_exact_size(texture_size * scale_factor, egui::Sense::hover());
+                                        ui.put(rect, image);
+                                        if ui.put(rect, SplitScreen::new(&mut self.effect_preview.split_location)).changed() {
+                                            egui_sink.set_property("preview_mode", Self::sink_preview_mode(&self.effect_preview))
+                                        }
                                     } else {
                                         ui.heading("No media loaded");
                                     }
