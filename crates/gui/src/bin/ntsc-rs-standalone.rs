@@ -1619,6 +1619,7 @@ impl NtscApp {
                 });
             });
         egui::CentralPanel::default().show_inside(ui, |ui| {
+            ui.visuals_mut().clip_rect_margin = 4.0;
             egui::ScrollArea::vertical()
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
@@ -1631,6 +1632,8 @@ impl NtscApp {
                     spacing.interact_size.x = 48.0;
                     spacing.combo_width =
                         spacing.slider_width + spacing.interact_size.x + spacing.item_spacing.x;
+
+
                     let Self {
                         settings_list,
                         effect_settings,
@@ -2418,19 +2421,24 @@ impl NtscApp {
                                             egui::Sense::hover(),
                                         );
                                         ui.put(rect, image);
-                                        if ui
-                                            .put(
-                                                rect,
-                                                SplitScreen::new(
-                                                    &mut self.effect_preview.split_location,
-                                                ),
-                                            )
-                                            .changed()
+
+                                        if self.effect_preview.mode
+                                            == EffectPreviewMode::SplitScreen
                                         {
-                                            egui_sink.set_property(
-                                                "preview_mode",
-                                                Self::sink_preview_mode(&self.effect_preview),
-                                            )
+                                            if ui
+                                                .put(
+                                                    rect,
+                                                    SplitScreen::new(
+                                                        &mut self.effect_preview.split_location,
+                                                    ),
+                                                )
+                                                .changed()
+                                            {
+                                                egui_sink.set_property(
+                                                    "preview_mode",
+                                                    Self::sink_preview_mode(&self.effect_preview),
+                                                )
+                                            }
                                         }
                                     } else {
                                         ui.heading("No media loaded");
