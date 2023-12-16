@@ -746,6 +746,10 @@ impl NtscApp {
                 "settings",
                 NtscFilterSettings((&self.effect_settings).into()),
             )
+            .property(
+                "preview-mode",
+                Self::sink_preview_mode(&self.effect_preview),
+            )
             .build()?;
 
         let pipeline_info_state = Arc::new(Mutex::new(PipelineInfoState::Loading));
@@ -1633,7 +1637,6 @@ impl NtscApp {
                     spacing.combo_width =
                         spacing.slider_width + spacing.interact_size.x + spacing.item_spacing.x;
 
-
                     let Self {
                         settings_list,
                         effect_settings,
@@ -2343,7 +2346,7 @@ impl NtscApp {
                     if update_effect_preview {
                         if let Some(PipelineInfo { egui_sink, .. }) = &self.pipeline {
                             egui_sink.set_property(
-                                "preview_mode",
+                                "preview-mode",
                                 Self::sink_preview_mode(&self.effect_preview),
                             );
                         }
