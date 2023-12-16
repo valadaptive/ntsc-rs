@@ -2260,11 +2260,15 @@ impl NtscApp {
                         // Not actually being made into an error and some want to remove the lint entirely
                         #[allow(illegal_floating_point_literal_pattern)]
                         if ui
-                            .button(match self.audio_volume.gain {
-                                0.0 => "🔇",
-                                0.0..=0.33 => "🔈",
-                                0.0..=0.67 => "🔉",
-                                _ => "🔊",
+                            .button(if self.audio_volume.mute {
+                                "🔇"
+                            } else {
+                                match self.audio_volume.gain {
+                                    0.0 => "🔇",
+                                    0.0..=0.33 => "🔈",
+                                    0.0..=0.67 => "🔉",
+                                    _ => "🔊",
+                                }
                             })
                             .on_hover_text(if self.audio_volume.mute {
                                 "Unmute"
