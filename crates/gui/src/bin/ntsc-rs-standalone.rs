@@ -121,16 +121,27 @@ fn main() -> Result<(), Box<dyn Error>> {
         Box::new(|cc| {
             initialize_gstreamer().unwrap();
 
-            // Load previous effect settings from storage
             let settings_list = SettingsList::new();
-            let settings = cc
-                .storage
-                .and_then(|storage| storage.get_string("effect_settings"))
-                .and_then(|saved_settings| settings_list.from_json(&saved_settings).ok())
-                .unwrap_or_default();
+            let (settings, theme) = if let Some(storage) = cc.storage {
+                // Load previous effect settings from storage
+                let settings = storage
+                    .get_string("effect_settings")
+                    .and_then(|saved_settings| settings_list.from_json(&saved_settings).ok())
+                    .unwrap_or_default();
 
-            let ctx = &cc.egui_ctx;
-            Box::new(NtscApp::new(ctx.clone(), settings_list, settings))
+                let theme = storage
+                    .get_string("color_theme")
+                    .and_then(|color_theme| ColorTheme::try_from(color_theme.as_str()).ok())
+                    .unwrap_or_default();
+
+                (settings, theme)
+            } else {
+                (NtscEffectFullSettings::default(), ColorTheme::default())
+            };
+
+            let ctx = cc.egui_ctx.clone();
+            ctx.set_visuals(theme.visuals(&cc.integration_info));
+            Box::new(NtscApp::new(ctx, settings_list, settings, theme))
         }),
     )?)
 }
@@ -322,6 +333,50 @@ enum LeftPanelState {
     RenderSettings,
 }
 
+#[derive(Default, PartialEq, Eq)]
+enum ColorTheme {
+    Dark,
+    Light,
+    #[default]
+    System,
+}
+
+impl ColorTheme {
+    fn visuals(&self, info: &eframe::IntegrationInfo) -> egui::Visuals {
+        match &self {
+            ColorTheme::Dark => egui::Visuals::dark(),
+            ColorTheme::Light => egui::Visuals::light(),
+            ColorTheme::System => match info.system_theme {
+                Some(eframe::Theme::Dark) => egui::Visuals::dark(),
+                Some(eframe::Theme::Light) => egui::Visuals::light(),
+                None => egui::Visuals::default(),
+            },
+        }
+    }
+}
+
+impl From<&ColorTheme> for &str {
+    fn from(value: &ColorTheme) -> Self {
+        match value {
+            ColorTheme::Dark => "Dark",
+            ColorTheme::Light => "Light",
+            ColorTheme::System => "System",
+        }
+    }
+}
+
+impl TryFrom<&str> for ColorTheme {
+    type Error = ();
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "Dark" => Ok(ColorTheme::Dark),
+            "Light" => Ok(ColorTheme::Light),
+            "System" => Ok(ColorTheme::System),
+            _ => Err(()),
+        }
+    }
+}
+
 type AppFn = Box<dyn FnOnce(&mut NtscApp) -> Result<(), ApplicationError> + Send>;
 
 struct AppExecutor {
@@ -400,6 +455,7 @@ struct NtscApp {
     render_jobs: Vec<RenderJob>,
     settings_json_paste: String,
     last_error: Option<String>,
+    color_theme: ColorTheme,
 }
 
 impl NtscApp {
@@ -407,6 +463,7 @@ impl NtscApp {
         ctx: egui::Context,
         settings_list: SettingsList,
         effect_settings: NtscEffectFullSettings,
+        color_theme: ColorTheme,
     ) -> Self {
         Self {
             settings_list,
@@ -426,6 +483,7 @@ impl NtscApp {
             render_jobs: Vec::new(),
             settings_json_paste: String::new(),
             last_error: None,
+            color_theme,
         }
     }
 
@@ -2034,7 +2092,7 @@ impl NtscApp {
             });
     }
 
-    fn show_app(&mut self, ctx: &egui::Context) {
+    fn show_app(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.heading("ntsc-rs");
@@ -2063,6 +2121,26 @@ impl NtscApp {
                 });
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let mut color_theme_changed = false;
+                    color_theme_changed |= ui
+                        .selectable_value(&mut self.color_theme, ColorTheme::System, "🖥")
+                        .on_hover_text("Follow system color theme")
+                        .changed();
+                    color_theme_changed |= ui
+                        .selectable_value(&mut self.color_theme, ColorTheme::Light, "☀")
+                        .on_hover_text("Use light mode")
+                        .changed();
+                    color_theme_changed |= ui
+                        .selectable_value(&mut self.color_theme, ColorTheme::Dark, "🌙")
+                        .on_hover_text("Use dark mode")
+                        .changed();
+
+                    if color_theme_changed {
+                        // Results in a bit of "theme tearing" since every widget rendered after this will use a
+                        // different color scheme than those rendered before it. Not really noticeable in practice.
+                        ui.ctx().set_visuals(self.color_theme.visuals(frame.info()))
+                    }
+
                     let mut close_error = false;
                     if let Some(error) = self.last_error.as_ref() {
                         egui::Frame::none()
@@ -2128,7 +2206,7 @@ impl NtscApp {
 }
 
 impl eframe::App for NtscApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.tick();
 
         let mut pipeline_error = None::<PipelineError>;
@@ -2156,7 +2234,7 @@ impl eframe::App for NtscApp {
             self.handle_error(&err);
         }
 
-        self.show_app(ctx);
+        self.show_app(ctx, frame);
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -2167,6 +2245,8 @@ impl eframe::App for NtscApp {
         {
             storage.set_string("effect_settings", settings_json);
         }
+
+        storage.set_string("color_theme", <&ColorTheme as Into<&str>>::into(&self.color_theme).to_owned());
     }
 }
 

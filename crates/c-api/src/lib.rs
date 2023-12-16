@@ -271,7 +271,6 @@ impl SettingsList {
         let descs_slice = slice::from_raw_parts(self.descriptors, self.len);
         drop_stack.push(descs_slice);
         while let Some(descriptors) = drop_stack.pop() {
-            
             for descriptor in descriptors {
                 match descriptor.kind {
                     SettingKind::Enumeration {
