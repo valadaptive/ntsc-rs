@@ -1909,6 +1909,7 @@ dependencies = [
  "log",
  "logos",
  "ntscrs",
+ "rand",
  "rfd",
  "snafu",
  "waker-fn",

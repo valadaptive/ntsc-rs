@@ -1,9 +1,7 @@
 - Render-to-file: pause and resume; better errors
 - Ensure error coverage
-- Randomize seed button
 - Show current (rendered) FPS
 - Framerate doubler for 25/30fps
-- Effect enable/disable toggle and splitscreen view
 - ctrl+scroll to zoom?
 - tooltips for all buttons!
 - disable 10-bit color if not supported

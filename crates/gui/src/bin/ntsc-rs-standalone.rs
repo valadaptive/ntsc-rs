@@ -37,7 +37,8 @@ use gui::{
 };
 
 use ntscrs::settings::{
-    NtscEffect, NtscEffectFullSettings, ParseSettingsError, SettingDescriptor, SettingsList,
+    NtscEffect, NtscEffectFullSettings, ParseSettingsError, SettingDescriptor, SettingID,
+    SettingKind, SettingsList,
 };
 use snafu::prelude::*;
 
@@ -450,9 +451,7 @@ fn ui_with_layout<'c, R>(
         ui.spacing().interact_size.y,
     );
 
-    ui.allocate_ui_with_layout(initial_size, layout, |ui| {
-        add_contents(ui)
-    })
+    ui.allocate_ui_with_layout(initial_size, layout, |ui| add_contents(ui))
 }
 
 impl LayoutHelper for egui::Ui {
@@ -1259,11 +1258,14 @@ impl NtscApp {
 fn control_row<R>(
     ui: &mut egui::Ui,
     add_contents: impl FnOnce(&mut egui::Ui) -> R,
-    label: &str,
+    descriptor: &SettingDescriptor,
 ) -> R {
     ui.horizontal(|ui| {
         let resp = add_contents(ui);
-        ui.add(egui::Label::new(label).truncate(true));
+        let label = ui.add(egui::Label::new(descriptor.label).truncate(true));
+        if let Some(description) = descriptor.description {
+            label.on_hover_text(description);
+        }
         resp
     })
     .inner
@@ -1278,10 +1280,48 @@ impl NtscApp {
         let parser = |input: &str| eval_expression_string(input).ok();
         let mut changed = false;
         for descriptor in descriptors {
-            let response = match &descriptor.kind {
-                ntscrs::settings::SettingKind::Enumeration {
-                    options,
-                    default_value: _,
+            if descriptor.id == SettingID::RANDOM_SEED {}
+
+            let response = match &descriptor {
+                SettingDescriptor {
+                    id: SettingID::RANDOM_SEED,
+                    ..
+                } => {
+                    control_row(
+                        ui,
+                        |ui| {
+                            let rand_btn_width = ui.spacing().interact_size.y + 4.0;
+                            let resp = ui.add_sized(
+                                egui::vec2(
+                                    ui.spacing().slider_width + ui.spacing().interact_size.x
+                                        - rand_btn_width,
+                                    ui.spacing().interact_size.y,
+                                ),
+                                egui::DragValue::new(&mut effect_settings.random_seed)
+                                    .clamp_range(i32::MIN..=i32::MAX),
+                            );
+
+                            if ui
+                                .add_sized(
+                                    egui::vec2(rand_btn_width, ui.spacing().interact_size.y),
+                                    egui::Button::new("🎲"),
+                                )
+                                .on_hover_text("Randomize seed")
+                                .clicked()
+                            {
+                                effect_settings.random_seed = rand::random::<i32>();
+                                changed = true;
+                            }
+
+                            // Return the DragValue response because that's what we want to add the tooltip to
+                            resp
+                        },
+                        descriptor,
+                    )
+                }
+                SettingDescriptor {
+                    kind: SettingKind::Enumeration { options, .. },
+                    ..
                 } => {
                     control_row(
                         ui,
@@ -1316,12 +1356,12 @@ impl NtscApp {
                                 })
                                 .response
                         },
-                        descriptor.label,
+                        descriptor,
                     )
                 }
-                ntscrs::settings::SettingKind::Percentage {
-                    logarithmic,
-                    default_value: _,
+                SettingDescriptor {
+                    kind: SettingKind::Percentage { logarithmic, .. },
+                    ..
                 } => control_row(
                     ui,
                     |ui| {
@@ -1335,11 +1375,11 @@ impl NtscApp {
                             .logarithmic(*logarithmic),
                         )
                     },
-                    descriptor.label,
+                    descriptor,
                 ),
-                ntscrs::settings::SettingKind::IntRange {
-                    range,
-                    default_value: _,
+                SettingDescriptor {
+                    kind: SettingKind::IntRange { range, .. },
+                    ..
                 } => control_row(
                     ui,
                     |ui| {
@@ -1367,12 +1407,14 @@ impl NtscApp {
 
                         slider
                     },
-                    descriptor.label,
+                    descriptor,
                 ),
-                ntscrs::settings::SettingKind::FloatRange {
-                    range,
-                    logarithmic,
-                    default_value: _,
+                SettingDescriptor {
+                    kind:
+                        SettingKind::FloatRange {
+                            range, logarithmic, ..
+                        },
+                    ..
                 } => control_row(
                     ui,
                     |ui| {
@@ -1385,9 +1427,12 @@ impl NtscApp {
                             .logarithmic(*logarithmic),
                         )
                     },
-                    descriptor.label,
+                    descriptor,
                 ),
-                ntscrs::settings::SettingKind::Boolean { default_value: _ } => {
+                SettingDescriptor {
+                    kind: SettingKind::Boolean { .. },
+                    ..
+                } => {
                     // We should really be using control_row for this, but then the label wouldn't be clickable
                     let checkbox = ui.checkbox(
                         descriptor
@@ -1399,9 +1444,9 @@ impl NtscApp {
 
                     checkbox
                 }
-                ntscrs::settings::SettingKind::Group {
-                    children,
-                    default_value: _,
+                SettingDescriptor {
+                    kind: SettingKind::Group { children, .. },
+                    ..
                 } => {
                     ui.add_space(2.0);
                     let resp = ui
