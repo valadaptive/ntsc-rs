@@ -207,19 +207,38 @@ impl TransferFunction {
     ) {
         let z = self.initial_condition(initial);
 
-        let mut num_fixed: [f32; SIZE] = [0f32; SIZE];
-        num_fixed.copy_from_slice(&self.num);
+        let mut z_fixed: [f32; SIZE] = [0f32; SIZE];
+        z_fixed.copy_from_slice(&z);
 
-        let mut den_fixed: [f32; SIZE] = [0f32; SIZE];
-        den_fixed.copy_from_slice(&self.den);
+        self.filter_signal_in_place_impl(
+            signal,
+            &self.num,
+            &self.den,
+            &mut z_fixed,
+            scale,
+            delay,
+        );
+    }
+
+    // The disassembly for this doesn't use any SSE4.2 instructions, but setting this target_feature somehow improves
+    // its speed 12-15%, probably from subtle optimizer tweaks.
+    #[target_feature(enable = "sse4.2")]
+    unsafe fn filter_signal_in_place_fixed_size_fast<const SIZE: usize>(
+        &self,
+        signal: &mut [f32],
+        initial: f32,
+        scale: f32,
+        delay: usize,
+    ) {
+        let z = self.initial_condition(initial);
 
         let mut z_fixed: [f32; SIZE] = [0f32; SIZE];
         z_fixed.copy_from_slice(&z);
 
         self.filter_signal_in_place_impl(
             signal,
-            &num_fixed,
-            &den_fixed,
+            &self.num,
+            &self.den,
             &mut z_fixed,
             scale,
             delay,
@@ -241,22 +260,43 @@ impl TransferFunction {
         delay: usize,
     ) {
         let filter_len = usize::max(self.num.len(), self.den.len());
-
-        match filter_len {
-            // Specialize fixed-size implementations for filter sizes 1-8
-            1 => self.filter_signal_in_place_fixed_size::<1>(signal, initial, scale, delay),
-            2 => self.filter_signal_in_place_fixed_size::<2>(signal, initial, scale, delay),
-            3 => self.filter_signal_in_place_fixed_size::<3>(signal, initial, scale, delay),
-            4 => self.filter_signal_in_place_fixed_size::<4>(signal, initial, scale, delay),
-            5 => self.filter_signal_in_place_fixed_size::<5>(signal, initial, scale, delay),
-            6 => self.filter_signal_in_place_fixed_size::<6>(signal, initial, scale, delay),
-            7 => self.filter_signal_in_place_fixed_size::<7>(signal, initial, scale, delay),
-            8 => self.filter_signal_in_place_fixed_size::<8>(signal, initial, scale, delay),
-            _ => {
-                let mut z = self.initial_condition(initial);
-                self.filter_signal_in_place_impl(
-                    signal, &self.num, &self.den, &mut z, scale, delay,
-                );
+        if is_x86_feature_detected!("sse4.2") {
+            unsafe {
+                match filter_len {
+                    // Specialize fixed-size implementations for filter sizes 1-8
+                    1 => self.filter_signal_in_place_fixed_size_fast::<1>(signal, initial, scale, delay),
+                    2 => self.filter_signal_in_place_fixed_size_fast::<2>(signal, initial, scale, delay),
+                    3 => self.filter_signal_in_place_fixed_size_fast::<3>(signal, initial, scale, delay),
+                    4 => self.filter_signal_in_place_fixed_size_fast::<4>(signal, initial, scale, delay),
+                    5 => self.filter_signal_in_place_fixed_size_fast::<5>(signal, initial, scale, delay),
+                    6 => self.filter_signal_in_place_fixed_size_fast::<6>(signal, initial, scale, delay),
+                    7 => self.filter_signal_in_place_fixed_size_fast::<7>(signal, initial, scale, delay),
+                    8 => self.filter_signal_in_place_fixed_size_fast::<8>(signal, initial, scale, delay),
+                    _ => {
+                        let mut z = self.initial_condition(initial);
+                        self.filter_signal_in_place_impl(
+                            signal, &self.num, &self.den, &mut z, scale, delay,
+                        );
+                    }
+                }
+            }
+        } else {
+            match filter_len {
+                // Specialize fixed-size implementations for filter sizes 1-8
+                1 => self.filter_signal_in_place_fixed_size::<1>(signal, initial, scale, delay),
+                2 => self.filter_signal_in_place_fixed_size::<2>(signal, initial, scale, delay),
+                3 => self.filter_signal_in_place_fixed_size::<3>(signal, initial, scale, delay),
+                4 => self.filter_signal_in_place_fixed_size::<4>(signal, initial, scale, delay),
+                5 => self.filter_signal_in_place_fixed_size::<5>(signal, initial, scale, delay),
+                6 => self.filter_signal_in_place_fixed_size::<6>(signal, initial, scale, delay),
+                7 => self.filter_signal_in_place_fixed_size::<7>(signal, initial, scale, delay),
+                8 => self.filter_signal_in_place_fixed_size::<8>(signal, initial, scale, delay),
+                _ => {
+                    let mut z = self.initial_condition(initial);
+                    self.filter_signal_in_place_impl(
+                        signal, &self.num, &self.den, &mut z, scale, delay,
+                    );
+                }
             }
         }
     }
