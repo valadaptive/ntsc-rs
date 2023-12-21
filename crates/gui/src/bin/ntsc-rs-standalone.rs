@@ -1545,6 +1545,7 @@ impl NtscApp {
                                         .context(JSONParseSnafu)?;
 
                                     app.effect_settings = settings;
+                                    app.update_effect();
 
                                     Ok(())
                                 },
