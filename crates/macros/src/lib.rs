@@ -3,8 +3,9 @@ extern crate proc_macro;
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    parse2, parse_macro_input, spanned::Spanned, Attribute, Expr, FieldValue, Fields, Ident,
-    ItemStruct, Member, Token, Type, TypePath,
+    parse2, parse_macro_input, spanned::Spanned, AngleBracketedGenericArguments, Attribute, Expr,
+    FieldValue, Fields, GenericArgument, Ident, ItemStruct, Member, PathArguments, PathSegment,
+    Token, Type, TypePath,
 };
 
 fn gen_fields(
@@ -31,15 +32,68 @@ fn gen_fields(
         let mut new_attrs = Vec::<Attribute>::new();
         for attr in &mut field.attrs {
             if attr.path().is_ident("settings_block") {
-                if let Type::Path(TypePath { path: p, .. }) = &mut field.ty {
-                    if let Some(segment) = p.segments.first_mut() {
-                        segment.ident = Ident::new("SettingsBlock", segment.ident.span());
-                        ts_for_ref = quote! {SettingsBlock::from(&value.#name)};
-                        ts_for_owned = quote! {SettingsBlock::from(value.#name)};
-                        ts_to_ref = quote! {Option::from(&value.#name)};
-                        ts_to_owned = quote! {Option::from(value.#name)};
-                    }
-                }
+                let Type::Path(TypePath { path: p, .. }) = &mut field.ty else {
+                    continue;
+                };
+
+                let Some(segment) = p.segments.first_mut() else {
+                    continue;
+                };
+
+                let arg_ident: Result<syn::Ident, _> = attr.parse_args();
+                let is_nested_fullsettings = match arg_ident {
+                    Ok(ident) => ident.to_string() == "nested",
+                    Err(_) => false,
+                };
+
+                let (to_fullsettings_ident, from_fullsettings) = if is_nested_fullsettings {
+                    let &mut PathSegment {
+                        arguments:
+                            PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+                                args: ref mut arguments,
+                                ..
+                            }),
+                        ..
+                    } = segment
+                    else {
+                        panic!("Expected settings_block to be an Option<...>");
+                    };
+                    let Some(&mut GenericArgument::Type(Type::Path(TypePath {
+                        ref mut path, ..
+                    }))) = arguments.first_mut()
+                    else {
+                        panic!("Expected settings_block to be an Option<...>");
+                    };
+                    let Some(&mut PathSegment { ref mut ident, .. }) = path.segments.first_mut()
+                    else {
+                        panic!("Expected settings_block to be an Option<...>");
+                    };
+
+                    let fullsettings_ident =
+                        Ident::new(&(ident.to_string() + "FullSettings"), ident.span());
+
+                    let old_ident = ident.clone();
+                    *ident = fullsettings_ident.clone();
+
+                    (
+                        quote! {value.#name.as_ref().map(#fullsettings_ident::from)},
+                        quote! {
+                            if value.#name.enabled {
+                                Some(#old_ident::from(&value.#name.settings))
+                            } else {
+                                None
+                            }
+                        },
+                    )
+                } else {
+                    (quote! {value.#name}, quote! {Option::from(&value.#name)})
+                };
+
+                segment.ident = Ident::new("SettingsBlock", segment.ident.span());
+                ts_for_ref = quote! {SettingsBlock::from(&#to_fullsettings_ident)};
+                ts_for_owned = quote! {SettingsBlock::from(#to_fullsettings_ident)};
+                ts_to_ref = from_fullsettings.clone();
+                ts_to_owned = from_fullsettings.clone();
             } else {
                 new_attrs.push(attr.clone());
             }

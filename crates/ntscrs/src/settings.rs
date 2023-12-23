@@ -93,13 +93,28 @@ impl VHSTapeSpeed {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct VHSEdgeWaveSettings {
+    pub intensity: f32,
+    pub speed: f32,
+}
+
+impl Default for VHSEdgeWaveSettings {
+    fn default() -> Self {
+        Self {
+            intensity: 1.0,
+            speed: 4.0,
+        }
+    }
+}
+
+#[derive(FullSettings, Debug, Clone, PartialEq)]
 pub struct VHSSettings {
     pub tape_speed: Option<VHSTapeSpeed>,
     pub chroma_vert_blend: bool,
     pub chroma_loss: f32,
     pub sharpen: f32,
-    pub edge_wave: f32,
-    pub edge_wave_speed: f32,
+    #[settings_block]
+    pub edge_wave: Option<VHSEdgeWaveSettings>,
 }
 
 impl Default for VHSSettings {
@@ -109,8 +124,7 @@ impl Default for VHSSettings {
             chroma_vert_blend: true,
             chroma_loss: 0.0,
             sharpen: 1.0,
-            edge_wave: 1.0,
-            edge_wave_speed: 4.0,
+            edge_wave: Some(VHSEdgeWaveSettings::default()),
         }
     }
 }
@@ -265,7 +279,7 @@ pub struct NtscEffect {
     pub chroma_phase_noise_intensity: f32,
     pub chroma_phase_error: f32,
     pub chroma_delay: (f32, i32),
-    #[settings_block]
+    #[settings_block(nested)]
     pub vhs_settings: Option<VHSSettings>,
     pub chroma_lowpass_out: ChromaLowpass,
     pub bandwidth_scale: f32,
@@ -379,7 +393,7 @@ pub enum SettingID {
     VHS_CHROMA_VERT_BLEND,
     VHS_CHROMA_LOSS,
     VHS_SHARPEN,
-    VHS_EDGE_WAVE,
+    VHS_EDGE_WAVE_INTENSITY,
     VHS_EDGE_WAVE_SPEED,
 
     USE_FIELD,
@@ -393,6 +407,8 @@ pub enum SettingID {
 
     CHROMA_PHASE_ERROR,
     INPUT_LUMA_FILTER,
+
+    VHS_EDGE_WAVE_ENABLED,
 }
 
 macro_rules! impl_get_field_ref {
@@ -471,10 +487,23 @@ macro_rules! impl_get_field_ref {
                 .$borrow_op(),
             SettingID::VHS_CHROMA_LOSS => $settings.vhs_settings.settings.chroma_loss.$borrow_op(),
             SettingID::VHS_SHARPEN => $settings.vhs_settings.settings.sharpen.$borrow_op(),
-            SettingID::VHS_EDGE_WAVE => $settings.vhs_settings.settings.edge_wave.$borrow_op(),
-            SettingID::VHS_EDGE_WAVE_SPEED => {
-                $settings.vhs_settings.settings.edge_wave_speed.$borrow_op()
+            SettingID::VHS_EDGE_WAVE_ENABLED => {
+                $settings.vhs_settings.settings.edge_wave.enabled.$borrow_op()
             }
+            SettingID::VHS_EDGE_WAVE_SPEED => $settings
+                .vhs_settings
+                .settings
+                .edge_wave
+                .settings
+                .speed
+                .$borrow_op(),
+            SettingID::VHS_EDGE_WAVE_INTENSITY => $settings
+                .vhs_settings
+                .settings
+                .edge_wave
+                .settings
+                .intensity
+                .$borrow_op(),
 
             SettingID::BANDWIDTH_SCALE => $settings.bandwidth_scale.$borrow_op(),
             SettingID::RANDOM_SEED => $settings.random_seed.$borrow_op(),
@@ -611,7 +640,8 @@ impl SettingID {
             SettingID::VHS_CHROMA_VERT_BLEND => "vhs_chroma_vert_blend",
             SettingID::VHS_CHROMA_LOSS => "vhs_chroma_loss",
             SettingID::VHS_SHARPEN => "vhs_sharpen",
-            SettingID::VHS_EDGE_WAVE => "vhs_edge_wave",
+            SettingID::VHS_EDGE_WAVE_ENABLED => "vhs_edge_wave_enabled",
+            SettingID::VHS_EDGE_WAVE_INTENSITY => "vhs_edge_wave",
             SettingID::VHS_EDGE_WAVE_SPEED => "vhs_edge_wave_speed",
             SettingID::USE_FIELD => "use_field",
             SettingID::TRACKING_NOISE_NOISE_INTENSITY => "tracking_noise_noise_intensity",
@@ -1078,17 +1108,27 @@ impl SettingsList {
                             id: SettingID::VHS_SHARPEN
                         },
                         SettingDescriptor {
-                            label: "Edge wave intensity",
-                            description: Some("Horizontal waving of the image, in pixels."),
-                            kind: SettingKind::FloatRange { range: 0.0..=10.0, logarithmic: false, default_value: default_settings.vhs_settings.settings.edge_wave },
-                            id: SettingID::VHS_EDGE_WAVE
-                        },
-                        SettingDescriptor {
-                            label: "Edge wave speed",
-                            description: Some("Speed at which the horizontal waving occurs."),
-                            kind: SettingKind::FloatRange { range: 0.0..=10.0, logarithmic: false, default_value: default_settings.vhs_settings.settings.edge_wave_speed },
-                            id: SettingID::VHS_EDGE_WAVE_SPEED
-                        },
+                            label: "Edge wave",
+                            description: Some("Horizontal waving of the image."),
+                            kind: SettingKind::Group {
+                                children: vec![
+                                    SettingDescriptor {
+                                        label: "Edge wave intensity",
+                                        description: Some("Horizontal waving of the image, in pixels."),
+                                        kind: SettingKind::FloatRange { range: 0.0..=10.0, logarithmic: false, default_value: default_settings.vhs_settings.settings.edge_wave.settings.intensity },
+                                        id: SettingID::VHS_EDGE_WAVE_INTENSITY
+                                    },
+                                    SettingDescriptor {
+                                        label: "Edge wave speed",
+                                        description: Some("Speed at which the horizontal waving occurs."),
+                                        kind: SettingKind::FloatRange { range: 0.0..=10.0, logarithmic: false, default_value: default_settings.vhs_settings.settings.edge_wave.settings.speed },
+                                        id: SettingID::VHS_EDGE_WAVE_SPEED
+                                    },
+                                ],
+                                default_value: true
+                            },
+                            id: SettingID::VHS_EDGE_WAVE_ENABLED
+                        }
                     ],
                     default_value: true,
                 },
@@ -1136,6 +1176,7 @@ impl SettingsList {
         descriptors: &[SettingDescriptor],
         settings: &NtscEffectFullSettings,
     ) {
+        //NtscEffect::from(&settings).vhs_settings.map(f)
         for descriptor in descriptors {
             let value = match &descriptor.kind {
                 SettingKind::Enumeration { .. } => {

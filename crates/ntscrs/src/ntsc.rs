@@ -1061,13 +1061,10 @@ impl NtscEffect {
         }
 
         if let Some(vhs_settings) = &self.vhs_settings {
-            if vhs_settings.edge_wave > 0.0 {
-                vhs_edge_wave(
-                    yiq,
-                    &info,
-                    vhs_settings.edge_wave,
-                    vhs_settings.edge_wave_speed,
-                );
+            if let Some(edge_wave) = &vhs_settings.edge_wave {
+                if edge_wave.intensity > 0.0 {
+                    vhs_edge_wave(yiq, &info, edge_wave.intensity, edge_wave.speed);
+                }
             }
 
             if let Some(tape_speed) = &vhs_settings.tape_speed {

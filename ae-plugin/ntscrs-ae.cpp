@@ -856,57 +856,61 @@ static PF_Err UpdateParameterUI (
 	NtscAE_GlobalData* global_data = reinterpret_cast<NtscAE_GlobalData*>(suites.HandleSuite1()->host_lock_handle(out_data->global_data));
 
 	// Update group controls' enabled/disabled state based on whether the group checkbox is checked
-	// This won't work for nested groups--good thing we don't have any of those!
 	// We need to do this in an UPDATE_PARAMS_UI callback rather than just supervising the checkboxes so that the
 	// visibility is properly set when the effect is first loaded (e.g. when loading a comp with it applied to a layer
 	// already). Otherwise, controls for a disabled param group wouldn't show as disabled until the user toggled the
 	// group's checkbox after loading.
 	PF_ParamDef param_to_update;
 	A_Boolean last_param_was_group = false;
-	A_Boolean updating_group = false;
-	A_Boolean checkbox_enabled = false;
+
+	// We track the disabled-ness of nested groups using an int as a stack. The lowest bit is 1 if the top-level group
+	// is disabled, the next-lowest bit is 1 if the next group down is disabled, and so on. This lets us check if any
+	// group in the stack is disabled by checking if disabled_stack != 0. This is why 1 means disabled--we want to
+	// disable a param if *any* parent groups are disabled.
+	A_long disabled_stack = 0;
+	A_long group_depth = 0;
+
 	for (int i = 0; i < global_data->num_aefx_params; i++) {
 		param_to_update = *params[i];
 
 		// Group started--next iteration we will check the checkbox state
 		if (param_to_update.param_type == PF_Param_GROUP_START) {
 			last_param_was_group = true;
+			group_depth++;
 			continue;
+		}
+
+		if (param_to_update.param_type == PF_Param_GROUP_END) {
+			disabled_stack &= ~(1 << (group_depth - 1));
+			group_depth--;
+			continue;
+		}
+
+		// We're inside a group--update the UI element from the checkbox value
+		if (group_depth != 0) {
+			A_Boolean was_enabled = (param_to_update.ui_flags & PF_PUI_DISABLED) == 0;
+			A_Boolean enabled = disabled_stack == 0;
+
+			// Skip UI refresh if nothing actually changed
+			if (enabled != was_enabled) {
+				if (enabled) {
+					param_to_update.ui_flags &= ~PF_PUI_DISABLED;
+				} else {
+					param_to_update.ui_flags |= PF_PUI_DISABLED;
+				}
+
+				suites.ParamUtilsSuite3()->PF_UpdateParamUI(in_data->effect_ref, i, &param_to_update);
+			}
 		}
 
 		if (last_param_was_group) {
 			last_param_was_group = false;
 			// Sanity check--make sure the group's first item is actually a checkbox
 			if (param_to_update.param_type == PF_Param_CHECKBOX) {
-				updating_group = true;
-				checkbox_enabled = param_to_update.u.bd.value != 0;
+				A_Boolean disabled = param_to_update.u.bd.value == 0;
+				disabled_stack |= disabled << (group_depth - 1);
 			}
-			continue;
 		}
-
-		if (param_to_update.param_type == PF_Param_GROUP_END) {
-			updating_group = false;
-			continue;
-		}
-
-		// We're inside a group--update the UI element from the checkbox value
-		if (updating_group) {
-			A_Boolean was_enabled = (param_to_update.ui_flags & PF_PUI_DISABLED) == 0;
-
-			// Skip UI refresh if nothing actually changed
-			if (checkbox_enabled == was_enabled) {
-				continue;
-			}
-
-			if (checkbox_enabled) {
-				param_to_update.ui_flags &= ~PF_PUI_DISABLED;
-			} else {
-				param_to_update.ui_flags |= PF_PUI_DISABLED;
-			}
-
-			suites.ParamUtilsSuite3()->PF_UpdateParamUI(in_data->effect_ref, i, &param_to_update);
-		}
-
 	}
 
 	suites.HandleSuite1()->host_unlock_handle(out_data->global_data);

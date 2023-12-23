@@ -815,21 +815,17 @@ unsafe fn update_controls_disabled(
             ptr::null_mut(),
         ))?;
 
-        match &descriptor.kind {
-            SettingKind::Group { children, .. } => {
-                // The fetched handle refers to the group's checkbox
-                let mut bool_value: i32 = 0;
-                ofx_err(paramGetValueAtTime(param, time, &mut bool_value))?;
-                let group_enabled = bool_value != 0;
+        if let SettingKind::Group { children, .. } = &descriptor.kind {
+            // The fetched handle refers to the group's checkbox
+            let mut bool_value: i32 = 0;
+            ofx_err(paramGetValueAtTime(param, time, &mut bool_value))?;
+            let group_enabled = bool_value != 0;
 
-                update_controls_disabled(data, param_set, children, time, group_enabled)?;
-            }
-            _ => {
-                let mut prop_set: OfxPropertySetHandle = ptr::null_mut();
-                ofx_err(paramGetPropertySet(param, &mut prop_set))?;
-                propSetInt(prop_set, ofx_str!(kOfxParamPropEnabled), 0, enabled as i32);
-            }
+            update_controls_disabled(data, param_set, children, time, group_enabled && enabled)?;
         }
+        let mut prop_set: OfxPropertySetHandle = ptr::null_mut();
+        ofx_err(paramGetPropertySet(param, &mut prop_set))?;
+        propSetInt(prop_set, ofx_str!(kOfxParamPropEnabled), 0, enabled as i32);
     }
 
     Ok(())

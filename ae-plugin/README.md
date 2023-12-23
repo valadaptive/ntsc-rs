@@ -49,7 +49,7 @@ to set up the Meson build directory.
 If you want to be able to build directly into your After Effects plugin folder using `meson install`, you may instead
 want to do:
 ```powershell
-meson setup --prefix="C:\Program Files\[path to After Effects]\Support Files\Plug-ins" build
+meson setup --prefix="C:\Program Files\[path to After Effects]\Support Files\Plug-ins\" build
 cd build
 ```
 
