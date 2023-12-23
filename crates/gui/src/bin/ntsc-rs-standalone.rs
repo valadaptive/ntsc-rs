@@ -158,6 +158,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             let ctx = cc.egui_ctx.clone();
             ctx.set_visuals(theme.visuals(&cc.integration_info));
+            ctx.style_mut(|style| style.interaction.tooltip_delay = 0.5);
             Box::new(NtscApp::new(ctx, settings_list, settings, theme))
         }),
     )?)
