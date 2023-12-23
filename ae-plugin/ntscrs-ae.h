@@ -97,6 +97,7 @@ typedef struct {
 typedef struct {
 	ntscrs_SettingsList settings;
 	A_long num_checkoutable_params;
+	A_long num_aefx_params; // in_data and out_data both seem to have num_params = 0 in update params callback
 	NtscAE_CheckoutableParam* checkoutable_params;
 } NtscAE_GlobalData;
 

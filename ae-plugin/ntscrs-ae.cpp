@@ -773,7 +773,7 @@ static PF_Err NtscSetupParams (
 				PF_CheckBoxDef* checkbox_def = &def.u.bd;
 				checkbox_def->value = checkbox_def->dephault = true;
 				checkbox_def->u.nameptr = StrID_Param_Group_Enabled;
-				def.flags |= PF_ParamFlag_CANNOT_TIME_VARY;
+				def.flags |= PF_ParamFlag_CANNOT_TIME_VARY | PF_ParamFlag_SUPERVISE;
 				def.uu.id = descriptor->id + 1;
 				ERR(PF_ADD_PARAM(in_data, -1, &def));
 				checkoutable_params[*num_checkoutable_params] = {descriptor->id, *num_aefx_params};
@@ -836,6 +836,7 @@ ParamsSetup(
 	A_long num_aefx_params = 1;
 	NtscSetupParams(in_data, global_data->settings, &num_checkoutable_params, &num_aefx_params, checkoutable_params);
 	global_data->num_checkoutable_params = num_checkoutable_params;
+	global_data->num_aefx_params = num_aefx_params;
 	global_data->checkoutable_params = checkoutable_params;
 
 	out_data->num_params = num_aefx_params;
@@ -864,8 +865,8 @@ static PF_Err UpdateParameterUI (
 	A_Boolean last_param_was_group = false;
 	A_Boolean updating_group = false;
 	A_Boolean checkbox_enabled = false;
-	for (int i = 0; i < global_data->num_checkoutable_params; i++) {
-		param_to_update = *params[global_data->checkoutable_params[i].index];
+	for (int i = 0; i < global_data->num_aefx_params; i++) {
+		param_to_update = *params[i];
 
 		// Group started--next iteration we will check the checkbox state
 		if (param_to_update.param_type == PF_Param_GROUP_START) {
