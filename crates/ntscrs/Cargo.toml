@@ -11,13 +11,14 @@ image = { version = "0.24.7", default-features = false }
 glam = "0.24.2"
 rand = { version = "0.8.5", default-features = false }
 rand_xoshiro = "0.6.0"
-simdnoise = "3.1.6"
 num-traits = "0.2"
 macros = {path = "../macros"}
 siphasher = "1.0.0"
 num-derive = "0.4.1"
 tinyjson = "2.5.1"
 rayon = "1.8.0"
+# TODO: switch back once https://github.com/Auburn/FastNoiseLite/pull/125 is merged
+fastnoise-lite = { git = "https://github.com/valadaptive/FastNoiseLite", rev = "6df4aadbdb83908244685d9bdc0c976c0488128d" }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

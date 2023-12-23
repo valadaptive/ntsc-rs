@@ -3,10 +3,10 @@ use std::collections::VecDeque;
 
 use core::f32::consts::PI;
 use image::RgbImage;
-use rand::{Rng, RngCore, SeedableRng};
+use rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256PlusPlus;
 use rayon::prelude::*;
-use simdnoise::NoiseBuilder;
+use fastnoise_lite::{FastNoiseLite, NoiseType, FractalType};
 
 use crate::{
     filter::TransferFunction,
@@ -473,19 +473,20 @@ fn video_noise_line(
     frequency: f32,
     intensity: f32,
 ) {
-    let width = row.len();
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(seeder.clone().mix(index as u64).finalize());
-    let noise_seed = rng.next_u32();
-    let offset = rng.gen::<f32>() * width as f32;
+    let noise_seed = rng.gen::<i32>();
 
-    let noise = NoiseBuilder::gradient_1d_offset(offset, width)
-        .with_seed(noise_seed as i32)
-        .with_freq(frequency)
-        .generate()
-        .0;
+    let mut generator = FastNoiseLite::new();
+    generator.set_seed(Some(noise_seed));
+    generator.set_noise_type(Some(NoiseType::Perlin));
+    // Best scaling factor for matching simdnoise based on my eyeballs
+    generator.set_frequency(Some(frequency * std::f32::consts::SQRT_2));
 
     row.iter_mut().enumerate().for_each(|(x, pixel)| {
-        *pixel += noise[x] * 0.25 * intensity;
+        // 2.2 was the min/max intensity for simdnoise, 0.7 is the min/max for fastnoise-lite. Scale to roughly match
+        // existing settings.
+        let row_noise = generator.get_noise_2d(x as f32, 0.0) * (2.2 / 0.7);
+        *pixel += row_noise * 0.25 * intensity;
     });
 }
 
@@ -705,13 +706,13 @@ fn tracking_noise(
         .mix(noise_seeds::TRACKING_NOISE)
         .mix(info.frame_num);
     let noise_seed = seeder.clone().mix(0).finalize::<i32>();
-    let offset = seeder.clone().mix(1).finalize::<f32>() * yiq.num_rows() as f32;
     seeder = seeder.mix(2);
-    let shift_noise = NoiseBuilder::gradient_1d_offset(offset, num_rows)
-        .with_seed(noise_seed)
-        .with_freq(0.5)
-        .generate()
-        .0;
+
+    let mut generator = FastNoiseLite::new();
+    generator.set_seed(Some(noise_seed));
+    generator.set_noise_type(Some(NoiseType::Perlin));
+    // Best scaling factor for matching simdnoise based on my eyeballs
+    generator.set_frequency(Some(0.5 * std::f32::consts::SQRT_2));
 
     // Handle cases where the number of affected rows exceeds the number of actual rows in the image
     let start_row = height.max(num_rows) - num_rows;
@@ -729,9 +730,12 @@ fn tracking_noise(
             let index = index + cut_off_rows;
             // This iterates from the top down. Increase the intensity as we approach the bottom of the picture.
             let intensity_scale = index as f32 / num_rows as f32;
+            // 2.2 was the min/max intensity for simdnoise, 0.7 is the min/max for fastnoise-lite. Scale to roughly match
+            // existing settings.
+            let row_noise = generator.get_noise_2d(index as f32, 0.0) * (2.2 / 0.7);
             shift_row(
                 row,
-                shift_noise[index] * intensity_scale * wave_intensity * 0.25 * info.bandwidth_scale,
+                row_noise * intensity_scale * wave_intensity * 0.25 * info.bandwidth_scale,
                 BoundaryHandling::Constant(0.0),
             );
 
@@ -852,25 +856,27 @@ fn chroma_delay(yiq: &mut YiqView, info: &CommonInfo, offset: (f32, isize)) {
 }
 
 /// Emulate VHS waviness / horizontal shift noise.
-fn vhs_edge_wave(yiq: &mut YiqView, info: &CommonInfo, intensity: f32, speed: f32) {
+fn vhs_edge_wave(yiq: &mut YiqView, info: &CommonInfo, settings: &VHSEdgeWaveSettings) {
     let width = yiq.dimensions.0;
-    let height = yiq.num_rows();
 
     let seeder = Seeder::new(info.seed).mix(noise_seeds::EDGE_WAVE);
     let noise_seed: i32 = seeder.clone().mix(0).finalize();
-    let offset = seeder.mix(1).finalize::<f32>() * yiq.num_rows() as f32;
-    let noise = NoiseBuilder::gradient_2d_offset(offset, height, info.frame_num as f32 * speed, 1)
-        .with_seed(noise_seed)
-        .with_freq(0.05)
-        .generate()
-        .0;
+
+    let mut generator = FastNoiseLite::new();
+    generator.set_seed(Some(noise_seed));
+    generator.set_noise_type(Some(NoiseType::Perlin));
+    generator.set_fractal_type(Some(FractalType::FBm));
+    // Best scaling factor for matching simdnoise based on my eyeballs
+    generator.set_frequency(Some(settings.frequency * std::f32::consts::SQRT_2));
+    generator.set_fractal_octaves(Some(settings.detail));
 
     for plane in [&mut yiq.y, &mut yiq.i, &mut yiq.q] {
         plane
             .par_chunks_mut(width)
             .enumerate()
             .for_each(|(index, row)| {
-                let shift = (noise[index] / 0.022) * intensity * 0.5 * info.bandwidth_scale;
+                let row_noise = generator.get_noise_2d(index as f32, info.frame_num as f32 * settings.speed);
+                let shift = (row_noise / 0.7) * settings.intensity * 0.5 * info.bandwidth_scale;
                 shift_row(row, shift, BoundaryHandling::Extend);
             })
     }
@@ -1063,7 +1069,7 @@ impl NtscEffect {
         if let Some(vhs_settings) = &self.vhs_settings {
             if let Some(edge_wave) = &vhs_settings.edge_wave {
                 if edge_wave.intensity > 0.0 {
-                    vhs_edge_wave(yiq, &info, edge_wave.intensity, edge_wave.speed);
+                    vhs_edge_wave(yiq, &info, &edge_wave);
                 }
             }
 
