@@ -867,7 +867,7 @@ fn vhs_edge_wave(yiq: &mut YiqView, info: &CommonInfo, settings: &VHSEdgeWaveSet
             // Yes, they got the lacunarity backwards by making it apply to frequency instead of scale.
             // 2.0 *halves* the scale each time because it doubles the frequency.
             .with_lacunarity(2.0)
-            .with_gain(0.5)
+            .with_gain(std::f32::consts::FRAC_1_SQRT_2)
             .generate()
             .0;
 
