@@ -852,25 +852,32 @@ fn chroma_delay(yiq: &mut YiqView, info: &CommonInfo, offset: (f32, isize)) {
 }
 
 /// Emulate VHS waviness / horizontal shift noise.
-fn vhs_edge_wave(yiq: &mut YiqView, info: &CommonInfo, intensity: f32, speed: f32) {
+fn vhs_edge_wave(yiq: &mut YiqView, info: &CommonInfo, settings: &VHSEdgeWaveSettings) {
     let width = yiq.dimensions.0;
     let height = yiq.num_rows();
 
     let seeder = Seeder::new(info.seed).mix(noise_seeds::EDGE_WAVE);
     let noise_seed: i32 = seeder.clone().mix(0).finalize();
     let offset = seeder.mix(1).finalize::<f32>() * yiq.num_rows() as f32;
-    let noise = NoiseBuilder::gradient_2d_offset(offset, height, info.frame_num as f32 * speed, 1)
-        .with_seed(noise_seed)
-        .with_freq(0.05)
-        .generate()
-        .0;
+    let noise =
+        NoiseBuilder::fbm_2d_offset(offset, height, info.frame_num as f32 * settings.speed, 1)
+            .with_seed(noise_seed)
+            .with_freq(settings.frequency)
+            .with_octaves(settings.detail as u8)
+            // Yes, they got the lacunarity backwards by making it apply to frequency instead of scale.
+            // 2.0 *halves* the scale each time because it doubles the frequency.
+            .with_lacunarity(2.0)
+            .with_gain(0.5)
+            .generate()
+            .0;
 
     for plane in [&mut yiq.y, &mut yiq.i, &mut yiq.q] {
         plane
             .par_chunks_mut(width)
             .enumerate()
             .for_each(|(index, row)| {
-                let shift = (noise[index] / 0.022) * intensity * 0.5 * info.bandwidth_scale;
+                let shift =
+                    (noise[index] / 0.022) * settings.intensity * 0.5 * info.bandwidth_scale;
                 shift_row(row, shift, BoundaryHandling::Extend);
             })
     }
@@ -1063,7 +1070,7 @@ impl NtscEffect {
         if let Some(vhs_settings) = &self.vhs_settings {
             if let Some(edge_wave) = &vhs_settings.edge_wave {
                 if edge_wave.intensity > 0.0 {
-                    vhs_edge_wave(yiq, &info, edge_wave.intensity, edge_wave.speed);
+                    vhs_edge_wave(yiq, &info, &edge_wave);
                 }
             }
 

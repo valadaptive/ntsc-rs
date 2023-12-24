@@ -96,6 +96,8 @@ impl VHSTapeSpeed {
 pub struct VHSEdgeWaveSettings {
     pub intensity: f32,
     pub speed: f32,
+    pub frequency: f32,
+    pub detail: i32,
 }
 
 impl Default for VHSEdgeWaveSettings {
@@ -103,6 +105,8 @@ impl Default for VHSEdgeWaveSettings {
         Self {
             intensity: 1.0,
             speed: 4.0,
+            frequency: 0.05,
+            detail: 1,
         }
     }
 }
@@ -409,6 +413,8 @@ pub enum SettingID {
     INPUT_LUMA_FILTER,
 
     VHS_EDGE_WAVE_ENABLED,
+    VHS_EDGE_WAVE_FREQUENCY,
+    VHS_EDGE_WAVE_DETAIL,
 }
 
 macro_rules! impl_get_field_ref {
@@ -487,9 +493,12 @@ macro_rules! impl_get_field_ref {
                 .$borrow_op(),
             SettingID::VHS_CHROMA_LOSS => $settings.vhs_settings.settings.chroma_loss.$borrow_op(),
             SettingID::VHS_SHARPEN => $settings.vhs_settings.settings.sharpen.$borrow_op(),
-            SettingID::VHS_EDGE_WAVE_ENABLED => {
-                $settings.vhs_settings.settings.edge_wave.enabled.$borrow_op()
-            }
+            SettingID::VHS_EDGE_WAVE_ENABLED => $settings
+                .vhs_settings
+                .settings
+                .edge_wave
+                .enabled
+                .$borrow_op(),
             SettingID::VHS_EDGE_WAVE_SPEED => $settings
                 .vhs_settings
                 .settings
@@ -503,6 +512,20 @@ macro_rules! impl_get_field_ref {
                 .edge_wave
                 .settings
                 .intensity
+                .$borrow_op(),
+            SettingID::VHS_EDGE_WAVE_FREQUENCY => $settings
+                .vhs_settings
+                .settings
+                .edge_wave
+                .settings
+                .frequency
+                .$borrow_op(),
+            SettingID::VHS_EDGE_WAVE_DETAIL => $settings
+                .vhs_settings
+                .settings
+                .edge_wave
+                .settings
+                .detail
                 .$borrow_op(),
 
             SettingID::BANDWIDTH_SCALE => $settings.bandwidth_scale.$borrow_op(),
@@ -643,6 +666,8 @@ impl SettingID {
             SettingID::VHS_EDGE_WAVE_ENABLED => "vhs_edge_wave_enabled",
             SettingID::VHS_EDGE_WAVE_INTENSITY => "vhs_edge_wave",
             SettingID::VHS_EDGE_WAVE_SPEED => "vhs_edge_wave_speed",
+            SettingID::VHS_EDGE_WAVE_FREQUENCY => "vhs_edge_wave_frequency",
+            SettingID::VHS_EDGE_WAVE_DETAIL => "vhs_edge_wave_detail",
             SettingID::USE_FIELD => "use_field",
             SettingID::TRACKING_NOISE_NOISE_INTENSITY => "tracking_noise_noise_intensity",
             SettingID::BANDWIDTH_SCALE => "bandwidth_scale",
@@ -1113,16 +1138,28 @@ impl SettingsList {
                             kind: SettingKind::Group {
                                 children: vec![
                                     SettingDescriptor {
-                                        label: "Edge wave intensity",
+                                        label: "Intensity",
                                         description: Some("Horizontal waving of the image, in pixels."),
-                                        kind: SettingKind::FloatRange { range: 0.0..=10.0, logarithmic: false, default_value: default_settings.vhs_settings.settings.edge_wave.settings.intensity },
+                                        kind: SettingKind::FloatRange { range: 0.0..=20.0, logarithmic: false, default_value: default_settings.vhs_settings.settings.edge_wave.settings.intensity },
                                         id: SettingID::VHS_EDGE_WAVE_INTENSITY
                                     },
                                     SettingDescriptor {
-                                        label: "Edge wave speed",
+                                        label: "Speed",
                                         description: Some("Speed at which the horizontal waving occurs."),
                                         kind: SettingKind::FloatRange { range: 0.0..=10.0, logarithmic: false, default_value: default_settings.vhs_settings.settings.edge_wave.settings.speed },
                                         id: SettingID::VHS_EDGE_WAVE_SPEED
+                                    },
+                                    SettingDescriptor {
+                                        label: "Frequency",
+                                        description: Some("Base wavelength for the horizontal waving."),
+                                        kind: SettingKind::FloatRange { range: 0.0..=0.5, logarithmic: false, default_value: default_settings.vhs_settings.settings.edge_wave.settings.frequency },
+                                        id: SettingID::VHS_EDGE_WAVE_FREQUENCY
+                                    },
+                                    SettingDescriptor {
+                                        label: "Detail",
+                                        description: Some("Octaves of noise for the waves."),
+                                        kind: SettingKind::IntRange { range: 1..=5, default_value: default_settings.vhs_settings.settings.edge_wave.settings.detail },
+                                        id: SettingID::VHS_EDGE_WAVE_DETAIL
                                     },
                                 ],
                                 default_value: true
