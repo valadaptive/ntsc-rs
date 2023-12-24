@@ -863,7 +863,7 @@ fn vhs_edge_wave(yiq: &mut YiqView, info: &CommonInfo, settings: &VHSEdgeWaveSet
         NoiseBuilder::fbm_2d_offset(offset, height, info.frame_num as f32 * settings.speed, 1)
             .with_seed(noise_seed)
             .with_freq(settings.frequency)
-            .with_octaves(settings.detail as u8)
+            .with_octaves(settings.detail.clamp(1, 5) as u8)
             // Yes, they got the lacunarity backwards by making it apply to frequency instead of scale.
             // 2.0 *halves* the scale each time because it doubles the frequency.
             .with_lacunarity(2.0)

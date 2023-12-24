@@ -1576,7 +1576,7 @@ pub extern "C" fn OfxGetPlugin(nth: c_int) -> *const OfxPlugin {
                 apiVersion: 1,
                 pluginIdentifier: static_cstr!("wtf.vala:NtscRs").as_ptr(),
                 pluginVersionMajor: 1,
-                pluginVersionMinor: 0,
+                pluginVersionMinor: 1,
                 setHost: Some(set_host_info),
                 mainEntry: Some(main_entry),
             }
