@@ -392,10 +392,10 @@ fn luma_into_chroma(
             }
         }
         ChromaDemodulationFilter::OneLineComb => {
+            let mut delay = Vec::from(&yiq.y[width..width * 2]);
             let y_lines = yiq.y.chunks_mut(width);
             let i_lines = yiq.i.chunks_mut(width);
             let q_lines = yiq.q.chunks_mut(width);
-            let mut delay = vec![0f32; width];
             y_lines
                 .zip(i_lines.zip(q_lines))
                 .enumerate()
@@ -416,15 +416,21 @@ fn luma_into_chroma(
                 });
         }
         ChromaDemodulationFilter::TwoLineComb => {
-            let mut delay = vec![0f32; width];
+            // This holds the "previous" line--we overwrite in place so we need to cache the previous line's
+            // non-filtered value. It starts out as the second line in order to maintain the checkerboard pattern
+            // and essentially make the first line a 1-line comb filter.
+            let mut delay = Vec::from(&yiq.y[width..width * 2]);
 
             for line_index in 0..yiq.num_rows() {
                 for sample_index in 0..width {
                     let prev_line = delay[sample_index];
-                    let next_line = *yiq
+                    let next_line = yiq
                         .y
                         .get((line_index + 1) * width + sample_index)
-                        .unwrap_or(&0.0);
+                        .cloned()
+                        // On the last line, blend with the above line twice (making it an average of the 2) since
+                        // there's no line after it to average with
+                        .unwrap_or(prev_line);
                     let cur_line = &mut yiq.y[line_index * width + sample_index];
 
                     let blended = (*cur_line * 0.5) + (prev_line * 0.25) + (next_line * 0.25);
