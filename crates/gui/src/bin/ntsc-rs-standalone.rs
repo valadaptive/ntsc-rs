@@ -10,8 +10,12 @@ use std::{
     ops::RangeInclusive,
     path::{Path, PathBuf},
     pin::Pin,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, OnceLock,
+    },
     task::{Context, Poll, Waker},
+    thread,
 };
 
 use eframe::egui;
@@ -136,7 +140,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         "ntsc-rs",
         options,
         Box::new(|cc| {
-            initialize_gstreamer().unwrap();
+            // GStreamer can be slow to initialize (on the order of minutes). Do it off-thread so we can display a
+            // loading screen in the meantime. Thanks for being thread-safe, unlike GTK!
+            let gstreamer_initialized = Arc::new(AtomicBool::new(false));
+            let gstreamer_initialized_for_thread = Arc::clone(&gstreamer_initialized);
+            thread::spawn(move || {
+                initialize_gstreamer().unwrap();
+                gstreamer_initialized_for_thread.store(true, Ordering::Release);
+            });
 
             let settings_list = SettingsList::new();
             let (settings, theme) = if let Some(storage) = cc.storage {
@@ -159,7 +170,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             let ctx = cc.egui_ctx.clone();
             ctx.set_visuals(theme.visuals(&cc.integration_info));
             ctx.style_mut(|style| style.interaction.tooltip_delay = 0.5);
-            Box::new(NtscApp::new(ctx, settings_list, settings, theme))
+            Box::new(NtscApp::new(
+                ctx,
+                settings_list,
+                settings,
+                theme,
+                gstreamer_initialized,
+            ))
         }),
     )?)
 }
@@ -540,6 +557,7 @@ impl AppExecutor {
 }
 
 struct NtscApp {
+    gstreamer_initialized: Arc<AtomicBool>,
     settings_list: SettingsList,
     executor: Arc<Mutex<AppExecutor>>,
     pipeline: Option<PipelineInfo>,
@@ -562,8 +580,10 @@ impl NtscApp {
         settings_list: SettingsList,
         effect_settings: NtscEffectFullSettings,
         color_theme: ColorTheme,
+        gstreamer_initialized: Arc<AtomicBool>,
     ) -> Self {
         Self {
+            gstreamer_initialized,
             settings_list,
             pipeline: None,
             executor: Arc::new(Mutex::new(AppExecutor::new(ctx.clone()))),
@@ -2570,10 +2590,23 @@ impl NtscApp {
                 self.show_video_pane(ui);
             });
     }
+
+    fn show_loading_screen(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.centered_and_justified(|ui| {
+                ui.add(egui::Spinner::new().size(128.0));
+            });
+        });
+    }
 }
 
 impl eframe::App for NtscApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        if !self.gstreamer_initialized.load(Ordering::Acquire) {
+            self.show_loading_screen(ctx);
+            return;
+        }
+
         self.tick();
 
         let mut pipeline_error = None::<PipelineError>;
