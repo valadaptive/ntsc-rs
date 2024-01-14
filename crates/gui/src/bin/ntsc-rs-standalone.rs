@@ -2164,6 +2164,7 @@ impl NtscApp {
                                     pressed,
                                     repeat,
                                     modifiers,
+                                    ..
                                 } = event
                                 {
                                     *key == egui::Key::Space
