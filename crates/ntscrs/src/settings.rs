@@ -781,7 +781,7 @@ impl SettingsList {
             },
             SettingDescriptor {
                 label: "Input luma filter",
-                description: Some("Filter the input luminance to reduce chroma crosstalk artifacts."),
+                description: Some("Filter the input luminance to decrease rainbow artifacts."),
                 kind: SettingKind::Enumeration {
                     options: vec![
                         MenuItem {
@@ -796,7 +796,7 @@ impl SettingsList {
                         },
                         MenuItem {
                             label: "None",
-                            description: Some("Do not filter the luminance signal."),
+                            description: Some("Do not filter the luminance signal. Adds rainbow artifacts."),
                             index: LumaLowpass::None.to_u32().unwrap(),
                         },
                     ],
