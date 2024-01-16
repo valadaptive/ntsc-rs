@@ -37,6 +37,8 @@ $ sudo dnf install gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good gs
 ```
 </details>
 
+On Linux, you'll probably also need to give it execute permissions. This can be found under "Properties > Executable as Program" in the GNOME file manager, and similar places on others. You can also use the terminal (`chmod +x ntsc-rs-standalone`).
+
 ## More information
 
 ntsc-rs is a rough Rust port of [ntscqt](https://github.com/JargeZ/ntscqt), a PyQt-based GUI for [ntsc](https://github.com/zhuker/ntsc), itself a Python port of [composite-video-simulator](https://github.com/joncampbell123/composite-video-simulator). Reimplementing the image processing in multithreaded Rust allows it to run at (mostly) real-time speeds.
