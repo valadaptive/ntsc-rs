@@ -5,11 +5,12 @@ use gstreamer::glib::once_cell::sync::Lazy;
 use gstreamer::prelude::*;
 use gstreamer::{glib, PadTemplate};
 use gstreamer_video::subclass::prelude::*;
-use ntscrs::yiq_fielding::{Rgbx8, YiqOwned, YiqView};
+use ntscrs::yiq_fielding::{Rgbx8, YiqView};
 use std::fmt::Debug;
 use std::sync::Mutex;
 
 use super::ntscrs_filter::NtscFilterSettings;
+use super::process_gst_frame::process_gst_frame;
 
 #[derive(Clone, glib::Boxed, Default)]
 #[boxed_type(name = "SinkTexture")]
@@ -77,44 +78,27 @@ impl EguiSink {
         let _ = self.update_texture();
     }
 
-    fn apply_effect(
-        &self,
-        frame_num: usize,
-        stride: usize,
-        buf: &[u8],
-        size: (usize, usize),
-        image: &mut ColorImage,
-    ) {
-        let settings = self.settings.lock().unwrap();
-        let field = settings.0.use_field.to_yiq_field(frame_num);
-
-        let mut yiq = YiqOwned::from_strided_buffer::<Rgbx8>(buf, stride, size.0, size.1, field);
-        let mut view = YiqView::from(&mut yiq);
-        settings.0.apply_effect_to_yiq(&mut view, frame_num);
+    fn apply_effect(&self, view: &YiqView, size: (usize, usize), image: &mut ColorImage) {
         view.write_to_strided_buffer::<Rgbx8>(image.as_raw_mut(), size.0 * 4);
     }
 
     pub fn update_texture(&self) -> Result<(), gstreamer::FlowError> {
         let mut tex = self.texture.lock().unwrap();
         let vframe = self.last_frame.lock().unwrap();
-        let (vframe, frame_num) = vframe.as_ref().ok_or(gstreamer::FlowError::Error)?;
+        let (vframe, ..) = vframe.as_ref().ok_or(gstreamer::FlowError::Error)?;
+
+        let mut yiq = process_gst_frame(
+            &vframe.as_video_frame_ref(),
+            &self.settings.lock().unwrap().0,
+        )?;
 
         let width = vframe.width() as usize;
         let height = vframe.height() as usize;
         let mut image = ColorImage::new([width, height], Color32::BLACK);
 
-        let stride = vframe.plane_stride()[0] as usize;
-
         match *self.preview_mode.lock().unwrap() {
             EffectPreviewSetting::Enabled => {
-                let buf = vframe.plane_data(0).or(Err(gstreamer::FlowError::Error))?;
-                self.apply_effect(
-                    *frame_num as usize,
-                    stride,
-                    buf,
-                    (width, height),
-                    &mut image,
-                );
+                self.apply_effect(&YiqView::from(&mut yiq), (width, height), &mut image);
             }
             #[allow(illegal_floating_point_literal_pattern)]
             EffectPreviewSetting::Disabled | EffectPreviewSetting::SplitScreen(0f64) => {
@@ -124,13 +108,7 @@ impl EguiSink {
             }
             EffectPreviewSetting::SplitScreen(split) => {
                 let buf = vframe.plane_data(0).or(Err(gstreamer::FlowError::Error))?;
-                self.apply_effect(
-                    *frame_num as usize,
-                    stride,
-                    buf,
-                    (width, height),
-                    &mut image,
-                );
+                self.apply_effect(&YiqView::from(&mut yiq), (width, height), &mut image);
 
                 let split_boundary =
                     (split * width as f64).round().clamp(0.0, width as f64) as usize;
