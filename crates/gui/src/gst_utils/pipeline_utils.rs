@@ -200,8 +200,9 @@ pub fn create_pipeline<
                             .expect("queue has no sinkpad");
 
                         let caps = src_pad.current_caps();
+                        let caps = caps.as_ref();
 
-                        let framerate = caps.as_ref().and_then(|caps| {
+                        let framerate = caps.and_then(|caps| {
                             caps.structure(0)?
                                 .get::<gstreamer::Fraction>("framerate")
                                 .ok()
@@ -213,7 +214,7 @@ pub fn create_pipeline<
                         };
 
                         if let (Some(caps), Some(initial_scale)) = (caps, initial_scale) {
-                            if let Some((width, height)) = scale_from_caps(&caps, initial_scale) {
+                            if let Some((width, height)) = scale_from_caps(caps, initial_scale) {
                                 caps_filter.set_property(
                                     "caps",
                                     gstreamer_video::VideoCapsBuilder::default()

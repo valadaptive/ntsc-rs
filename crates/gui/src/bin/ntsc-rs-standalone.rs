@@ -23,7 +23,7 @@ use eframe::epaint::vec2;
 use futures_lite::{Future, FutureExt};
 use glib::clone::Downgrade;
 use gstreamer::{glib, prelude::*};
-use gstreamer_video::{VideoCapsBuilder, VideoFormat};
+use gstreamer_video::{VideoCapsBuilder, VideoFormat, VideoInterlaceMode};
 
 use gui::{
     expression_parser::eval_expression_string,
@@ -200,6 +200,7 @@ struct PipelineInfo {
     is_still_image: Arc<Mutex<bool>>,
     has_audio: Arc<Mutex<bool>>,
     framerate: Arc<Mutex<Option<gstreamer::Fraction>>>,
+    interlace_mode: Arc<Mutex<Option<gstreamer_video::VideoInterlaceMode>>>,
 }
 
 impl PipelineInfo {
@@ -782,6 +783,8 @@ impl NtscApp {
         let is_still_image_for_handler = Arc::clone(&is_still_image);
         let framerate = Arc::new(Mutex::new(None));
         let framerate_for_handler = Arc::clone(&framerate);
+        let interlace_mode = Arc::new(Mutex::new(None));
+        let interlace_mode_for_handler = Arc::clone(&interlace_mode);
         let has_audio = Arc::new(Mutex::new(false));
         let has_audio_for_closure = has_audio.clone();
         let ctx_for_handler = ctx.clone();
@@ -808,6 +811,7 @@ impl NtscApp {
                 let pipeline_info_state = &pipeline_info_state_for_handler;
                 let is_still_image = &is_still_image_for_handler;
                 let framerate = &framerate_for_handler;
+                let interlace_mode = &interlace_mode_for_handler;
 
                 let handle_msg = move |_bus, msg: &gstreamer::Message| -> Option<()> {
                     // Make sure we're listening to a pipeline event
@@ -844,18 +848,24 @@ impl NtscApp {
                                 *is_still_image.lock().unwrap() = is_still_image_inner;
 
                                 let video_rate = pipeline.by_name("video_rate");
-                                if let Some(video_rate) = video_rate {
-                                    let caps =
-                                        video_rate.static_pad("src").and_then(|pad| pad.caps());
+                                let caps = video_rate
+                                    .and_then(|video_rate| video_rate.static_pad("src").and_then(|pad| pad.caps()));
 
-                                    *framerate.lock().unwrap() = if let Some(caps) = caps {
-                                        let structure = caps.structure(0);
-                                        structure.and_then(|structure| {
+                                if let Some(caps) = caps {
+                                    let structure = caps.structure(0);
+
+                                    *framerate.lock().unwrap() = structure
+                                        .and_then(|structure| {
                                             structure.get::<gstreamer::Fraction>("framerate").ok()
-                                        })
-                                    } else {
-                                        None
-                                    };
+                                        });
+
+                                    *interlace_mode.lock().unwrap() = structure
+                                        .and_then(|structure| {
+                                            Some(VideoInterlaceMode::from_string(structure.get("interlace-mode").ok()?))
+                                        });
+                                } else {
+                                    *framerate.lock().unwrap() = None;
+                                    *interlace_mode.lock().unwrap() = None;
                                 }
                             }
                         }
@@ -896,6 +906,7 @@ impl NtscApp {
             is_still_image,
             has_audio,
             framerate,
+            interlace_mode,
         })
     }
 
@@ -2072,10 +2083,19 @@ impl NtscApp {
                                 }
                             }
                         } else {
-                            ui.label(format!(
+                            let mut fps_display = format!(
                                 "{:.2} fps",
                                 current_framerate.numer() as f64 / current_framerate.denom() as f64
-                            ));
+                            );
+                            if let Some(interlace_mode) = *info.interlace_mode.lock().unwrap() {
+                                fps_display.push_str(match interlace_mode {
+                                    VideoInterlaceMode::Progressive => " (progressive)",
+                                    VideoInterlaceMode::Interleaved => " (interlaced)",
+                                    VideoInterlaceMode::Mixed => " (telecined)",
+                                    _ => "",
+                                });
+                            }
+                            ui.label(fps_display);
                         }
                     }
 
