@@ -1,5 +1,5 @@
 use eframe::egui::Context;
-use eframe::egui::TextureOptions;
+use eframe::egui::{TextureFilter, TextureOptions};
 use eframe::epaint::{Color32, ColorImage, TextureHandle};
 use gstreamer::glib::once_cell::sync::Lazy;
 use gstreamer::prelude::*;
@@ -90,9 +90,7 @@ impl EguiSink {
 
         let mut yiq = YiqOwned::from_strided_buffer::<Rgbx8>(buf, stride, size.0, size.1, field);
         let mut view = YiqView::from(&mut yiq);
-        settings
-            .0
-            .apply_effect_to_yiq(&mut view, frame_num);
+        settings.0.apply_effect_to_yiq(&mut view, frame_num);
         view.write_to_strided_buffer::<Rgbx8>(image.as_raw_mut(), size.0 * 4);
     }
 
@@ -147,10 +145,13 @@ impl EguiSink {
             }
         }
 
-        tex.0
-            .as_mut()
-            .ok_or(gstreamer::FlowError::Error)?
-            .set(image, TextureOptions::LINEAR);
+        tex.0.as_mut().ok_or(gstreamer::FlowError::Error)?.set(
+            image,
+            TextureOptions {
+                magnification: TextureFilter::Nearest,
+                minification: TextureFilter::Linear,
+            },
+        );
         if let Some(ctx) = &self.ctx.lock().unwrap().0 {
             ctx.request_repaint();
         }
