@@ -2409,65 +2409,65 @@ impl NtscApp {
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             ui.with_layout(
-                                egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
                                 |ui| {
-                                    if let Some(PipelineInfo {
+                                    let Some(PipelineInfo {
                                         preview, egui_sink, ..
-                                    }) = &mut self.pipeline
-                                    {
-                                        let texture_size = if self.video_scale.enabled {
-                                            let texture_actual_size = preview.size_vec2();
-                                            let scale_factor = self.video_scale.scale as f32
-                                                / texture_actual_size.y;
-                                            vec2(
-                                                (texture_actual_size.x * scale_factor).round(),
-                                                self.video_scale.scale as f32,
-                                            )
-                                        } else {
-                                            preview.size_vec2()
-                                        };
-                                        let scale_factor = if self.video_zoom.fit {
-                                            // Due to floating-point error, a scrollbar may appear even if we scale down. To
-                                            // avoid the scrollbar popping in and out of existence, subtract a constant value
-                                            // from available_size.
-                                            ((ui.available_size() - vec2(1.0, 1.0)) / texture_size)
-                                                .min_elem()
-                                                .min(1.0)
-                                        } else {
-                                            self.video_zoom.scale as f32
-                                        };
-
-                                        // We need to render the splitscreen bar in the same area as the image. The
-                                        // Response returned from ui.image() fills the entire scroll area, so we need
-                                        // to do the layout ourselves.
-                                        let image = egui::Image::from_texture((
-                                            preview.id(),
-                                            texture_size * scale_factor,
-                                        ));
-                                        let (rect, _) = ui.allocate_exact_size(
-                                            texture_size * scale_factor,
-                                            egui::Sense::hover(),
-                                        );
-                                        ui.put(rect, image);
-
-                                        if self.effect_preview.mode
-                                            == EffectPreviewMode::SplitScreen
-                                            && ui
-                                                .put(
-                                                    rect,
-                                                    SplitScreen::new(
-                                                        &mut self.effect_preview.split_location,
-                                                    ),
-                                                )
-                                                .changed()
-                                        {
-                                            egui_sink.set_property(
-                                                "preview_mode",
-                                                Self::sink_preview_mode(&self.effect_preview),
-                                            )
-                                        }
-                                    } else {
+                                    }) = &mut self.pipeline else {
                                         ui.heading("No media loaded");
+                                        return;
+                                    };
+
+                                    let texture_size = if self.video_scale.enabled {
+                                        let texture_actual_size = preview.size_vec2();
+                                        let scale_factor = self.video_scale.scale as f32
+                                            / texture_actual_size.y;
+                                        vec2(
+                                            (texture_actual_size.x * scale_factor).round(),
+                                            self.video_scale.scale as f32,
+                                        )
+                                    } else {
+                                        preview.size_vec2()
+                                    };
+                                    let scale_factor = if self.video_zoom.fit {
+                                        // Due to floating-point error, a scrollbar may appear even if we scale down. To
+                                        // avoid the scrollbar popping in and out of existence, subtract a constant value
+                                        // from available_size.
+                                        ((ui.available_size() - vec2(1.0, 1.0)) / texture_size)
+                                            .min_elem()
+                                            .min(1.0)
+                                    } else {
+                                        self.video_zoom.scale as f32
+                                    };
+
+                                    // We need to render the splitscreen bar in the same area as the image. The
+                                    // Response returned from ui.image() fills the entire scroll area, so we need
+                                    // to do the layout ourselves.
+                                    let image = egui::Image::from_texture((
+                                        preview.id(),
+                                        texture_size * scale_factor,
+                                    ));
+                                    let (rect, _) = ui.allocate_exact_size(
+                                        texture_size * scale_factor,
+                                        egui::Sense::hover(),
+                                    );
+                                    ui.put(rect, image);
+
+                                    if self.effect_preview.mode
+                                        == EffectPreviewMode::SplitScreen
+                                        && ui
+                                            .put(
+                                                rect,
+                                                SplitScreen::new(
+                                                    &mut self.effect_preview.split_location,
+                                                ),
+                                            )
+                                            .changed()
+                                    {
+                                        egui_sink.set_property(
+                                            "preview_mode",
+                                            Self::sink_preview_mode(&self.effect_preview),
+                                        )
                                     }
                                 },
                             );
@@ -2488,10 +2488,9 @@ impl NtscApp {
                             let handle = file_dialog.await;
 
                             Some(Box::new(move |app: &mut NtscApp| {
-                                if let Some(handle) = handle {
-                                    app.load_video(&ctx, handle.into())
-                                } else {
-                                    Ok(())
+                                match handle {
+                                    Some(handle) => app.load_video(&ctx, handle.into()),
+                                    None => Ok(()),
                                 }
                             }) as _)
                         });
