@@ -332,9 +332,9 @@ fn luma_into_chroma_line_box(
 
 fn luma_into_chroma_line_iir(
     y: &mut [f32],
-    scratch: &mut [f32],
     i: &mut [f32],
     q: &mut [f32],
+    scratch: &mut [f32],
     filter: &TransferFunction,
     delay: usize,
     xi: usize,
@@ -400,9 +400,9 @@ fn luma_into_chroma(
 
                             luma_into_chroma_line_iir(
                                 y,
-                                scratch,
                                 i,
                                 q,
+                                scratch,
                                 &filter,
                                 1,
                                 xi,
