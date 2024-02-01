@@ -78,6 +78,9 @@ impl Configurator {
     }
 
     #[no_mangle]
+    /// # Safety
+    ///
+    /// The pointer must be valid and must not have been freed.
     pub unsafe extern "C" fn ntscrs_configurator_free(configurator_ptr: *mut Configurator) {
         let configurator = Box::from_raw(configurator_ptr);
         drop(configurator);
@@ -268,6 +271,9 @@ impl SettingsList {
     }
 
     #[no_mangle]
+    /// # Safety
+    ///
+    /// The pointer must be valid and must not have been freed.
     pub unsafe extern "C" fn ntscrs_settingslist_free(self) {
         let mut drop_stack: Vec<&[SettingDescriptor]> = Vec::new();
 
@@ -287,7 +293,7 @@ impl SettingsList {
                         for item in s {
                             let label = CString::from_raw(item.label);
                             drop(label);
-                            if item.description != ptr::null_mut() {
+                            if !item.description.is_null() {
                                 let description = CString::from_raw(item.description);
                                 drop(description);
                             }
@@ -309,7 +315,7 @@ impl SettingsList {
 
                 let label = CString::from_raw(descriptor.label);
                 drop(label);
-                if descriptor.description != ptr::null_mut() {
+                if !descriptor.description.is_null() {
                     let description = CString::from_raw(descriptor.description);
                     drop(description);
                 }
@@ -362,6 +368,10 @@ impl SettingsList {
 }
 
 #[no_mangle]
+/// # Safety
+///
+/// The `y`, `i`, and `q` arguments must be valid pointers into arrays of `width` * `height` if the `settings` says to
+/// process every field, or `width` * `height` / 2 if the `settings` says to process every other field.
 pub unsafe extern "C" fn ntscrs_process_yiq(
     y: *mut f32,
     i: *mut f32,

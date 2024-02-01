@@ -49,13 +49,13 @@ fn each_mut<T, const N: usize>(arr: &mut [T; N]) -> [&mut T; N] {
 
 /// Rational transfer function for an IIR filter in the z-transform domain.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct TransferFunction {
     /// Coefficients for the numerator polynomial. Padded with trailing zeros to match the number of coefficients
     /// in the denominator.
     pub num: Vec<f32>,
     /// Coefficients for the denominator polynomial.
     pub den: Vec<f32>,
-    _private: (),
 }
 
 impl TransferFunction {
@@ -81,7 +81,6 @@ impl TransferFunction {
         TransferFunction {
             num,
             den,
-            _private: (),
         }
     }
 

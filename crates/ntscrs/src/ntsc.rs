@@ -819,64 +819,68 @@ fn chroma_delay(yiq: &mut YiqView, info: &CommonInfo, offset: (f32, isize)) {
     let width = yiq.dimensions.0;
     let height = yiq.num_rows();
 
-    if offset.1 == 0 {
-        // Only a horizontal shift is necessary. We can do this in-place easily.
-        yiq.i
-            .par_chunks_mut(width)
-            .zip(yiq.q.par_chunks_mut(width))
-            .for_each(|(i, q)| {
-                shift_row(i, horiz_shift, BoundaryHandling::Constant(0.0));
-                shift_row(q, horiz_shift, BoundaryHandling::Constant(0.0));
-            });
-    } else if offset.1 > 0 {
-        // Some finagling is required to shift vertically. This branch shifts the chroma planes downwards.
-        let offset = offset.1 as usize;
-        // Starting from the bottom, copy (or write a horizontally-shifted copy of) each row downwards.
-        for dst_row_idx in (0..height).rev() {
-            let (i_src_part, i_dst_part) = yiq.i.split_at_mut(dst_row_idx * width);
-            let (q_src_part, q_dst_part) = yiq.q.split_at_mut(dst_row_idx * width);
+    match offset.1.cmp(&0) {
+        std::cmp::Ordering::Less => {
+            let offset = (-offset.1) as usize;
+            // Starting from the top, copy (or write a horizontally-shifted copy of) each row upwards.
+            for dst_row_idx in 0..height {
+                let (i_dst_part, i_src_part) = yiq.i.split_at_mut((dst_row_idx + 1) * width);
+                let (q_dst_part, q_src_part) = yiq.q.split_at_mut((dst_row_idx + 1) * width);
 
-            let dst_row_range = 0..width;
-            let dst_i = &mut i_dst_part[dst_row_range.clone()];
-            let dst_q = &mut q_dst_part[dst_row_range.clone()];
+                let dst_row_range = dst_row_idx * width..(dst_row_idx + 1) * width;
+                let dst_i = &mut i_dst_part[dst_row_range.clone()];
+                let dst_q = &mut q_dst_part[dst_row_range.clone()];
 
-            if dst_row_idx < offset {
-                dst_i.fill(0.0);
-                dst_q.fill(0.0);
-            } else {
-                let src_row_idx = dst_row_idx - offset;
-                let src_row_range = src_row_idx * width..(src_row_idx + 1) * width;
-                let src_i = &mut i_src_part[src_row_range.clone()];
-                let src_q = &mut q_src_part[src_row_range.clone()];
+                if dst_row_idx >= height.max(offset) - offset {
+                    dst_i.fill(0.0);
+                    dst_q.fill(0.0);
+                } else {
+                    let src_row_range = (offset - 1) * width..offset * width;
+                    let src_i = &mut i_src_part[src_row_range.clone()];
+                    let src_q = &mut q_src_part[src_row_range.clone()];
 
-                copy_or_shift(src_i, dst_i);
-                copy_or_shift(src_q, dst_q);
+                    copy_or_shift(src_i, dst_i);
+                    copy_or_shift(src_q, dst_q);
+                }
             }
         }
-    } else {
-        let offset = (-offset.1) as usize;
-        // Starting from the top, copy (or write a horizontally-shifted copy of) each row upwards.
-        for dst_row_idx in 0..height {
-            let (i_dst_part, i_src_part) = yiq.i.split_at_mut((dst_row_idx + 1) * width);
-            let (q_dst_part, q_src_part) = yiq.q.split_at_mut((dst_row_idx + 1) * width);
+        std::cmp::Ordering::Equal => {
+            // Only a horizontal shift is necessary. We can do this in-place easily.
+            yiq.i
+                .par_chunks_mut(width)
+                .zip(yiq.q.par_chunks_mut(width))
+                .for_each(|(i, q)| {
+                    shift_row(i, horiz_shift, BoundaryHandling::Constant(0.0));
+                    shift_row(q, horiz_shift, BoundaryHandling::Constant(0.0));
+                });
+        }
+        std::cmp::Ordering::Greater => {
+            // Some finagling is required to shift vertically. This branch shifts the chroma planes downwards.
+            let offset = offset.1 as usize;
+            // Starting from the bottom, copy (or write a horizontally-shifted copy of) each row downwards.
+            for dst_row_idx in (0..height).rev() {
+                let (i_src_part, i_dst_part) = yiq.i.split_at_mut(dst_row_idx * width);
+                let (q_src_part, q_dst_part) = yiq.q.split_at_mut(dst_row_idx * width);
 
-            let dst_row_range = dst_row_idx * width..(dst_row_idx + 1) * width;
-            let dst_i = &mut i_dst_part[dst_row_range.clone()];
-            let dst_q = &mut q_dst_part[dst_row_range.clone()];
+                let dst_row_range = 0..width;
+                let dst_i = &mut i_dst_part[dst_row_range.clone()];
+                let dst_q = &mut q_dst_part[dst_row_range.clone()];
 
-            if dst_row_idx >= height.max(offset) - offset {
-                dst_i.fill(0.0);
-                dst_q.fill(0.0);
-            } else {
-                let src_row_range = (offset - 1) * width..offset * width;
-                let src_i = &mut i_src_part[src_row_range.clone()];
-                let src_q = &mut q_src_part[src_row_range.clone()];
+                if dst_row_idx < offset {
+                    dst_i.fill(0.0);
+                    dst_q.fill(0.0);
+                } else {
+                    let src_row_idx = dst_row_idx - offset;
+                    let src_row_range = src_row_idx * width..(src_row_idx + 1) * width;
+                    let src_i = &mut i_src_part[src_row_range.clone()];
+                    let src_q = &mut q_src_part[src_row_range.clone()];
 
-                copy_or_shift(src_i, dst_i);
-                copy_or_shift(src_q, dst_q);
+                    copy_or_shift(src_i, dst_i);
+                    copy_or_shift(src_q, dst_q);
+                }
             }
         }
-    }
+    };
 }
 
 /// Emulate VHS waviness / horizontal shift noise.
@@ -1098,7 +1102,7 @@ impl NtscEffect {
         if let Some(vhs_settings) = &self.vhs_settings {
             if let Some(edge_wave) = &vhs_settings.edge_wave {
                 if edge_wave.intensity > 0.0 {
-                    vhs_edge_wave(yiq, &info, &edge_wave);
+                    vhs_edge_wave(yiq, &info, edge_wave);
                 }
             }
 

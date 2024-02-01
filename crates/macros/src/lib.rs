@@ -42,7 +42,7 @@ fn gen_fields(
 
                 let arg_ident: Result<syn::Ident, _> = attr.parse_args();
                 let is_nested_fullsettings = match arg_ident {
-                    Ok(ident) => ident.to_string() == "nested",
+                    Ok(ident) => ident == "nested",
                     Err(_) => false,
                 };
 

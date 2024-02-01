@@ -715,7 +715,7 @@ impl SettingsList {
     fn construct_id_map(
         settings: &[SettingDescriptor],
         map: &mut Vec<Option<Box<[usize]>>>,
-        parent_path: &Vec<usize>,
+        parent_path: &[usize],
     ) {
         for (index, descriptor) in settings.iter().enumerate() {
             let id = descriptor.id as usize;
@@ -723,7 +723,7 @@ impl SettingsList {
                 map.resize(id + 1, None);
             }
 
-            let mut path = parent_path.clone();
+            let mut path = parent_path.to_owned();
             path.push(index);
 
             if let SettingKind::Group { children, .. } = &descriptor.kind {
@@ -1199,7 +1199,7 @@ impl SettingsList {
         ];
 
         let mut by_id = Vec::new();
-        Self::construct_id_map(&v, &mut by_id, &vec![]);
+        Self::construct_id_map(&v, &mut by_id, &[]);
 
         SettingsList {
             settings: v.into_boxed_slice(),
@@ -1208,7 +1208,6 @@ impl SettingsList {
     }
 
     fn settings_to_json(
-        &self,
         dst: &mut HashMap<String, JsonValue>,
         descriptors: &[SettingDescriptor],
         settings: &NtscEffectFullSettings,
@@ -1235,7 +1234,7 @@ impl SettingsList {
                     JsonValue::Boolean(*descriptor.id.get_field_ref::<bool>(settings).unwrap())
                 }
                 SettingKind::Group { children, .. } => {
-                    self.settings_to_json(dst, children, settings);
+                    Self::settings_to_json(dst, children, settings);
                     JsonValue::Boolean(*descriptor.id.get_field_ref::<bool>(settings).unwrap())
                 }
             };
@@ -1246,7 +1245,7 @@ impl SettingsList {
 
     pub fn to_json(&self, settings: &NtscEffectFullSettings) -> JsonValue {
         let mut dst_map = HashMap::<String, JsonValue>::new();
-        self.settings_to_json(&mut dst_map, &self.settings, settings);
+        Self::settings_to_json(&mut dst_map, &self.settings, settings);
 
         dst_map.insert("version".to_string(), JsonValue::Number(1.0));
 

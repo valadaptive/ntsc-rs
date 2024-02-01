@@ -1305,8 +1305,6 @@ impl NtscApp {
         let parser = |input: &str| eval_expression_string(input).ok();
         let mut changed = false;
         for descriptor in descriptors {
-            if descriptor.id == SettingID::RANDOM_SEED {}
-
             let response = match &descriptor {
                 SettingDescriptor {
                     id: SettingID::RANDOM_SEED,
@@ -1519,7 +1517,7 @@ impl NtscApp {
             .show_inside(ui, |ui| {
                 ui.horizontal_centered(|ui| {
                     if ui.button("Save").clicked() {
-                        let json = self.settings_list.to_json(&mut self.effect_settings);
+                        let json = self.settings_list.to_json(&self.effect_settings);
                         let handle = rfd::AsyncFileDialog::new()
                             .set_file_name("settings.json")
                             .save_file();
@@ -2274,7 +2272,7 @@ impl NtscApp {
                     let has_audio = self
                         .pipeline
                         .as_ref()
-                        .and_then(|info| Some(*info.has_audio.lock().unwrap()))
+                        .map(|info| *info.has_audio.lock().unwrap())
                         .unwrap_or(false);
 
                     ui.add_enabled_ui(has_audio, |ui| {
@@ -2454,8 +2452,7 @@ impl NtscApp {
 
                                         if self.effect_preview.mode
                                             == EffectPreviewMode::SplitScreen
-                                        {
-                                            if ui
+                                            && ui
                                                 .put(
                                                     rect,
                                                     SplitScreen::new(
@@ -2463,12 +2460,11 @@ impl NtscApp {
                                                     ),
                                                 )
                                                 .changed()
-                                            {
-                                                egui_sink.set_property(
-                                                    "preview_mode",
-                                                    Self::sink_preview_mode(&self.effect_preview),
-                                                )
-                                            }
+                                        {
+                                            egui_sink.set_property(
+                                                "preview_mode",
+                                                Self::sink_preview_mode(&self.effect_preview),
+                                            )
                                         }
                                     } else {
                                         ui.heading("No media loaded");

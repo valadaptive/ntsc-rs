@@ -86,13 +86,13 @@ impl EguiSink {
         image: &mut ColorImage,
     ) {
         let settings = self.settings.lock().unwrap();
-        let field = settings.0.use_field.to_yiq_field(frame_num as usize);
+        let field = settings.0.use_field.to_yiq_field(frame_num);
 
         let mut yiq = YiqOwned::from_strided_buffer::<Rgbx8>(buf, stride, size.0, size.1, field);
         let mut view = YiqView::from(&mut yiq);
         settings
             .0
-            .apply_effect_to_yiq(&mut view, frame_num as usize);
+            .apply_effect_to_yiq(&mut view, frame_num);
         view.write_to_strided_buffer::<Rgbx8>(image.as_raw_mut(), size.0 * 4);
     }
 
