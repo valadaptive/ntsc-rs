@@ -197,10 +197,7 @@ struct PipelineInfo {
     last_seek_pos: gstreamer::ClockTime,
     preview: egui::TextureHandle,
     at_eos: Arc<Mutex<bool>>,
-    is_still_image: Arc<Mutex<bool>>,
-    has_audio: Arc<Mutex<bool>>,
-    framerate: Arc<Mutex<Option<gstreamer::Fraction>>>,
-    interlace_mode: Arc<Mutex<Option<gstreamer_video::VideoInterlaceMode>>>,
+    metadata: Arc<Mutex<PipelineMetadata>>,
 }
 
 impl PipelineInfo {
@@ -217,6 +214,14 @@ impl PipelineInfo {
 
         Ok(())
     }
+}
+
+#[derive(Debug, Default)]
+struct PipelineMetadata {
+    is_still_image: Option<bool>,
+    has_audio: Option<bool>,
+    framerate: Option<gstreamer::Fraction>,
+    interlace_mode: Option<gstreamer_video::VideoInterlaceMode>,
 }
 
 #[derive(Debug)]
@@ -779,16 +784,12 @@ impl NtscApp {
         let pipeline_info_state_for_callback = Arc::clone(&pipeline_info_state);
         let at_eos = Arc::new(Mutex::new(false));
         let at_eos_for_handler = Arc::clone(&at_eos);
-        let is_still_image = Arc::new(Mutex::new(false));
-        let is_still_image_for_handler = Arc::clone(&is_still_image);
-        let framerate = Arc::new(Mutex::new(None));
-        let framerate_for_handler = Arc::clone(&framerate);
-        let interlace_mode = Arc::new(Mutex::new(None));
-        let interlace_mode_for_handler = Arc::clone(&interlace_mode);
-        let has_audio = Arc::new(Mutex::new(false));
-        let has_audio_for_closure = has_audio.clone();
         let ctx_for_handler = ctx.clone();
         let ctx_for_callback = ctx.clone();
+
+        let metadata = Arc::new(Mutex::new(PipelineMetadata::default()));
+        let metadata_for_audio_handler = metadata.clone();
+        let metadata_for_bus_handler = metadata.clone();
 
         let audio_sink_for_closure = audio_sink.clone();
         let video_sink_for_closure = video_sink.clone();
@@ -797,7 +798,7 @@ impl NtscApp {
             src.clone(),
             move |pipeline| {
                 pipeline.add(&audio_sink_for_closure)?;
-                *has_audio_for_closure.lock().unwrap() = true;
+                metadata_for_audio_handler.lock().unwrap().has_audio = Some(true);
                 Ok(Some(audio_sink_for_closure))
             },
             move |pipeline| {
@@ -809,9 +810,7 @@ impl NtscApp {
                 let at_eos = &at_eos_for_handler;
                 let ctx = &ctx_for_handler;
                 let pipeline_info_state = &pipeline_info_state_for_handler;
-                let is_still_image = &is_still_image_for_handler;
-                let framerate = &framerate_for_handler;
-                let interlace_mode = &interlace_mode_for_handler;
+                let metadata = &metadata_for_bus_handler;
 
                 let handle_msg = move |_bus, msg: &gstreamer::Message| -> Option<()> {
                     // Make sure we're listening to a pipeline event
@@ -843,29 +842,33 @@ impl NtscApp {
                             {
                                 // Changed from READY to PAUSED/PLAYING.
                                 *pipeline_info_state.lock().unwrap() = PipelineInfoState::Loaded;
-                                let is_still_image_inner =
+
+                                let mut metadata = metadata.lock().unwrap();
+
+                                let is_still_image =
                                     pipeline.by_name("still_image_freeze").is_some();
-                                *is_still_image.lock().unwrap() = is_still_image_inner;
+                                metadata.is_still_image = Some(is_still_image);
 
                                 let video_rate = pipeline.by_name("video_rate");
-                                let caps = video_rate
-                                    .and_then(|video_rate| video_rate.static_pad("src").and_then(|pad| pad.caps()));
+                                let caps = video_rate.and_then(|video_rate| {
+                                    video_rate.static_pad("src").and_then(|pad| pad.caps())
+                                });
 
                                 if let Some(caps) = caps {
                                     let structure = caps.structure(0);
 
-                                    *framerate.lock().unwrap() = structure
-                                        .and_then(|structure| {
-                                            structure.get::<gstreamer::Fraction>("framerate").ok()
-                                        });
+                                    metadata.framerate = structure.and_then(|structure| {
+                                        structure.get::<gstreamer::Fraction>("framerate").ok()
+                                    });
 
-                                    *interlace_mode.lock().unwrap() = structure
-                                        .and_then(|structure| {
-                                            Some(VideoInterlaceMode::from_string(structure.get("interlace-mode").ok()?))
-                                        });
+                                    metadata.interlace_mode = structure.and_then(|structure| {
+                                        Some(VideoInterlaceMode::from_string(
+                                            structure.get("interlace-mode").ok()?,
+                                        ))
+                                    });
                                 } else {
-                                    *framerate.lock().unwrap() = None;
-                                    *interlace_mode.lock().unwrap() = None;
+                                    metadata.framerate = None;
+                                    metadata.interlace_mode = None;
                                 }
                             }
                         }
@@ -903,10 +906,7 @@ impl NtscApp {
             at_eos,
             last_seek_pos: gstreamer::ClockTime::ZERO,
             preview: tex,
-            is_still_image,
-            has_audio,
-            framerate,
-            interlace_mode,
+            metadata,
         })
     }
 
@@ -1215,7 +1215,8 @@ impl NtscApp {
             },
             self.pipeline
                 .as_ref()
-                .and_then(|info| *info.framerate.lock().unwrap())
+                .map(|info| info.metadata.lock().unwrap())
+                .and_then(|metadata| metadata.framerate)
                 .unwrap_or(gstreamer::Fraction::from(30)),
             Some(move |p: Result<gstreamer::Pipeline, _>| {
                 exec2(async move {
@@ -1938,7 +1939,9 @@ impl NtscApp {
             if self
                 .pipeline
                 .as_ref()
-                .map_or(false, |info| *info.is_still_image.lock().unwrap())
+                .map(|info| info.metadata.lock().unwrap())
+                .and_then(|metadata| metadata.is_still_image)
+                .unwrap_or(false)
             {
                 ui.horizontal(|ui| {
                     ui.label("Duration:");
@@ -2043,7 +2046,7 @@ impl NtscApp {
                 let mut res = None;
                 let mut save_image_to: Option<(PathBuf, PathBuf)> = None;
                 if let Some(info) = &mut self.pipeline {
-                    let mut framerate = info.framerate.lock().unwrap();
+                    let mut metadata = info.metadata.lock().unwrap();
                     if ui.button("🗙").clicked() {
                         remove_pipeline = true;
                     }
@@ -2057,45 +2060,50 @@ impl NtscApp {
                         save_image_to = Some((src_path, dst_path));
                     }
 
-                    if let Some(current_framerate) = *framerate {
+                    if let Some(current_framerate) = metadata.framerate {
                         ui.separator();
-                        if *info.is_still_image.lock().unwrap() {
-                            let mut new_framerate =
-                                current_framerate.numer() as f64 / current_framerate.denom() as f64;
-                            ui.label("fps");
-                            if ui
-                                .add(
-                                    egui::DragValue::new(&mut new_framerate)
-                                        .clamp_range(0.0..=240.0),
-                                )
-                                .changed()
-                            {
-                                let framerate_fraction =
-                                    gstreamer::Fraction::approximate_f64(new_framerate);
-                                if let Some(f) = framerate_fraction {
-                                    let changed_framerate =
-                                        Self::set_still_image_framerate(&info.pipeline, f);
-                                    if let Ok(Some(new_framerate)) = changed_framerate {
-                                        *framerate = Some(new_framerate);
-                                    }
+                        match metadata.is_still_image {
+                            Some(true) => {
+                                let mut new_framerate = current_framerate.numer() as f64
+                                    / current_framerate.denom() as f64;
+                                ui.label("fps");
+                                if ui
+                                    .add(
+                                        egui::DragValue::new(&mut new_framerate)
+                                            .clamp_range(0.0..=240.0),
+                                    )
+                                    .changed()
+                                {
+                                    let framerate_fraction =
+                                        gstreamer::Fraction::approximate_f64(new_framerate);
+                                    if let Some(f) = framerate_fraction {
+                                        let changed_framerate =
+                                            Self::set_still_image_framerate(&info.pipeline, f);
+                                        if let Ok(Some(new_framerate)) = changed_framerate {
+                                            metadata.framerate = Some(new_framerate);
+                                        }
 
-                                    res = Some(changed_framerate);
+                                        res = Some(changed_framerate);
+                                    }
                                 }
                             }
-                        } else {
-                            let mut fps_display = format!(
-                                "{:.2} fps",
-                                current_framerate.numer() as f64 / current_framerate.denom() as f64
-                            );
-                            if let Some(interlace_mode) = *info.interlace_mode.lock().unwrap() {
-                                fps_display.push_str(match interlace_mode {
-                                    VideoInterlaceMode::Progressive => " (progressive)",
-                                    VideoInterlaceMode::Interleaved => " (interlaced)",
-                                    VideoInterlaceMode::Mixed => " (telecined)",
-                                    _ => "",
-                                });
+                            Some(false) => {
+                                let mut fps_display = format!(
+                                    "{:.2} fps",
+                                    current_framerate.numer() as f64
+                                        / current_framerate.denom() as f64
+                                );
+                                if let Some(interlace_mode) = metadata.interlace_mode {
+                                    fps_display.push_str(match interlace_mode {
+                                        VideoInterlaceMode::Progressive => " (progressive)",
+                                        VideoInterlaceMode::Interleaved => " (interlaced)",
+                                        VideoInterlaceMode::Mixed => " (telecined)",
+                                        _ => "",
+                                    });
+                                }
+                                ui.label(fps_display);
                             }
-                            ui.label(fps_display);
+                            None => {}
                         }
                     }
 
@@ -2292,7 +2300,8 @@ impl NtscApp {
                     let has_audio = self
                         .pipeline
                         .as_ref()
-                        .map(|info| *info.has_audio.lock().unwrap())
+                        .map(|info| info.metadata.lock().unwrap())
+                        .and_then(|metadata| metadata.has_audio)
                         .unwrap_or(false);
 
                     ui.add_enabled_ui(has_audio, |ui| {
@@ -2433,15 +2442,16 @@ impl NtscApp {
                                 |ui| {
                                     let Some(PipelineInfo {
                                         preview, egui_sink, ..
-                                    }) = &mut self.pipeline else {
+                                    }) = &mut self.pipeline
+                                    else {
                                         ui.heading("No media loaded");
                                         return;
                                     };
 
                                     let texture_size = if self.video_scale.enabled {
                                         let texture_actual_size = preview.size_vec2();
-                                        let scale_factor = self.video_scale.scale as f32
-                                            / texture_actual_size.y;
+                                        let scale_factor =
+                                            self.video_scale.scale as f32 / texture_actual_size.y;
                                         vec2(
                                             (texture_actual_size.x * scale_factor).round(),
                                             self.video_scale.scale as f32,
@@ -2473,8 +2483,7 @@ impl NtscApp {
                                     );
                                     ui.put(rect, image);
 
-                                    if self.effect_preview.mode
-                                        == EffectPreviewMode::SplitScreen
+                                    if self.effect_preview.mode == EffectPreviewMode::SplitScreen
                                         && ui
                                             .put(
                                                 rect,
@@ -2507,11 +2516,9 @@ impl NtscApp {
                         self.spawn(async move {
                             let handle = file_dialog.await;
 
-                            Some(Box::new(move |app: &mut NtscApp| {
-                                match handle {
-                                    Some(handle) => app.load_video(&ctx, handle.into()),
-                                    None => Ok(()),
-                                }
+                            Some(Box::new(move |app: &mut NtscApp| match handle {
+                                Some(handle) => app.load_video(&ctx, handle.into()),
+                                None => Ok(()),
                             }) as _)
                         });
 
