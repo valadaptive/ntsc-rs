@@ -2481,6 +2481,11 @@ impl NtscApp {
                                         texture_size * scale_factor,
                                         egui::Sense::hover(),
                                     );
+                                    // Avoid texture sampling at non-integer coordinates (causes jaggies)
+                                    let rect = egui::Rect::from_points(&[
+                                        rect.min.floor(),
+                                        rect.max.floor(),
+                                    ]);
                                     ui.put(rect, image);
 
                                     if self.effect_preview.mode == EffectPreviewMode::SplitScreen
