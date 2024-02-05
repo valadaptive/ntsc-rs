@@ -9,7 +9,7 @@ license = "GPL-2.0-or-later"
 
 [dependencies]
 ntscrs = { path = "../ntscrs" }
-eframe = { version = "0.25", features=["persistence"] }
+eframe = { version = "0.26", features=["persistence"] }
 env_logger = "0.10.0"
 image = "0.24.7"
 snafu = "0.7.5"

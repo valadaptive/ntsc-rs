@@ -128,6 +128,7 @@ impl EguiSink {
             TextureOptions {
                 magnification: TextureFilter::Nearest,
                 minification: TextureFilter::Linear,
+                ..Default::default()
             },
         );
         if let Some(ctx) = &self.ctx.lock().unwrap().0 {

@@ -208,7 +208,7 @@ impl<'a> Widget for Timeline<'a> {
         let range_f64 = *self.range.start() as f64..=*self.range.end() as f64;
 
         if ui.rect_contains_pointer(rect) {
-            let scroll_delta = ui.ctx().input(|input| input.scroll_delta);
+            let scroll_delta = ui.ctx().input(|input| input.raw_scroll_delta);
             let zoom_delta = ui.ctx().input(|input| input.zoom_delta());
             let scroll_delta = scroll_delta.x + scroll_delta.y;
 
