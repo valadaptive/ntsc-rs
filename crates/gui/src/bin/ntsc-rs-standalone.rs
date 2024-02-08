@@ -18,7 +18,7 @@ use std::{
     thread,
 };
 
-use eframe::egui;
+use eframe::egui::{self, Response};
 use eframe::epaint::vec2;
 use futures_lite::{Future, FutureExt};
 use glib::clone::Downgrade;
@@ -221,7 +221,7 @@ struct PipelineMetadata {
     is_still_image: Option<bool>,
     has_audio: Option<bool>,
     framerate: Option<gstreamer::Fraction>,
-    interlace_mode: Option<gstreamer_video::VideoInterlaceMode>,
+    interlace_mode: Option<VideoInterlaceMode>,
 }
 
 #[derive(Debug)]
@@ -1308,212 +1308,241 @@ fn control_row<R>(
     .inner
 }
 
+fn parse_expression_string(input: &str) -> Option<f64> {
+    eval_expression_string(input).ok()
+}
+
 impl NtscApp {
+    fn setting_from_descriptor(
+        ui: &mut egui::Ui,
+        effect_settings: &mut NtscEffectFullSettings,
+        descriptor: &SettingDescriptor,
+        interlace_mode: VideoInterlaceMode,
+    ) -> (Response, bool) {
+        let mut changed = false;
+        let resp = match &descriptor {
+            SettingDescriptor {
+                id: SettingID::RANDOM_SEED,
+                ..
+            } => {
+                control_row(
+                    ui,
+                    |ui| {
+                        let rand_btn_width = ui.spacing().interact_size.y + 4.0;
+                        let resp = ui.add_sized(
+                            egui::vec2(
+                                ui.spacing().slider_width + ui.spacing().interact_size.x
+                                    - rand_btn_width,
+                                ui.spacing().interact_size.y,
+                            ),
+                            egui::DragValue::new(&mut effect_settings.random_seed)
+                                .clamp_range(i32::MIN..=i32::MAX),
+                        );
+
+                        if ui
+                            .add_sized(
+                                egui::vec2(rand_btn_width, ui.spacing().interact_size.y),
+                                egui::Button::new("🎲"),
+                            )
+                            .on_hover_text("Randomize seed")
+                            .clicked()
+                        {
+                            effect_settings.random_seed = rand::random::<i32>();
+                            changed = true;
+                        }
+
+                        // Return the DragValue response because that's what we want to add the tooltip to
+                        resp
+                    },
+                    descriptor,
+                )
+            }
+            SettingDescriptor {
+                kind: SettingKind::Enumeration { options, .. },
+                ..
+            } => {
+                control_row(
+                    ui,
+                    |ui| {
+                        let selected_index =
+                            descriptor.id.get_field_enum(effect_settings).unwrap();
+                        let selected_item = options
+                            .iter()
+                            .find(|option| option.index == selected_index)
+                            .unwrap();
+                        egui::ComboBox::from_id_source(descriptor.id)
+                            .selected_text(selected_item.label)
+                            .show_ui(ui, |ui| {
+                                for item in options {
+                                    let mut label = ui.selectable_label(
+                                        selected_index == item.index,
+                                        item.label,
+                                    );
+
+                                    if let Some(desc) = item.description {
+                                        label = label.on_hover_text(desc);
+                                    }
+
+                                    if label.clicked() {
+                                        let _ = descriptor
+                                            .id
+                                            .set_field_enum(effect_settings, item.index);
+                                        // a selectable_label being clicked doesn't set response.changed
+                                        changed = true;
+                                    };
+                                }
+                            })
+                            .response
+                    },
+                    descriptor,
+                )
+            }
+            SettingDescriptor {
+                kind: SettingKind::Percentage { logarithmic, .. },
+                ..
+            } => control_row(
+                ui,
+                |ui| {
+                    ui.add(
+                        egui::Slider::new(
+                            descriptor.id.get_field_mut::<f32>(effect_settings).unwrap(),
+                            0.0..=1.0,
+                        )
+                        .custom_parser(parse_expression_string)
+                        .custom_formatter(format_percentage)
+                        .logarithmic(*logarithmic),
+                    )
+                },
+                descriptor,
+            ),
+            SettingDescriptor {
+                kind: SettingKind::IntRange { range, .. },
+                ..
+            } => control_row(
+                ui,
+                |ui| {
+                    let mut value = 0i32;
+                    if let Some(v) = descriptor.id.get_field_mut::<i32>(effect_settings) {
+                        value = *v;
+                    } else if let Some(v) = descriptor.id.get_field_mut::<u32>(effect_settings)
+                    {
+                        value = *v as i32;
+                    }
+
+                    let slider = ui.add(
+                        egui::Slider::new(&mut value, range.clone()).custom_parser(parse_expression_string),
+                    );
+
+                    if slider.changed() {
+                        if let Some(v) = descriptor.id.get_field_mut::<i32>(effect_settings) {
+                            *v = value;
+                        } else if let Some(v) =
+                            descriptor.id.get_field_mut::<u32>(effect_settings)
+                        {
+                            *v = value as u32;
+                        }
+                    }
+
+                    slider
+                },
+                descriptor,
+            ),
+            SettingDescriptor {
+                kind:
+                    SettingKind::FloatRange {
+                        range, logarithmic, ..
+                    },
+                ..
+            } => control_row(
+                ui,
+                |ui| {
+                    ui.add(
+                        egui::Slider::new(
+                            descriptor.id.get_field_mut::<f32>(effect_settings).unwrap(),
+                            range.clone(),
+                        )
+                        .custom_parser(parse_expression_string)
+                        .logarithmic(*logarithmic),
+                    )
+                },
+                descriptor,
+            ),
+            SettingDescriptor {
+                kind: SettingKind::Boolean { .. },
+                ..
+            } => {
+                // We should really be using control_row for this, but then the label wouldn't be clickable
+                let checkbox = ui.checkbox(
+                    descriptor
+                        .id
+                        .get_field_mut::<bool>(effect_settings)
+                        .unwrap(),
+                    descriptor.label,
+                );
+
+                checkbox
+            }
+            SettingDescriptor {
+                kind: SettingKind::Group { children, .. },
+                ..
+            } => {
+                ui.add_space(2.0);
+                let resp = ui
+                    .group(|ui| {
+                        ui.set_width(ui.max_rect().width());
+                        let checkbox = ui.checkbox(
+                            descriptor
+                                .id
+                                .get_field_mut::<bool>(effect_settings)
+                                .unwrap(),
+                            descriptor.label,
+                        );
+
+                        ui.set_enabled(
+                            *descriptor
+                                .id
+                                .get_field_mut::<bool>(effect_settings)
+                                .unwrap(),
+                        );
+
+                        changed |= Self::settings_from_descriptors(
+                            effect_settings,
+                            ui,
+                            children,
+                            interlace_mode,
+                        );
+
+                        checkbox
+                    })
+                    .inner;
+                ui.add_space(2.0);
+                resp
+            }
+        };
+
+        (resp, changed)
+    }
+
     fn settings_from_descriptors(
         effect_settings: &mut NtscEffectFullSettings,
         ui: &mut egui::Ui,
         descriptors: &[SettingDescriptor],
+        interlace_mode: VideoInterlaceMode,
     ) -> bool {
-        let parser = |input: &str| eval_expression_string(input).ok();
         let mut changed = false;
         for descriptor in descriptors {
-            let response = match &descriptor {
-                SettingDescriptor {
-                    id: SettingID::RANDOM_SEED,
-                    ..
-                } => {
-                    control_row(
-                        ui,
-                        |ui| {
-                            let rand_btn_width = ui.spacing().interact_size.y + 4.0;
-                            let resp = ui.add_sized(
-                                egui::vec2(
-                                    ui.spacing().slider_width + ui.spacing().interact_size.x
-                                        - rand_btn_width,
-                                    ui.spacing().interact_size.y,
-                                ),
-                                egui::DragValue::new(&mut effect_settings.random_seed)
-                                    .clamp_range(i32::MIN..=i32::MAX),
-                            );
+            // The "Use field" setting has no effect on interlaced video.
+            let (response, setting_changed) = if descriptor.id == SettingID::USE_FIELD && interlace_mode != VideoInterlaceMode::Progressive {
+                let resp = ui.add_enabled_ui(false, |ui| {
+                    Self::setting_from_descriptor(ui, effect_settings, descriptor, VideoInterlaceMode::Progressive)
+                });
 
-                            if ui
-                                .add_sized(
-                                    egui::vec2(rand_btn_width, ui.spacing().interact_size.y),
-                                    egui::Button::new("🎲"),
-                                )
-                                .on_hover_text("Randomize seed")
-                                .clicked()
-                            {
-                                effect_settings.random_seed = rand::random::<i32>();
-                                changed = true;
-                            }
-
-                            // Return the DragValue response because that's what we want to add the tooltip to
-                            resp
-                        },
-                        descriptor,
-                    )
-                }
-                SettingDescriptor {
-                    kind: SettingKind::Enumeration { options, .. },
-                    ..
-                } => {
-                    control_row(
-                        ui,
-                        |ui| {
-                            let selected_index =
-                                descriptor.id.get_field_enum(effect_settings).unwrap();
-                            let selected_item = options
-                                .iter()
-                                .find(|option| option.index == selected_index)
-                                .unwrap();
-                            egui::ComboBox::from_id_source(descriptor.id)
-                                .selected_text(selected_item.label)
-                                .show_ui(ui, |ui| {
-                                    for item in options {
-                                        let mut label = ui.selectable_label(
-                                            selected_index == item.index,
-                                            item.label,
-                                        );
-
-                                        if let Some(desc) = item.description {
-                                            label = label.on_hover_text(desc);
-                                        }
-
-                                        if label.clicked() {
-                                            let _ = descriptor
-                                                .id
-                                                .set_field_enum(effect_settings, item.index);
-                                            // a selectable_label being clicked doesn't set response.changed
-                                            changed = true;
-                                        };
-                                    }
-                                })
-                                .response
-                        },
-                        descriptor,
-                    )
-                }
-                SettingDescriptor {
-                    kind: SettingKind::Percentage { logarithmic, .. },
-                    ..
-                } => control_row(
-                    ui,
-                    |ui| {
-                        ui.add(
-                            egui::Slider::new(
-                                descriptor.id.get_field_mut::<f32>(effect_settings).unwrap(),
-                                0.0..=1.0,
-                            )
-                            .custom_parser(parser)
-                            .custom_formatter(format_percentage)
-                            .logarithmic(*logarithmic),
-                        )
-                    },
-                    descriptor,
-                ),
-                SettingDescriptor {
-                    kind: SettingKind::IntRange { range, .. },
-                    ..
-                } => control_row(
-                    ui,
-                    |ui| {
-                        let mut value = 0i32;
-                        if let Some(v) = descriptor.id.get_field_mut::<i32>(effect_settings) {
-                            value = *v;
-                        } else if let Some(v) = descriptor.id.get_field_mut::<u32>(effect_settings)
-                        {
-                            value = *v as i32;
-                        }
-
-                        let slider = ui.add(
-                            egui::Slider::new(&mut value, range.clone()).custom_parser(parser),
-                        );
-
-                        if slider.changed() {
-                            if let Some(v) = descriptor.id.get_field_mut::<i32>(effect_settings) {
-                                *v = value;
-                            } else if let Some(v) =
-                                descriptor.id.get_field_mut::<u32>(effect_settings)
-                            {
-                                *v = value as u32;
-                            }
-                        }
-
-                        slider
-                    },
-                    descriptor,
-                ),
-                SettingDescriptor {
-                    kind:
-                        SettingKind::FloatRange {
-                            range, logarithmic, ..
-                        },
-                    ..
-                } => control_row(
-                    ui,
-                    |ui| {
-                        ui.add(
-                            egui::Slider::new(
-                                descriptor.id.get_field_mut::<f32>(effect_settings).unwrap(),
-                                range.clone(),
-                            )
-                            .custom_parser(parser)
-                            .logarithmic(*logarithmic),
-                        )
-                    },
-                    descriptor,
-                ),
-                SettingDescriptor {
-                    kind: SettingKind::Boolean { .. },
-                    ..
-                } => {
-                    // We should really be using control_row for this, but then the label wouldn't be clickable
-                    let checkbox = ui.checkbox(
-                        descriptor
-                            .id
-                            .get_field_mut::<bool>(effect_settings)
-                            .unwrap(),
-                        descriptor.label,
-                    );
-
-                    checkbox
-                }
-                SettingDescriptor {
-                    kind: SettingKind::Group { children, .. },
-                    ..
-                } => {
-                    ui.add_space(2.0);
-                    let resp = ui
-                        .group(|ui| {
-                            ui.set_width(ui.max_rect().width());
-                            let checkbox = ui.checkbox(
-                                descriptor
-                                    .id
-                                    .get_field_mut::<bool>(effect_settings)
-                                    .unwrap(),
-                                descriptor.label,
-                            );
-
-                            ui.set_enabled(
-                                *descriptor
-                                    .id
-                                    .get_field_mut::<bool>(effect_settings)
-                                    .unwrap(),
-                            );
-
-                            changed |=
-                                Self::settings_from_descriptors(effect_settings, ui, children);
-
-                            checkbox
-                        })
-                        .inner;
-                    ui.add_space(2.0);
-                    resp
-                }
+                resp.inner
+            } else {
+                Self::setting_from_descriptor(ui, effect_settings, descriptor, interlace_mode)
             };
 
-            changed |= response.changed();
+            changed |= response.changed() || setting_changed;
 
             if let Some(desc) = descriptor.description {
                 response.on_hover_text(desc);
@@ -1672,12 +1701,18 @@ impl NtscApp {
                     let Self {
                         settings_list,
                         effect_settings,
+                        pipeline,
                         ..
                     } = self;
+                    let interlace_mode = pipeline
+                        .as_ref()
+                        .and_then(|pipeline| pipeline.metadata.lock().unwrap().interlace_mode)
+                        .unwrap_or(VideoInterlaceMode::Progressive);
                     let settings_changed = Self::settings_from_descriptors(
                         effect_settings,
                         ui,
                         &settings_list.settings,
+                        interlace_mode,
                     );
                     if settings_changed {
                         self.update_effect();

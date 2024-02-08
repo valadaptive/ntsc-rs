@@ -7,7 +7,7 @@ use gstreamer_video::subclass::prelude::*;
 use gstreamer_video::VideoFormat;
 
 use ntscrs::ntsc::NtscEffect;
-use ntscrs::yiq_fielding::{Bgrx8, Rgbx8, Xbgr8, Xrgb16, Xrgb8, YiqView};
+use ntscrs::yiq_fielding::{Bgrx8, Rgbx8, Xbgr8, Xrgb16, Xrgb8};
 
 use super::process_gst_frame::process_gst_frame;
 
@@ -159,25 +159,22 @@ impl VideoFilterImpl for NtscFilter {
             .plane_data_mut(0)
             .or(Err(gstreamer::FlowError::Error))?;
 
-        let mut yiq = process_gst_frame(in_frame, &settings)?;
-        let view = YiqView::from(&mut yiq);
-
         match out_format {
             VideoFormat::Rgbx | VideoFormat::Rgba => {
-                view.write_to_strided_buffer::<Rgbx8>(out_data, out_stride)
+                process_gst_frame::<u8, Rgbx8>(in_frame, out_data, out_stride, &settings)?;
             }
             VideoFormat::Bgrx | VideoFormat::Bgra => {
-                view.write_to_strided_buffer::<Bgrx8>(out_data, out_stride)
+                process_gst_frame::<u8, Bgrx8>(in_frame, out_data, out_stride, &settings)?;
             }
             VideoFormat::Xrgb | VideoFormat::Argb => {
-                view.write_to_strided_buffer::<Xrgb8>(out_data, out_stride)
+                process_gst_frame::<u8, Xrgb8>(in_frame, out_data, out_stride, &settings)?;
             }
             VideoFormat::Xbgr | VideoFormat::Abgr => {
-                view.write_to_strided_buffer::<Xbgr8>(out_data, out_stride)
+                process_gst_frame::<u8, Xbgr8>(in_frame, out_data, out_stride, &settings)?;
             }
             VideoFormat::Argb64 => {
                 let data_16 = unsafe { out_data.align_to_mut::<u16>() }.1;
-                view.write_to_strided_buffer::<Xrgb16>(data_16, out_stride)
+                process_gst_frame::<u16, Xrgb16>(in_frame, data_16, out_stride, &settings)?;
             }
             _ => Err(gstreamer::FlowError::NotSupported)?,
         };

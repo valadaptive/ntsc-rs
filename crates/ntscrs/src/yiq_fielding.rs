@@ -109,6 +109,14 @@ impl Normalize for u8 {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeinterlaceMode {
+    /// Interpolate between the given fields.
+    Bob,
+    /// Don't write absent fields at all--just leave whatever was already in the buffer.
+    Skip,
+}
+
 /// Borrowed YIQ data in a planar format.
 /// Each plane is densely packed with regards to rows--if we skip fields, we just leave them out of these planes, which
 /// squashes them vertically.
@@ -174,6 +182,7 @@ impl<'a> YiqView<'a> {
         &self,
         dst: &mut [S::DataFormat],
         row_bytes: usize,
+        deinterlace_mode: DeinterlaceMode,
     ) {
         let num_components = S::ORDER.num_components();
         let (r_idx, g_idx, b_idx) = S::ORDER.rgb_indices();
@@ -199,38 +208,63 @@ impl<'a> YiqView<'a> {
 
         let num_rows = self.num_rows();
 
-        dst.par_chunks_exact_mut(row_bytes / std::mem::size_of::<S::DataFormat>())
-            .enumerate()
-            .for_each(|(row_idx, dst_row)| {
-                // Inner fields with lines above and below them. Interpolate between those fields
-                if (row_idx & 1) == skip_field && row_idx != 0 && row_idx != output_height - 1 {
-                    for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
-                        let src_idx_lower = ((row_idx - 1) >> 1) * width + pix_idx;
-                        let src_idx_upper = ((row_idx + 1) >> 1) * width + pix_idx;
+        let chunks = dst
+            .par_chunks_exact_mut(row_bytes / std::mem::size_of::<S::DataFormat>())
+            .enumerate();
 
-                        let interp_pixel = Vec3::new(
-                            (self.y[src_idx_lower] + self.y[src_idx_upper]) * 0.5,
-                            (self.i[src_idx_lower] + self.i[src_idx_upper]) * 0.5,
-                            (self.q[src_idx_lower] + self.q[src_idx_upper]) * 0.5,
-                        );
+        match deinterlace_mode {
+            DeinterlaceMode::Bob => {
+                chunks.for_each(|(row_idx, dst_row)| {
+                    // Inner fields with lines above and below them. Interpolate between those fields
+                    if (row_idx & 1) == skip_field && row_idx != 0 && row_idx != output_height - 1 {
+                        for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
+                            let src_idx_lower = ((row_idx - 1) >> 1) * width + pix_idx;
+                            let src_idx_upper = ((row_idx + 1) >> 1) * width + pix_idx;
 
-                        let rgb = RGB_MATRIX * interp_pixel;
-                        pixel[r_idx] = S::DataFormat::from_norm(rgb[0]);
-                        pixel[g_idx] = S::DataFormat::from_norm(rgb[1]);
-                        pixel[b_idx] = S::DataFormat::from_norm(rgb[2]);
+                            let interp_pixel = Vec3::new(
+                                (self.y[src_idx_lower] + self.y[src_idx_upper]) * 0.5,
+                                (self.i[src_idx_lower] + self.i[src_idx_upper]) * 0.5,
+                                (self.q[src_idx_lower] + self.q[src_idx_upper]) * 0.5,
+                            );
+
+                            let rgb = RGB_MATRIX * interp_pixel;
+                            pixel[r_idx] = S::DataFormat::from_norm(rgb[0]);
+                            pixel[g_idx] = S::DataFormat::from_norm(rgb[1]);
+                            pixel[b_idx] = S::DataFormat::from_norm(rgb[2]);
+                        }
+                    } else {
+                        // Copy the field directly
+                        for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
+                            let src_idx =
+                                (row_idx >> row_rshift).min(num_rows - 1) * width + pix_idx;
+                            let rgb = RGB_MATRIX
+                                * Vec3::new(self.y[src_idx], self.i[src_idx], self.q[src_idx]);
+                            pixel[r_idx] = S::DataFormat::from_norm(rgb[0]);
+                            pixel[g_idx] = S::DataFormat::from_norm(rgb[1]);
+                            pixel[b_idx] = S::DataFormat::from_norm(rgb[2]);
+                        }
                     }
-                } else {
-                    // Copy the field directly
-                    for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
-                        let src_idx = (row_idx >> row_rshift).min(num_rows - 1) * width + pix_idx;
-                        let rgb = RGB_MATRIX
-                            * Vec3::new(self.y[src_idx], self.i[src_idx], self.q[src_idx]);
-                        pixel[r_idx] = S::DataFormat::from_norm(rgb[0]);
-                        pixel[g_idx] = S::DataFormat::from_norm(rgb[1]);
-                        pixel[b_idx] = S::DataFormat::from_norm(rgb[2]);
-                    }
-                }
-            });
+                });
+            }
+            DeinterlaceMode::Skip => {
+                dst.par_chunks_exact_mut(row_bytes / std::mem::size_of::<S::DataFormat>())
+                    .enumerate()
+                    .for_each(|(row_idx, dst_row)| {
+                        if (row_idx & 1) == skip_field {
+                            return;
+                        }
+                        for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
+                            let src_idx =
+                                (row_idx >> row_rshift).min(num_rows - 1) * width + pix_idx;
+                            let rgb = RGB_MATRIX
+                                * Vec3::new(self.y[src_idx], self.i[src_idx], self.q[src_idx]);
+                            pixel[r_idx] = S::DataFormat::from_norm(rgb[0]);
+                            pixel[g_idx] = S::DataFormat::from_norm(rgb[1]);
+                            pixel[b_idx] = S::DataFormat::from_norm(rgb[2]);
+                        }
+                    });
+            }
+        }
     }
 }
 
@@ -256,7 +290,7 @@ pub enum SwizzleOrder {
 
 impl SwizzleOrder {
     #[inline(always)]
-    const fn num_components(&self) -> usize {
+    pub const fn num_components(&self) -> usize {
         match self {
             Self::Rgbx | Self::Xrgb | Self::Bgrx | Self::Xbgr => 4,
             Self::Rgb | Self::Bgr => 3,
@@ -264,7 +298,7 @@ impl SwizzleOrder {
     }
 
     #[inline(always)]
-    const fn rgb_indices(&self) -> (usize, usize, usize) {
+    pub const fn rgb_indices(&self) -> (usize, usize, usize) {
         match self {
             Self::Rgbx | Self::Rgb => (0, 1, 2),
             Self::Xrgb => (1, 2, 3),
@@ -388,7 +422,7 @@ impl From<&YiqView<'_>> for RgbImage {
         let (width, output_height) = image.dimensions;
         let num_pixels = width * output_height;
         let mut dst = vec![0u8; num_pixels * 3];
-        image.write_to_strided_buffer::<Rgb8>(&mut dst, width * 3);
+        image.write_to_strided_buffer::<Rgb8>(&mut dst, width * 3, DeinterlaceMode::Bob);
 
         RgbImage::from_raw(width as u32, output_height as u32, dst).unwrap()
     }

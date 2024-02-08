@@ -5,7 +5,9 @@ use gstreamer::glib::once_cell::sync::Lazy;
 use gstreamer::prelude::*;
 use gstreamer::{glib, PadTemplate};
 use gstreamer_video::subclass::prelude::*;
-use ntscrs::yiq_fielding::{Rgbx8, YiqView};
+use gstreamer_video::video_frame::Readable;
+use gstreamer_video::VideoFrame;
+use ntscrs::yiq_fielding::Rgbx8;
 use std::fmt::Debug;
 use std::sync::Mutex;
 
@@ -78,8 +80,16 @@ impl EguiSink {
         let _ = self.update_texture();
     }
 
-    fn apply_effect(&self, view: &YiqView, size: (usize, usize), image: &mut ColorImage) {
-        view.write_to_strided_buffer::<Rgbx8>(image.as_raw_mut(), size.0 * 4);
+    fn apply_effect(&self, vframe: &VideoFrame<Readable>, image: &mut ColorImage) -> Result<(), gstreamer::FlowError> {
+        let out_stride = image.width() * 4;
+        process_gst_frame::<u8, Rgbx8>(
+            &vframe.as_video_frame_ref(),
+            image.as_raw_mut(),
+            out_stride,
+            &self.settings.lock().unwrap().0,
+        )?;
+
+        Ok(())
     }
 
     pub fn update_texture(&self) -> Result<(), gstreamer::FlowError> {
@@ -87,18 +97,13 @@ impl EguiSink {
         let vframe = self.last_frame.lock().unwrap();
         let (vframe, ..) = vframe.as_ref().ok_or(gstreamer::FlowError::Error)?;
 
-        let mut yiq = process_gst_frame(
-            &vframe.as_video_frame_ref(),
-            &self.settings.lock().unwrap().0,
-        )?;
-
         let width = vframe.width() as usize;
         let height = vframe.height() as usize;
         let mut image = ColorImage::new([width, height], Color32::BLACK);
 
         match *self.preview_mode.lock().unwrap() {
             EffectPreviewSetting::Enabled => {
-                self.apply_effect(&YiqView::from(&mut yiq), (width, height), &mut image);
+                self.apply_effect(vframe, &mut image)?;
             }
             #[allow(illegal_floating_point_literal_pattern)]
             EffectPreviewSetting::Disabled | EffectPreviewSetting::SplitScreen(0f64) => {
@@ -108,7 +113,7 @@ impl EguiSink {
             }
             EffectPreviewSetting::SplitScreen(split) => {
                 let buf = vframe.plane_data(0).or(Err(gstreamer::FlowError::Error))?;
-                self.apply_effect(&YiqView::from(&mut yiq), (width, height), &mut image);
+                self.apply_effect(vframe, &mut image)?;
 
                 let split_boundary =
                     (split * width as f64).round().clamp(0.0, width as f64) as usize;
