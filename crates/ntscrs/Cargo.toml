@@ -18,9 +18,11 @@ siphasher = "1.0.0"
 num-derive = "0.4.1"
 tinyjson = "2.5.1"
 rayon = "1.8.0"
+multiversion = "0.7.3"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+image = { version = "0.24.7" }
 
 [target.'cfg(not(windows))'.dev-dependencies]
 pprof = { version = "0.13.0", features = ["flamegraph", "criterion"] }
