@@ -6,7 +6,7 @@ use image::RgbImage;
 use rand::{Rng, RngCore, SeedableRng};
 use rand_xoshiro::Xoshiro256PlusPlus;
 use rayon::prelude::*;
-use simdnoise::NoiseBuilder;
+use simdnoise::{NoiseBuilder, Settings, SimplexSettings};
 
 use crate::{
     filter::TransferFunction,
