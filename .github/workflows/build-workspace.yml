@@ -62,7 +62,7 @@ jobs:
       id: choco-cache-restore
       uses: actions/cache/restore@4
       with:
-        path: ${{ env.TEMP) }}\\chocolatey
+        path: ${{ format("{0}\\chocolatey", env.TEMP) }}\\chocolatey
         key: 'this should never hit'
         restore-keys: choco-
 
@@ -79,7 +79,7 @@ jobs:
       id: choco-cache-save
       uses: actions/cache/save@4
       with:
-        path: ${{format("{0}\\chocolatey", env.TEMP) }}
+        path: ${{ format("{0}\\chocolatey", env.TEMP) }}
         key: choco-${{ hashFiles(format("{0}\\chocolatey", env.TEMP)) }}
 
     - uses: Swatinem/rust-cache@v2
