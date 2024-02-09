@@ -61,7 +61,7 @@ jobs:
     - name: Set chocolatey temp directory
       run: |
         choco config set cacheLocation --value "$Env:GITHUB_WORKSPACE\chocolatey_cache"
-        echo "$Env:GITHUB_WORKSPACE\chocolatey_cache" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        echo "CHOCO_TEMP=$Env:GITHUB_WORKSPACE\chocolatey_cache" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
 
     - name: Restore Chocolatey cache
       id: choco-cache-restore
