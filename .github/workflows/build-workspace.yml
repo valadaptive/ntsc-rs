@@ -84,7 +84,7 @@ jobs:
       uses: actions/cache/save@v4
       with:
         path: ${{ env.CHOCO_TEMP }}
-        key: choco-${{ hashFiles(format("{0}\**\*", env.CHOCO_TEMP)) }}
+        key: choco-${{ hashFiles(format('{0}\**\*'', env.CHOCO_TEMP)) }}
 
     - uses: Swatinem/rust-cache@v2
 
