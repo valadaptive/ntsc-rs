@@ -159,8 +159,6 @@ jobs:
         path: ${{ env.CHOCO_TEMP }}
         key: choco-${{ github.job }}-${{ hashFiles(format('{0}\**\*', env.CHOCO_TEMP)) }}
 
-    - uses: Swatinem/rust-cache@v2
-
     - name: Get SDK
       env:
         WIN_SDK_KEY: ${{ secrets.WIN_SDK_KEY }}
