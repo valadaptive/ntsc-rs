@@ -50,7 +50,7 @@ jobs:
         path: target/release/ntsc-rs-standalone
 
   build-windows:
-    runs-on: windows-latest
+    runs-on: windows-2019
 
     steps:
     - name: Checkout
@@ -123,7 +123,7 @@ jobs:
         path: ntsc-rs-windows-standalone
 
   build-ae-plugin:
-    runs-on: windows-latest
+    runs-on: windows-2019
 
     steps:
     - name: Checkout
