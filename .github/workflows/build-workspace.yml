@@ -58,6 +58,14 @@ jobs:
       with:
         submodules: recursive
 
+    - name: Restore Chocolatey cache
+      id: choco-cache-restore
+      uses: actions/cache/restore@4
+      with:
+        path: ${{ env.TEMP) }}\\chocolatey
+        key: 'this should never hit'
+        restore-keys: choco-
+
     - name: Install gstreamer
       run: |
         choco install gstreamer gstreamer-devel
@@ -66,6 +74,13 @@ jobs:
         echo "$($Env:GSTREAMER_1_0_ROOT_MSVC_X86_64)bin"
         echo "$($Env:GSTREAMER_1_0_ROOT_MSVC_X86_64)bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         echo "GSTREAMER_1_0_ROOT_MSVC_X86_64=$Env:GSTREAMER_1_0_ROOT_MSVC_X86_64" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+    - name: Save Chocolatey cache
+      id: choco-cache-save
+      uses: actions/cache/save@4
+      with:
+        path: ${{format("{0}\\chocolatey", env.TEMP) }}
+        key: choco-${{ hashFiles(format("{0}\\chocolatey", env.TEMP)) }}
 
     - uses: Swatinem/rust-cache@v2
 
