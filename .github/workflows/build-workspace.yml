@@ -79,6 +79,10 @@ jobs:
         echo "$($Env:GSTREAMER_1_0_ROOT_MSVC_X86_64)bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         echo "GSTREAMER_1_0_ROOT_MSVC_X86_64=$Env:GSTREAMER_1_0_ROOT_MSVC_X86_64" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+    - name: Debug
+      run: |
+        echo "choco-${{ hashFiles(format('{0}\**\*', env.CHOCO_TEMP)) }}"
+
     - name: Save Chocolatey cache
       id: choco-cache-save
       uses: actions/cache/save@v4
