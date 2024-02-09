@@ -60,7 +60,7 @@ jobs:
 
     - name: Restore Chocolatey cache
       id: choco-cache-restore
-      uses: actions/cache/restore@4
+      uses: actions/cache/restore@v4
       with:
         path: ${{ format('{0}\\chocolatey', env.TEMP) }}\\chocolatey
         key: 'this should never hit'
@@ -77,7 +77,7 @@ jobs:
 
     - name: Save Chocolatey cache
       id: choco-cache-save
-      uses: actions/cache/save@4
+      uses: actions/cache/save@v4
       with:
         path: ${{ format('{0}\\chocolatey', env.TEMP) }}
         key: choco-${{ hashFiles(format('{0}\\chocolatey', env.TEMP)) }}
