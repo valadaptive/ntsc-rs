@@ -3385,7 +3385,7 @@ dependencies = [
 [[package]]
 name = "simdnoise"
 version = "3.1.7"
-source = "git+https://github.com/valadaptive/rust-simd-noise?rev=48bdaace#48bdaaceff8a928b4aaf44bc809abec584d3ca06"
+source = "git+https://github.com/valadaptive/rust-simd-noise?rev=84ec75d8#84ec75d82812b3490073e6843bbaed9755b9f962"
 dependencies = [
  "simdeez",
 ]
