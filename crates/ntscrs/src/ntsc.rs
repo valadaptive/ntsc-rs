@@ -112,13 +112,35 @@ fn filter_plane(
     scale: f32,
     delay: usize,
 ) {
-    plane.par_chunks_mut(width).for_each(|field| {
-        let initial = match initial {
-            InitialCondition::Zero => 0.0,
-            InitialCondition::Constant(c) => c,
-            InitialCondition::FirstSample => field[0],
-        };
-        filter.filter_signal_in_place(field, initial, scale, delay);
+    if filter.should_use_row_chunks() {
+        filter_plane_with_rows::<8>(plane, width, filter, initial, scale, delay)
+    } else {
+        filter_plane_with_rows::<1>(plane, width, filter, initial, scale, delay)
+    }
+}
+
+fn filter_plane_with_rows<const ROWS: usize>(
+    plane: &mut [f32],
+    width: usize,
+    filter: &TransferFunction,
+    initial: InitialCondition,
+    scale: f32,
+    delay: usize,
+) {
+    plane.par_chunks_exact_mut(width * ROWS).for_each(|rows| {
+        let mut row_chunks: Vec<&mut [f32]> = rows.chunks_exact_mut(width).into_iter().collect();
+        let rows: &mut [&mut [f32]; ROWS] = row_chunks.as_mut_slice().try_into().unwrap();
+
+        let mut initial_rows: [f32; ROWS] = [0f32; ROWS];
+        for i in 0..ROWS {
+            initial_rows[i] =  match initial {
+                InitialCondition::Zero => 0.0,
+                InitialCondition::Constant(c) => c,
+                InitialCondition::FirstSample => rows[i][0],
+            };
+        }
+
+        filter.filter_signal_in_place::<ROWS>(rows, initial_rows, scale, delay);
     });
 }
 

@@ -1,3 +1,4 @@
+mod f32x4;
 mod filter;
 pub mod ntsc;
 mod random;

@@ -1,4 +1,11 @@
-use multiversion::multiversion;
+use core::fmt::Debug;
+use std::mem::MaybeUninit;
+
+use crate::f32x4::{get_supported_simd_type, F32x4, SupportedSimdType};
+
+const fn _mm_shuffle(d: i32, c: i32, b: i32, a: i32) -> i32 {
+    (d << 6) | (c << 4) | (b << 2) | a
+}
 
 /// Multiplies two polynomials (lowest coefficients first).
 /// Note that this function does not trim trailing zero coefficients--see below for that.
@@ -25,20 +32,19 @@ fn trim_zeros(input: &[f32]) -> &[f32] {
     &input[0..=end]
 }
 
-#[multiversion(targets("x86_64+avx2"))]
-fn filter_signal_in_place_fixed_size<const SIZE: usize>(
-    tf: &TransferFunction,
-    signal: &mut [f32],
-    initial: f32,
-    scale: f32,
-    delay: usize,
-) {
-    let z = tf.initial_condition(initial);
+// TODO: this is a copy of Rust's each_mut, which will be stabilized in the next Rust version.
+// Just use that function when the next Rust version is released.
+fn each_mut<T, const N: usize>(arr: &mut [T; N]) -> [&mut T; N] {
+    // Unlike in `map`, we don't need a guard here, as dropping a reference
+    // is a noop.
+    let mut out = unsafe { MaybeUninit::<[MaybeUninit<&mut T>; N]>::uninit().assume_init() };
+    for (src, dst) in arr.iter_mut().zip(&mut out) {
+        dst.write(src);
+    }
 
-    let mut z_fixed: [f32; SIZE] = [0f32; SIZE];
-    z_fixed.copy_from_slice(&z);
-
-    TransferFunction::filter_signal_in_place_impl(signal, &tf.num, &tf.den, &mut z_fixed, scale, delay);
+    // SAFETY: All elements of `dst` are properly initialized and
+    // `MaybeUninit<T>` has the same layout as `T`, so this cast is valid.
+    unsafe { (&mut out as *mut _ as *mut [&mut T; N]).read() }
 }
 
 /// Rational transfer function for an IIR filter in the z-transform domain.
@@ -59,9 +65,14 @@ impl TransferFunction {
         J: IntoIterator<Item = f32>,
     {
         let mut num = num.into_iter().collect::<Vec<f32>>();
-        let den = den.into_iter().collect::<Vec<f32>>();
+        let mut den = den.into_iter().collect::<Vec<f32>>();
         if num.len() > den.len() {
             panic!("Numerator length exceeds denominator length.");
+        }
+
+        // Resize to 4 so we can use the SIMD implementation
+        if den.len() == 2 || den.len() == 3 {
+            den.resize(4, 0.0);
         }
 
         // Zero-pad the numerator from the right
@@ -72,6 +83,12 @@ impl TransferFunction {
             den,
             _private: (),
         }
+    }
+
+    pub fn should_use_row_chunks(&self) -> bool {
+        // Row chunks are ~25% slower than processing each row one-by-one with the scalar implementation.
+        // We should only process rows in chunks with the SIMD implementation.
+        self.den.len() == 4 && get_supported_simd_type() != SupportedSimdType::None
     }
 
     /// Return initial conditions for the filter that results in a given steady-state value (e.g. "start" the filter as
@@ -192,57 +209,248 @@ impl TransferFunction {
     }
 
     #[inline(always)]
-    fn filter_signal_in_place_impl(
-        signal: &mut [f32],
+    fn filter_signal_in_place_impl<const N: usize>(
+        signal: &mut [&mut [f32]; N],
         num: &[f32],
         den: &[f32],
-        z: &mut [f32],
+        z: [&mut [f32]; N],
         scale: f32,
         delay: usize,
     ) {
         let filter_len = num.len();
-        for i in 0..(signal.len() + delay) {
-            // Either the loop bound extending past items.len() or the min() call seems to prevent the optimizer from
-            // determining that we're in-bounds here. Since i.min(items.len() - 1) never exceeds items.len() - 1 by
-            // definition, this is safe.
-            let sample = unsafe { signal.get_unchecked(i.min(signal.len() - 1)) };
-            let filt_sample = Self::filter_sample(filter_len, num, den, z, *sample, scale);
-            if i >= delay {
-                signal[i - delay] = filt_sample;
+        for samp_idx in 0..N {
+            let signal = &mut signal[samp_idx];
+            for i in 0..(signal.len() + delay) {
+                // Either the loop bound extending past items.len() or the min() call seems to prevent the optimizer from
+                // determining that we're in-bounds here. Since i.min(items.len() - 1) never exceeds items.len() - 1 by
+                // definition, this is safe.
+                let sample = unsafe { signal.get_unchecked(i.min(signal.len() - 1)) };
+                let filt_sample =
+                    Self::filter_sample(filter_len, num, den, z[samp_idx], *sample, scale);
+                if i >= delay {
+                    signal[i - delay] = filt_sample;
+                }
             }
         }
     }
 
+    /// Specialized version of filter_signal_in_place for fixed-size arrays. About 15% faster than the dynamic-size
+    /// version. All we need to do is specify the size as a const generic param--the compiler specializes the rest.
+    #[inline(never)]
+    fn filter_signal_in_place_fixed_size<const SIZE: usize, const ROWS: usize>(
+        &self,
+        signal: &mut [&mut [f32]; ROWS],
+        initial: [f32; ROWS],
+        scale: f32,
+        delay: usize,
+    ) {
+        let mut z_rows = [[0f32; SIZE]; ROWS];
+        z_rows.iter_mut().zip(initial).for_each(|(z, initial)| {
+            *z = self.initial_condition(initial).try_into().unwrap();
+        });
+        let z_rows_ref = each_mut::<[f32; SIZE], ROWS>(&mut z_rows).map(|z| z.as_mut_slice());
+
+        Self::filter_signal_in_place_impl::<ROWS>(
+            signal, &self.num, &self.den, z_rows_ref, scale, delay,
+        );
+    }
+
+    #[inline(always)]
+    unsafe fn filter_signal_in_place_fixed_size_simdx4<S: F32x4, const ROWS: usize>(
+        &self,
+        signal: &mut [&mut [f32]; ROWS],
+        initial: [f32; ROWS],
+        scale: f32,
+        delay: usize,
+    ) {
+        let mut z_rows = [[0f32; 4]; ROWS];
+        z_rows.iter_mut().zip(initial).for_each(|(z, initial)| {
+            *z = self.initial_condition(initial).try_into().unwrap();
+        });
+        let mut z = z_rows;
+
+        let mut num: [f32; 4] = [0f32; 4];
+        num.copy_from_slice(&self.num);
+
+        let mut den: [f32; 4] = [0f32; 4];
+        den.copy_from_slice(&self.den);
+
+        let num = S::load(&num);
+        let den = S::load(&den);
+        let scale_b = S::set1(scale);
+        let width = signal[0].len();
+
+        for i in 0..(width + delay) {
+            for j in 0..ROWS {
+                let mut zmm = S::load4(z.get_unchecked(j));
+                // Either the loop bound extending past items.len() or the min() call seems to prevent the optimizer from
+                // determining that we're in-bounds here. Since i.min(items.len() - 1) never exceeds items.len() - 1 by
+                // definition, this is safe.
+                let sample = S::load1(signal.get_unchecked(j).get_unchecked(i.min(width - 1)));
+                let filt_sample = num.mul_add(sample, zmm).swizzle(0, 0, 0, 0);
+
+                // Add the sample * the numerator, subtract the filtered sample * the denominator
+                zmm = num.mul_add(sample, zmm);
+                zmm = den.neg_mul_add(filt_sample, zmm);
+
+                // Shift it all over
+                zmm = zmm.swizzle(1, 2, 3, 0);
+
+                // Zero out the last element
+                zmm = zmm.insert::<3>(0.0);
+
+                let zj = z.get_unchecked_mut(j);
+                zmm.store(zj);
+
+                if i >= delay {
+                    let samp_diff = filt_sample - sample;
+                    let final_samp = samp_diff.mul_add(scale_b, sample);
+                    final_samp.store1(signal.get_unchecked_mut(j).get_unchecked_mut(i - delay));
+                }
+            }
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "sse4.1")]
+    unsafe fn filter_signal_dispatch_sse41<const ROWS: usize>(
+        &self,
+        signal: &mut [&mut [f32]; ROWS],
+        initial: [f32; ROWS],
+        scale: f32,
+        delay: usize,
+    ) {
+        use crate::f32x4::x86_64::SseF32x4;
+        unsafe {
+            self.filter_signal_in_place_fixed_size_simdx4::<SseF32x4, ROWS>(
+                signal, initial, scale, delay,
+            );
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2", enable = "fma")]
+    unsafe fn filter_signal_dispatch_avx2<const ROWS: usize>(
+        &self,
+        signal: &mut [&mut [f32]; ROWS],
+        initial: [f32; ROWS],
+        scale: f32,
+        delay: usize,
+    ) {
+        use crate::f32x4::x86_64::AvxF32x4;
+        unsafe {
+            self.filter_signal_in_place_fixed_size_simdx4::<AvxF32x4, ROWS>(
+                signal, initial, scale, delay,
+            );
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[target_feature(enable = "neon")]
+    unsafe fn filter_signal_dispatch_neon<const ROWS: usize>(
+        &self,
+        signal: &mut [&mut [f32]; ROWS],
+        initial: [f32; ROWS],
+        scale: f32,
+        delay: usize,
+    ) {
+        use crate::f32x4::aarch64::ArmF32x4;
+        unsafe {
+            self.filter_signal_in_place_fixed_size_simdx4::<ArmF32x4, ROWS>(
+                signal, initial, scale, delay,
+            );
+        }
+    }
+
     /// Filter a signal in-place, modifying the given slice.
+    /// # Type parameters
+    /// - `ROWS` - The number of rows to process at once. This makes SIMD faster by removing loop-carried dependencies:
+    /// once one pixel of each row is done, we can move onto the next row instead of waiting to finish calculating the
+    /// next filter state.
     /// # Arguments
     /// - `signal` - The slice containing the signal to be filtered.
     /// - `initial` - The initial steady-state value of the filter.
     /// - `scale` - Scale the filter output by this amount. For example, a scale of -1 turns a lowpass filter into a
     ///   highpass filter.
     /// - `delay` - Offset the filter output backwards (to the left) by this amount.
-    pub fn filter_signal_in_place(
+    pub fn filter_signal_in_place<const ROWS: usize>(
         &self,
-        signal: &mut [f32],
-        initial: f32,
+        signal: &mut [&mut [f32]; ROWS],
+        initial: [f32; ROWS],
         scale: f32,
         delay: usize,
     ) {
         let filter_len = usize::max(self.num.len(), self.den.len());
-        match filter_len {
-            // Specialize fixed-size implementations for filter sizes 1-8
-            1 => filter_signal_in_place_fixed_size::<1>(self, signal, initial, scale, delay),
-            2 => filter_signal_in_place_fixed_size::<2>(self, signal, initial, scale, delay),
-            3 => filter_signal_in_place_fixed_size::<3>(self, signal, initial, scale, delay),
-            4 => filter_signal_in_place_fixed_size::<4>(self, signal, initial, scale, delay),
-            5 => filter_signal_in_place_fixed_size::<5>(self, signal, initial, scale, delay),
-            6 => filter_signal_in_place_fixed_size::<6>(self, signal, initial, scale, delay),
-            7 => filter_signal_in_place_fixed_size::<7>(self, signal, initial, scale, delay),
-            8 => filter_signal_in_place_fixed_size::<8>(self, signal, initial, scale, delay),
-            _ => {
-                let mut z = self.initial_condition(initial);
-                Self::filter_signal_in_place_impl(
-                    signal, &self.num, &self.den, &mut z, scale, delay,
-                );
+
+        if filter_len == 4 {
+            #[cfg(target_arch = "x86_64")]
+            match get_supported_simd_type() {
+                SupportedSimdType::Sse41 => {
+                    unsafe {
+                        self.filter_signal_dispatch_sse41::<ROWS>(signal, initial, scale, delay);
+                    }
+                    return;
+                }
+                SupportedSimdType::Avx2 => {
+                    unsafe {
+                        self.filter_signal_dispatch_avx2::<ROWS>(signal, initial, scale, delay);
+                    }
+                    return;
+                }
+                _ => {}
+            }
+
+            #[cfg(target_arch = "aarch64")]
+            if get_supported_simd_type() == SupportedSimdType::Neon {
+                unsafe {
+                    self.filter_signal_dispatch_neon::<ROWS>(signal, initial, scale, delay);
+                }
+                return;
+            }
+
+            self.filter_signal_in_place_fixed_size::<4, ROWS>(signal, initial, scale, delay);
+        } else {
+            match filter_len {
+                // Specialize fixed-size implementations for filter sizes 1-8
+                1 => {
+                    self.filter_signal_in_place_fixed_size::<1, ROWS>(signal, initial, scale, delay)
+                }
+                2 => {
+                    self.filter_signal_in_place_fixed_size::<2, ROWS>(signal, initial, scale, delay)
+                }
+                3 => {
+                    self.filter_signal_in_place_fixed_size::<3, ROWS>(signal, initial, scale, delay)
+                }
+                // 4 is covered in the branch above
+                5 => {
+                    self.filter_signal_in_place_fixed_size::<5, ROWS>(signal, initial, scale, delay)
+                }
+                6 => {
+                    self.filter_signal_in_place_fixed_size::<6, ROWS>(signal, initial, scale, delay)
+                }
+                7 => {
+                    self.filter_signal_in_place_fixed_size::<7, ROWS>(signal, initial, scale, delay)
+                }
+                8 => {
+                    self.filter_signal_in_place_fixed_size::<8, ROWS>(signal, initial, scale, delay)
+                }
+                _ => {
+                    let mut z: [Vec<f32>; ROWS] = initial
+                        .into_iter()
+                        .map(|init| self.initial_condition(init))
+                        .collect::<Vec<Vec<_>>>()
+                        .try_into()
+                        .unwrap();
+                    let z: [&mut [f32]; ROWS] = z
+                        .iter_mut()
+                        .map(|z| z.as_mut_slice())
+                        .collect::<Vec<_>>()
+                        .try_into()
+                        .unwrap();
+                    Self::filter_signal_in_place_impl::<ROWS>(
+                        signal, &self.num, &self.den, z, scale, delay,
+                    );
+                }
             }
         }
     }
