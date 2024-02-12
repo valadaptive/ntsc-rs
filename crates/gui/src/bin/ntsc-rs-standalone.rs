@@ -222,6 +222,7 @@ struct PipelineMetadata {
     has_audio: Option<bool>,
     framerate: Option<gstreamer::Fraction>,
     interlace_mode: Option<VideoInterlaceMode>,
+    resolution: Option<(usize, usize)>,
 }
 
 #[derive(Debug)]
@@ -866,9 +867,17 @@ impl NtscApp {
                                             structure.get("interlace-mode").ok()?,
                                         ))
                                     });
+
+                                    metadata.resolution = structure.and_then(|structure| {
+                                        Some((
+                                            structure.get::<i32>("width").ok()? as usize,
+                                            structure.get::<i32>("height").ok()? as usize,
+                                        ))
+                                    });
                                 } else {
                                     metadata.framerate = None;
                                     metadata.interlace_mode = None;
+                                    metadata.resolution = None;
                                 }
                             }
                         }
@@ -2140,6 +2149,11 @@ impl NtscApp {
                             }
                             None => {}
                         }
+                    }
+
+                    if let Some((width, height)) = metadata.resolution {
+                        ui.separator();
+                        ui.label(format!("{}x{}", width, height));
                     }
 
                     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
