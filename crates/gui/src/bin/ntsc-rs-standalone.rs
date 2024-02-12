@@ -1373,8 +1373,7 @@ impl NtscApp {
                 control_row(
                     ui,
                     |ui| {
-                        let selected_index =
-                            descriptor.id.get_field_enum(effect_settings).unwrap();
+                        let selected_index = descriptor.id.get_field_enum(effect_settings).unwrap();
                         let selected_item = options
                             .iter()
                             .find(|option| option.index == selected_index)
@@ -1383,10 +1382,8 @@ impl NtscApp {
                             .selected_text(selected_item.label)
                             .show_ui(ui, |ui| {
                                 for item in options {
-                                    let mut label = ui.selectable_label(
-                                        selected_index == item.index,
-                                        item.label,
-                                    );
+                                    let mut label = ui
+                                        .selectable_label(selected_index == item.index, item.label);
 
                                     if let Some(desc) = item.description {
                                         label = label.on_hover_text(desc);
@@ -1433,20 +1430,19 @@ impl NtscApp {
                     let mut value = 0i32;
                     if let Some(v) = descriptor.id.get_field_mut::<i32>(effect_settings) {
                         value = *v;
-                    } else if let Some(v) = descriptor.id.get_field_mut::<u32>(effect_settings)
-                    {
+                    } else if let Some(v) = descriptor.id.get_field_mut::<u32>(effect_settings) {
                         value = *v as i32;
                     }
 
                     let slider = ui.add(
-                        egui::Slider::new(&mut value, range.clone()).custom_parser(parse_expression_string),
+                        egui::Slider::new(&mut value, range.clone())
+                            .custom_parser(parse_expression_string),
                     );
 
                     if slider.changed() {
                         if let Some(v) = descriptor.id.get_field_mut::<i32>(effect_settings) {
                             *v = value;
-                        } else if let Some(v) =
-                            descriptor.id.get_field_mut::<u32>(effect_settings)
+                        } else if let Some(v) = descriptor.id.get_field_mut::<u32>(effect_settings)
                         {
                             *v = value as u32;
                         }
@@ -1541,9 +1537,16 @@ impl NtscApp {
         let mut changed = false;
         for descriptor in descriptors {
             // The "Use field" setting has no effect on interlaced video.
-            let (response, setting_changed) = if descriptor.id == SettingID::USE_FIELD && interlace_mode != VideoInterlaceMode::Progressive {
+            let (response, setting_changed) = if descriptor.id == SettingID::USE_FIELD
+                && interlace_mode != VideoInterlaceMode::Progressive
+            {
                 let resp = ui.add_enabled_ui(false, |ui| {
-                    Self::setting_from_descriptor(ui, effect_settings, descriptor, VideoInterlaceMode::Progressive)
+                    Self::setting_from_descriptor(
+                        ui,
+                        effect_settings,
+                        descriptor,
+                        VideoInterlaceMode::Progressive,
+                    )
                 });
 
                 resp.inner

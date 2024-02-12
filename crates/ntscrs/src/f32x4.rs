@@ -1,6 +1,7 @@
 use std::{
     fmt::Debug,
-    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign}, sync::OnceLock,
+    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign},
+    sync::OnceLock,
 };
 
 /// A trait for 4-wide single-precision floating point SIMD vectors, for both NEON and AVX.

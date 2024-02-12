@@ -133,7 +133,7 @@ fn filter_plane_with_rows<const ROWS: usize>(
 
         let mut initial_rows: [f32; ROWS] = [0f32; ROWS];
         for i in 0..ROWS {
-            initial_rows[i] =  match initial {
+            initial_rows[i] = match initial {
                 InitialCondition::Zero => 0.0,
                 InitialCondition::Constant(c) => c,
                 InitialCondition::FirstSample => rows[i][0],

@@ -78,10 +78,7 @@ impl TransferFunction {
         // Zero-pad the numerator from the right
         num.resize(den.len(), 0.0);
 
-        TransferFunction {
-            num,
-            den,
-        }
+        TransferFunction { num, den }
     }
 
     pub fn should_use_row_chunks(&self) -> bool {

@@ -80,7 +80,11 @@ impl EguiSink {
         let _ = self.update_texture();
     }
 
-    fn apply_effect(&self, vframe: &VideoFrame<Readable>, image: &mut ColorImage) -> Result<(), gstreamer::FlowError> {
+    fn apply_effect(
+        &self,
+        vframe: &VideoFrame<Readable>,
+        image: &mut ColorImage,
+    ) -> Result<(), gstreamer::FlowError> {
         let out_stride = image.width() * 4;
         process_gst_frame::<u8, Rgbx8>(
             &vframe.as_video_frame_ref(),
