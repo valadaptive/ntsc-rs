@@ -161,6 +161,13 @@ pub fn create_pipeline<
                             .build()?;
                         let video_convert =
                             gstreamer::ElementFactory::make("videoconvert").build()?;
+                        let video_flip = gstreamer::ElementFactory::make("videoflip")
+                            .name("video_flip")
+                            .property(
+                                "video-direction",
+                                gstreamer_video::VideoOrientationMethod::Auto,
+                            )
+                            .build()?;
                         let video_rate = gstreamer::ElementFactory::make("videorate")
                             .name("video_rate")
                             .build()?;
@@ -177,6 +184,7 @@ pub fn create_pipeline<
                         let video_elements = &[
                             &video_queue,
                             &video_convert,
+                            &video_flip,
                             &video_rate,
                             &video_scale,
                             &caps_filter,
