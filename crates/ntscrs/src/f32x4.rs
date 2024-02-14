@@ -21,30 +21,30 @@ pub trait F32x4:
     + Debug
 {
     /// Safety:
-    /// The F32x4 produced by this function must *not* leak into non-architecture-specific code.
+    /// You must ensure that whatever flavor of SIMD vector you're creating is supported by the current CPU.
     unsafe fn load(src: &[f32]) -> Self;
 
     /// Safety:
-    /// The F32x4 produced by this function must *not* leak into non-architecture-specific code.
+    /// You must ensure that whatever flavor of SIMD vector you're creating is supported by the current CPU.
     unsafe fn load4(src: &[f32; 4]) -> Self {
         Self::load(src.as_slice())
     }
 
     /// Safety:
-    /// The F32x4 produced by this function must *not* leak into non-architecture-specific code.
+    /// You must ensure that whatever flavor of SIMD vector you're creating is supported by the current CPU.
     unsafe fn load1(src: &f32) -> Self;
 
     fn store(self, dst: &mut [f32]);
     fn store1(self, dst: &mut f32);
 
     /// Safety:
-    /// The F32x4 produced by this function must *not* leak into non-architecture-specific code.
+    /// You must ensure that whatever flavor of SIMD vector you're creating is supported by the current CPU.
     unsafe fn zero() -> Self {
         Self::set1(0.0)
     }
 
     /// Safety:
-    /// The F32x4 produced by this function must *not* leak into non-architecture-specific code.
+    /// You must ensure that whatever flavor of SIMD vector you're creating is supported by the current CPU.
     unsafe fn set1(src: f32) -> Self;
 
     fn mul_add(self, a: Self, b: Self) -> Self;
