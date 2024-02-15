@@ -2565,7 +2565,6 @@ impl NtscApp {
     fn show_app(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                ui.heading("ntsc-rs");
                 ui.menu_button("File", |ui| {
                     if ui.button("Open").clicked() {
                         let file_dialog = rfd::AsyncFileDialog::new().pick_file();
@@ -2587,26 +2586,34 @@ impl NtscApp {
                     }
                 });
 
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let mut color_theme_changed = false;
-                    color_theme_changed |= ui
-                        .selectable_value(&mut self.color_theme, ColorTheme::System, "🖥")
-                        .on_hover_text("Follow system color theme")
-                        .changed();
-                    color_theme_changed |= ui
-                        .selectable_value(&mut self.color_theme, ColorTheme::Light, "☀")
-                        .on_hover_text("Use light mode")
-                        .changed();
-                    color_theme_changed |= ui
-                        .selectable_value(&mut self.color_theme, ColorTheme::Dark, "🌙")
-                        .on_hover_text("Use dark mode")
-                        .changed();
+                ui.menu_button("View", |ui| {
+                    ui.menu_button("Theme", |ui| {
+                        let mut color_theme_changed = false;
+                        color_theme_changed |= ui
+                            .selectable_value(&mut self.color_theme, ColorTheme::System, "System")
+                            .on_hover_text("Follow system color theme")
+                            .changed();
+                        color_theme_changed |= ui
+                            .selectable_value(&mut self.color_theme, ColorTheme::Light, "Light")
+                            .on_hover_text("Use light mode")
+                            .changed();
+                        color_theme_changed |= ui
+                            .selectable_value(&mut self.color_theme, ColorTheme::Dark, "Dark")
+                            .on_hover_text("Use dark mode")
+                            .changed();
 
-                    if color_theme_changed {
-                        // Results in a bit of "theme tearing" since every widget rendered after this will use a
-                        // different color scheme than those rendered before it. Not really noticeable in practice.
-                        ui.ctx().set_visuals(self.color_theme.visuals(frame.info()))
-                    }
+                        if color_theme_changed {
+                            // Results in a bit of "theme tearing" since every widget rendered after this will use a
+                            // different color scheme than those rendered before it. Not really noticeable in practice.
+                            ui.ctx().set_visuals(self.color_theme.visuals(frame.info()));
+                            ui.close_menu();
+                        }
+                    });
+                });
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    const VERSION: &str = env!("CARGO_PKG_VERSION");
+                    ui.label(format!("ntsc-rs v{VERSION}"));
 
                     let mut close_error = false;
                     if let Some(error) = self.last_error.as_ref() {
