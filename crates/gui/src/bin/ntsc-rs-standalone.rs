@@ -193,7 +193,6 @@ struct PipelineInfo {
     state: Arc<Mutex<PipelineInfoState>>,
     path: PathBuf,
     egui_sink: gstreamer::Element,
-    //filter: gstreamer::Element,
     last_seek_pos: gstreamer::ClockTime,
     preview: egui::TextureHandle,
     at_eos: Arc<Mutex<bool>>,
@@ -201,9 +200,23 @@ struct PipelineInfo {
 }
 
 impl PipelineInfo {
-    fn toggle_playing(&self) -> Result<(), gstreamer::StateChangeError> {
+    fn toggle_playing(&self) -> Result<(), GstreamerError> {
         match self.pipeline.current_state() {
             gstreamer::State::Paused | gstreamer::State::Ready => {
+                // Restart from the beginning if "play" is pressed at the end of the video
+                let (position, duration) = (
+                    self.pipeline.query_position::<gstreamer::ClockTime>(),
+                    self.pipeline.query_duration::<gstreamer::ClockTime>(),
+                );
+                if let (Some(position), Some(duration)) = (position, duration) {
+                    if position == duration {
+                        self.pipeline.seek_simple(
+                            gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
+                            gstreamer::ClockTime::ZERO,
+                        )?;
+                    }
+                }
+
                 self.pipeline.set_state(gstreamer::State::Playing)?;
             }
             gstreamer::State::Playing => {
