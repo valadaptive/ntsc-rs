@@ -183,8 +183,8 @@ pub fn create_pipeline<
 
                         let video_elements = &[
                             &video_queue,
-                            &video_convert,
                             &video_flip,
+                            &video_convert,
                             &video_rate,
                             &video_scale,
                             &caps_filter,
