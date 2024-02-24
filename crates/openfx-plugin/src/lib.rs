@@ -1013,7 +1013,7 @@ fn getRowInfo(cur_field: YiqField, src_height: usize) -> RowInfo {
     let row_lshift: usize = match cur_field {
         YiqField::Upper => 1,
         YiqField::Lower => 1,
-        YiqField::Both => 0,
+        YiqField::Both | YiqField::InterleavedUpper | YiqField::InterleavedLower => 0,
     };
 
     let row_offset: usize = match (src_height & 1, cur_field) {
@@ -1021,7 +1021,7 @@ fn getRowInfo(cur_field: YiqField, src_height: usize) -> RowInfo {
         (1, YiqField::Upper) => 0,
         (0, YiqField::Lower) => 0,
         (1, YiqField::Lower) => 1,
-        (_, YiqField::Both) => 0,
+        (_, YiqField::Both | YiqField::InterleavedUpper | YiqField::InterleavedLower) => 0,
         _ => unreachable!(),
     };
 
@@ -1031,7 +1031,7 @@ fn getRowInfo(cur_field: YiqField, src_height: usize) -> RowInfo {
     let numRows = match cur_field {
         YiqField::Upper => (src_height + 1) / 2,
         YiqField::Lower => src_height / 2,
-        YiqField::Both => src_height,
+        YiqField::Both | YiqField::InterleavedUpper | YiqField::InterleavedLower => src_height,
     };
 
     RowInfo {
@@ -1070,6 +1070,8 @@ unsafe fn pixel_processing<S: Normalize + Sized, D: Normalize + Sized>(
         UseField::Upper => YiqField::Upper,
         UseField::Lower => YiqField::Lower,
         UseField::Both => YiqField::Both,
+        UseField::InterleavedUpper => YiqField::InterleavedUpper,
+        UseField::InterleavedLower => YiqField::InterleavedLower,
     };
 
     let RowInfo {

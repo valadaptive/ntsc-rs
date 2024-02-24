@@ -61,32 +61,17 @@ pub fn process_gst_frame<T, OutFormat: PixelFormat<DataFormat = T>>(
             view.write_to_strided_buffer::<OutFormat>(out_frame, out_stride, DeinterlaceMode::Bob);
         }
         VideoInterlaceMode::Interleaved | VideoInterlaceMode::Mixed => {
-            let top_field_first = in_frame.is_tff();
-            let (first_field, second_field) = if top_field_first {
-                (YiqField::Upper, YiqField::Lower)
-            } else {
-                (YiqField::Lower, YiqField::Upper)
+            let field = match (in_frame.is_tff(), in_frame.is_onefield()) {
+                (true, true) => YiqField::Upper,
+                (false, true) => YiqField::Lower,
+                (true, false) => YiqField::InterleavedUpper,
+                (false, false) => YiqField::InterleavedLower,
             };
 
-            let mut yiq_first = frame_to_yiq(in_frame, first_field)?;
-            let mut view_first = YiqView::from(&mut yiq_first);
-            settings.apply_effect_to_yiq(&mut view_first, frame as usize * 2);
-            view_first.write_to_strided_buffer::<OutFormat>(
-                out_frame,
-                out_stride,
-                DeinterlaceMode::Skip,
-            );
-
-            if !in_frame.is_onefield() {
-                let mut yiq_second = frame_to_yiq(in_frame, second_field)?;
-                let mut view_second = YiqView::from(&mut yiq_second);
-                settings.apply_effect_to_yiq(&mut view_second, frame as usize * 2 + 1);
-                view_second.write_to_strided_buffer::<OutFormat>(
-                    out_frame,
-                    out_stride,
-                    DeinterlaceMode::Skip,
-                );
-            }
+            let mut yiq = frame_to_yiq(in_frame, field)?;
+            let mut view = YiqView::from(&mut yiq);
+            settings.apply_effect_to_yiq(&mut view, frame as usize * 2);
+            view.write_to_strided_buffer::<OutFormat>(out_frame, out_stride, DeinterlaceMode::Skip);
         }
         _ => Err(FlowError::NotSupported)?,
     }

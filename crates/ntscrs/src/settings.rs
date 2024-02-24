@@ -23,6 +23,8 @@ pub enum UseField {
     Upper,
     Lower,
     Both,
+    InterleavedUpper,
+    InterleavedLower,
 }
 
 impl UseField {
@@ -38,6 +40,8 @@ impl UseField {
             UseField::Upper => YiqField::Upper,
             UseField::Lower => YiqField::Lower,
             UseField::Both => YiqField::Both,
+            UseField::InterleavedUpper => YiqField::InterleavedUpper,
+            UseField::InterleavedLower => YiqField::InterleavedLower,
         }
     }
 }
@@ -760,14 +764,24 @@ impl SettingsList {
                             index: UseField::Alternating.to_u32().unwrap(),
                         },
                         MenuItem {
-                            label: "Upper",
+                            label: "Upper only",
                             description: Some("Skip every lower row, keeping the upper ones."),
                             index: UseField::Upper.to_u32().unwrap(),
                         },
                         MenuItem {
-                            label: "Lower",
+                            label: "Lower only",
                             description: Some("Skip every upper row, keeping the lower ones."),
                             index: UseField::Lower.to_u32().unwrap(),
+                        },
+                        MenuItem {
+                            label: "Interleaved (upper field first)",
+                            description: Some("Treat the video as interlaced, with the upper field as the earlier frame."),
+                            index: UseField::InterleavedUpper.to_u32().unwrap(),
+                        },
+                        MenuItem {
+                            label: "Interleaved (lower field first)",
+                            description: Some("Treat the video as interlaced, with the lower field as the earlier frame."),
+                            index: UseField::InterleavedLower.to_u32().unwrap(),
                         },
                         MenuItem {
                             label: "Both",

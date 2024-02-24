@@ -53,6 +53,8 @@ pub enum YiqField {
     Upper,
     Lower,
     Both,
+    InterleavedUpper,
+    InterleavedLower,
 }
 
 impl YiqField {
@@ -63,7 +65,7 @@ impl YiqField {
         match self {
             Self::Upper => (image_height + 1) / 2,
             Self::Lower => (image_height / 2).max(1),
-            Self::Both => image_height,
+            Self::Both | Self::InterleavedUpper | Self::InterleavedLower => image_height,
         }
     }
 }
@@ -130,6 +132,28 @@ pub struct YiqView<'a> {
 }
 
 impl<'a> YiqView<'a> {
+    pub fn split_at_row(&mut self, idx: usize) -> (YiqView<'_>, YiqView<'_>) {
+        let (y1, y2) = self.y.split_at_mut(idx * self.dimensions.0);
+        let (i1, i2) = self.i.split_at_mut(idx * self.dimensions.0);
+        let (q1, q2) = self.q.split_at_mut(idx * self.dimensions.0);
+        (
+            YiqView {
+                y: y1,
+                i: i1,
+                q: q1,
+                dimensions: (self.dimensions.0, self.dimensions.1),
+                field: self.field,
+            },
+            YiqView {
+                y: y2,
+                i: i2,
+                q: q2,
+                dimensions: (self.dimensions.0, self.dimensions.1),
+                field: self.field,
+            },
+        )
+    }
+
     pub fn num_rows(&self) -> usize {
         self.field.num_image_rows(self.dimensions.1)
     }
@@ -144,25 +168,38 @@ impl<'a> YiqView<'a> {
         assert!(num_components >= 3);
         assert_eq!(row_bytes % std::mem::size_of::<S::DataFormat>(), 0);
 
-        // We write into the destination array differently depending on whether we're using the upper field, lower
-        // field, or both. row_lshift determines whether we left-shift the source row index (doubling it). When we use
-        // only one of the fields, the source row index needs to be double the destination row index so we take every
-        // other row. When we use both fields, we just use the source row index as-is.
-        // The row_offset determines whether we skip the first row (when using the lower field).
-        let (row_lshift, row_offset): (usize, usize) = match self.field {
-            YiqField::Upper => (1, 0),
-            YiqField::Lower => (1, 1),
-            YiqField::Both => (0, 0),
-        };
-
         let Self { y, i, q, .. } = self;
-        let (width, ..) = self.dimensions;
+        let (width, height) = self.dimensions;
 
         y.par_chunks_mut(width)
             .zip(i.par_chunks_mut(width).zip(q.par_chunks_mut(width)))
             .enumerate()
             .for_each(|(row_idx, (y, (i, q)))| {
-                let src_row_idx = (row_idx << row_lshift) + row_offset;
+                // For interleaved fields, we write the first field into the first half of the buffer,
+                // and the second field into the second half.
+                let src_row_idx = match self.field {
+                    YiqField::Upper => row_idx * 2,
+                    YiqField::Lower => (row_idx * 2) + 1,
+                    YiqField::Both => row_idx,
+                    YiqField::InterleavedUpper => {
+                        let idx = row_idx * 2;
+                        if idx >= height {
+                            let parity = 1 - (height % 2);
+                            idx + parity - height
+                        } else {
+                            idx
+                        }
+                    }
+                    YiqField::InterleavedLower => {
+                        let idx = row_idx * 2 + 1;
+                        if idx >= height {
+                            let parity = 1 - (height % 2);
+                            idx - parity - height
+                        } else {
+                            idx
+                        }
+                    }
+                };
                 let src_offset = src_row_idx * (row_bytes / std::mem::size_of::<S::DataFormat>());
                 for pixel_idx in 0..width {
                     let yiq_pixel = YIQ_MATRIX
@@ -198,11 +235,11 @@ impl<'a> YiqView<'a> {
             YiqField::Upper => 1,
             YiqField::Lower => 0,
             // The row index modulo 2 never reaches 2, meaning we don't skip any rows
-            YiqField::Both => 2,
+            YiqField::Both | YiqField::InterleavedUpper | YiqField::InterleavedLower => 2,
         };
 
         let row_rshift = match self.field {
-            YiqField::Both => 0,
+            YiqField::Both | YiqField::InterleavedUpper | YiqField::InterleavedLower => 0,
             YiqField::Upper | YiqField::Lower => 1,
         };
 
@@ -212,8 +249,8 @@ impl<'a> YiqView<'a> {
             .par_chunks_exact_mut(row_bytes / std::mem::size_of::<S::DataFormat>())
             .enumerate();
 
-        match deinterlace_mode {
-            DeinterlaceMode::Bob => {
+        match (deinterlace_mode, self.field) {
+            (DeinterlaceMode::Bob, YiqField::Upper | YiqField::Lower) => {
                 chunks.for_each(|(row_idx, dst_row)| {
                     // Inner fields with lines above and below them. Interpolate between those fields
                     if (row_idx & 1) == skip_field && row_idx != 0 && row_idx != output_height - 1 {
@@ -246,23 +283,58 @@ impl<'a> YiqView<'a> {
                     }
                 });
             }
-            DeinterlaceMode::Skip => {
-                dst.par_chunks_exact_mut(row_bytes / std::mem::size_of::<S::DataFormat>())
-                    .enumerate()
-                    .for_each(|(row_idx, dst_row)| {
-                        if (row_idx & 1) == skip_field {
-                            return;
+            (DeinterlaceMode::Skip, YiqField::Upper | YiqField::Lower) => {
+                chunks.for_each(|(row_idx, dst_row)| {
+                    if (row_idx & 1) == skip_field {
+                        return;
+                    }
+                    for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
+                        let src_idx = (row_idx >> row_rshift).min(num_rows - 1) * width + pix_idx;
+                        let rgb = RGB_MATRIX
+                            * Vec3::new(self.y[src_idx], self.i[src_idx], self.q[src_idx]);
+                        pixel[r_idx] = S::DataFormat::from_norm(rgb[0]);
+                        pixel[g_idx] = S::DataFormat::from_norm(rgb[1]);
+                        pixel[b_idx] = S::DataFormat::from_norm(rgb[2]);
+                    }
+                });
+            }
+            (_, YiqField::InterleavedUpper | YiqField::InterleavedLower) => {
+                chunks.for_each(|(row_idx, dst_row)| {
+                    let row_offset = match self.field {
+                        YiqField::InterleavedUpper => {
+                            YiqField::Upper.num_image_rows(self.dimensions.1) * (row_idx & 1)
                         }
-                        for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
-                            let src_idx =
-                                (row_idx >> row_rshift).min(num_rows - 1) * width + pix_idx;
-                            let rgb = RGB_MATRIX
-                                * Vec3::new(self.y[src_idx], self.i[src_idx], self.q[src_idx]);
-                            pixel[r_idx] = S::DataFormat::from_norm(rgb[0]);
-                            pixel[g_idx] = S::DataFormat::from_norm(rgb[1]);
-                            pixel[b_idx] = S::DataFormat::from_norm(rgb[2]);
+                        YiqField::InterleavedLower => {
+                            YiqField::Lower.num_image_rows(self.dimensions.1) * (1 - (row_idx & 1))
                         }
-                    });
+                        _ => unreachable!(),
+                    };
+                    let interleaved_row_idx = (row_idx >> 1) + row_offset;
+                    let src_idx = interleaved_row_idx * width;
+                    for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
+                        let rgb = RGB_MATRIX
+                            * Vec3::new(
+                                self.y[src_idx + pix_idx],
+                                self.i[src_idx + pix_idx],
+                                self.q[src_idx + pix_idx],
+                            );
+                        pixel[r_idx] = S::DataFormat::from_norm(rgb[0]);
+                        pixel[g_idx] = S::DataFormat::from_norm(rgb[1]);
+                        pixel[b_idx] = S::DataFormat::from_norm(rgb[2]);
+                    }
+                });
+            }
+            _ => {
+                chunks.for_each(|(row_idx, dst_row)| {
+                    for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
+                        let src_idx = (row_idx >> row_rshift).min(num_rows - 1) * width + pix_idx;
+                        let rgb = RGB_MATRIX
+                            * Vec3::new(self.y[src_idx], self.i[src_idx], self.q[src_idx]);
+                        pixel[r_idx] = S::DataFormat::from_norm(rgb[0]);
+                        pixel[g_idx] = S::DataFormat::from_norm(rgb[1]);
+                        pixel[b_idx] = S::DataFormat::from_norm(rgb[2]);
+                    }
+                });
             }
         }
     }

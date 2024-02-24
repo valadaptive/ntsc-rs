@@ -164,12 +164,12 @@ pub fn create_pipeline<
                         // TODO: Figure out how to make the scale take video orientation into account. Currently, videos
                         // that get reoriented keep their old scales.
                         /*let video_flip = gstreamer::ElementFactory::make("videoflip")
-                            .name("video_flip")
-                            .property(
-                                "video-direction",
-                                gstreamer_video::VideoOrientationMethod::Auto,
-                            )
-                            .build()?;*/
+                        .name("video_flip")
+                        .property(
+                            "video-direction",
+                            gstreamer_video::VideoOrientationMethod::Auto,
+                        )
+                        .build()?;*/
                         let video_rate = gstreamer::ElementFactory::make("videorate")
                             .name("video_rate")
                             .build()?;
