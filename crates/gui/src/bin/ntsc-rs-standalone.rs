@@ -42,7 +42,7 @@ use gui::{
 
 use ntscrs::settings::{
     NtscEffect, NtscEffectFullSettings, ParseSettingsError, SettingDescriptor, SettingID,
-    SettingKind, SettingsList,
+    SettingKind, SettingsList, UseField,
 };
 use snafu::prelude::*;
 
@@ -395,11 +395,19 @@ enum RenderPipelineCodec {
     Png,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RenderInterlaceMode {
+    Progressive,
+    TopFieldFirst,
+    BottomFieldFirst,
+}
+
 #[derive(Debug, Clone)]
 struct RenderPipelineSettings {
     codec_settings: RenderPipelineCodec,
     output_path: PathBuf,
     duration: gstreamer::ClockTime,
+    interlacing: RenderInterlaceMode,
     effect_settings: NtscEffect,
 }
 
@@ -412,6 +420,7 @@ struct RenderSettings {
     ffv1_settings: Ffv1Settings,
     output_path: PathBuf,
     duration: gstreamer::ClockTime,
+    interlaced: bool,
 }
 
 impl From<&RenderSettings> for RenderPipelineCodec {
@@ -954,6 +963,13 @@ impl NtscApp {
         }
     }
 
+    fn interlaced_output_allowed(&self) -> bool {
+        matches!(
+            self.effect_settings.use_field,
+            UseField::InterleavedUpper | UseField::InterleavedLower
+        )
+    }
+
     fn create_render_job(
         &mut self,
         ctx: &egui::Context,
@@ -1116,30 +1132,15 @@ impl NtscApp {
                     }
                 };
 
+                let mut elems = Vec::<gstreamer::Element>::new();
+
                 let video_ntsc = gstreamer::ElementFactory::make("ntscfilter")
                     .property(
                         "settings",
                         NtscFilterSettings(settings_video_closure.effect_settings.clone()),
                     )
                     .build()?;
-                let ntsc_caps_filter = gstreamer::ElementFactory::make("capsfilter")
-                    .property(
-                        "caps",
-                        gstreamer_video::VideoCapsBuilder::new()
-                            .format(gstreamer_video::VideoFormat::Argb64)
-                            .build(),
-                    )
-                    .build()?;
-                let video_convert = gstreamer::ElementFactory::make("videoconvert").build()?;
-
-                let video_caps = gstreamer_video::VideoCapsBuilder::new()
-                    .format_list(pixel_formats.iter().copied())
-                    .build();
-                let caps_filter = gstreamer::ElementFactory::make("capsfilter")
-                    .property("caps", &video_caps)
-                    .build()?;
-
-                let mut elems = vec![video_ntsc.clone()];
+                elems.push(video_ntsc.clone());
 
                 // libx264 can't encode 4:2:0 subsampled videos with odd dimensions. Pad them out to even dimensions.
                 if let RenderPipelineCodec::H264(H264Settings {
@@ -1152,12 +1153,53 @@ impl NtscApp {
                     elems.push(video_padding);
                 }
 
-                elems.extend([
-                    ntsc_caps_filter,
-                    video_convert,
-                    caps_filter,
-                    video_enc.clone(),
-                ]);
+                let ntsc_caps_filter = gstreamer::ElementFactory::make("capsfilter")
+                    .property(
+                        "caps",
+                        gstreamer_video::VideoCapsBuilder::new()
+                            .format(gstreamer_video::VideoFormat::Argb64)
+                            .build(),
+                    )
+                    .build()?;
+                elems.push(ntsc_caps_filter);
+
+                let video_convert = gstreamer::ElementFactory::make("videoconvert").build()?;
+                elems.push(video_convert);
+
+                if settings_video_closure.interlacing != RenderInterlaceMode::Progressive {
+                    // Load the interlace plugin so the enum class exists. Nothing seems to work except actually instantiating an Element.
+                    let _ = gstreamer::ElementFactory::make("interlace")
+                        .build()
+                        .unwrap();
+                    #[allow(non_snake_case)]
+                    let GstInterlacePattern = gstreamer::glib::EnumClass::with_type(
+                        gstreamer::glib::Type::from_name("GstInterlacePattern").unwrap(),
+                    )
+                    .unwrap();
+
+                    let interlace = gstreamer::ElementFactory::make("interlace")
+                        .property(
+                            "field-pattern",
+                            GstInterlacePattern.to_value_by_nick("2:2").unwrap(),
+                        )
+                        .property(
+                            "top-field-first",
+                            settings_video_closure.interlacing
+                                == RenderInterlaceMode::TopFieldFirst,
+                        )
+                        .build()?;
+                    elems.push(interlace);
+                }
+
+                let video_caps = gstreamer_video::VideoCapsBuilder::new()
+                    .format_list(pixel_formats.iter().copied())
+                    .build();
+                let caps_filter = gstreamer::ElementFactory::make("capsfilter")
+                    .property("caps", &video_caps)
+                    .build()?;
+                elems.push(caps_filter);
+
+                elems.push(video_enc.clone());
 
                 pipeline.add_many(elems.iter())?;
                 gstreamer::Element::link_many(elems.iter())?;
@@ -2025,6 +2067,14 @@ impl NtscApp {
                 });
             }
 
+            ui
+                .add_enabled(
+                    self.interlaced_output_allowed(),
+                    egui::Checkbox::new(&mut self.render_settings.interlaced, "Interlaced output")
+                )
+                .on_disabled_hover_text("To enable interlaced output, set the \"Use field\" setting to \"Interleaved\".");
+
+
             if ui
                 .add_enabled(
                     !self.render_settings.output_path.as_os_str().is_empty() && src_path.is_some(),
@@ -2039,6 +2089,14 @@ impl NtscApp {
                         codec_settings: (&self.render_settings).into(),
                         output_path: self.render_settings.output_path.clone(),
                         duration: self.render_settings.duration,
+                        interlacing: match (
+                            self.interlaced_output_allowed() && self.render_settings.interlaced,
+                            self.effect_settings.use_field
+                        ) {
+                            (true, UseField::InterleavedUpper) => RenderInterlaceMode::TopFieldFirst,
+                            (true, UseField::InterleavedLower) => RenderInterlaceMode::BottomFieldFirst,
+                            _ => RenderInterlaceMode::Progressive,
+                        },
                         effect_settings: (&self.effect_settings).into(),
                     },
                 );
@@ -2206,6 +2264,7 @@ impl NtscApp {
                                         codec_settings: RenderPipelineCodec::Png,
                                         output_path: handle.into(),
                                         duration: gstreamer::ClockTime::from_seconds(1),
+                                        interlacing: RenderInterlaceMode::Progressive,
                                         effect_settings: (&app.effect_settings).into(),
                                     },
                                 );
