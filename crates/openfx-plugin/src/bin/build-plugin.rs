@@ -48,7 +48,7 @@ const TARGETS: &[Target] = &[
     // These two are completely untested. If your macOS build fails, don't be afraid to change these.
     Target {
         target_triple: "x86_64-apple-darwin",
-        ofx_architecture: "MacOS-x86-64",
+        ofx_architecture: "MacOS",
         library_extension: "dylib",
         library_prefix: "lib",
     },
