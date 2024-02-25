@@ -553,7 +553,7 @@ impl AppExecutor {
                     if let Some(f) = f {
                         queued.push(f);
                     }
-                    self.run_tasks.swap_remove(i);
+                    let _ = self.run_tasks.swap_remove(i);
                 }
             }
         }
@@ -2568,7 +2568,12 @@ impl NtscApp {
                                         preview, egui_sink, ..
                                     }) = &mut self.pipeline
                                     else {
-                                        ui.heading("No media loaded");
+                                        ui.add(
+                                            egui::Label::new(
+                                                egui::RichText::new("No media loaded").heading(),
+                                            )
+                                            .selectable(false),
+                                        );
                                         return;
                                     };
 
