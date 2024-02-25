@@ -500,15 +500,20 @@ fn video_noise_line(
     index: usize,
     frequency: f32,
     intensity: f32,
+    detail: u32,
 ) {
     let width = row.len();
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(seeder.clone().mix(index as u64).finalize());
     let noise_seed = rng.next_u32();
     let offset = rng.gen::<f32>() * width as f32;
 
-    let noise = NoiseBuilder::gradient_1d_offset(offset, width)
+    let noise = NoiseBuilder::fbm_1d_offset(offset, width)
         .with_seed(noise_seed as i32)
         .with_freq(frequency)
+        .with_octaves(detail.clamp(1, 5) as u8)
+        // Yes, they got the lacunarity backwards by making it apply to frequency instead of scale.
+        // 2.0 *halves* the scale each time because it doubles the frequency.
+        .with_lacunarity(2.0)
         .generate()
         .0;
 
@@ -534,12 +539,13 @@ fn composite_noise(yiq: &mut YiqView, info: &CommonInfo, frequency: f32, intensi
                 index,
                 frequency / info.bandwidth_scale,
                 intensity,
+                1
             );
         });
 }
 
 /// Add noise to the chrominance (I and Q) planes of a de-modulated signal.
-fn chroma_noise(yiq: &mut YiqView, info: &CommonInfo, frequency: f32, intensity: f32) {
+fn chroma_noise(yiq: &mut YiqView, info: &CommonInfo, settings: &ChromaNoiseSettings) {
     let width = yiq.dimensions.0;
     let seeder = Seeder::new(info.seed)
         .mix(noise_seeds::VIDEO_CHROMA)
@@ -554,15 +560,17 @@ fn chroma_noise(yiq: &mut YiqView, info: &CommonInfo, frequency: f32, intensity:
                 i,
                 &seeder,
                 index,
-                frequency / info.bandwidth_scale,
-                intensity,
+                settings.frequency / info.bandwidth_scale,
+                settings.intensity,
+                settings.detail,
             );
             video_noise_line(
                 q,
                 &seeder,
                 index,
-                frequency / info.bandwidth_scale,
-                intensity,
+                settings.frequency / info.bandwidth_scale,
+                settings.intensity,
+                settings.detail,
             );
         });
 }
@@ -769,6 +777,7 @@ fn tracking_noise(
                 index,
                 0.25 / info.bandwidth_scale,
                 intensity_scale.powi(2) * noise_intensity * 4.0,
+                1,
             );
 
             row_speckles(
@@ -1079,8 +1088,8 @@ impl NtscEffect {
             );
         }
 
-        if self.chroma_noise_intensity > 0.0 {
-            chroma_noise(yiq, &info, 0.05, self.chroma_noise_intensity);
+        if let Some(chroma_noise_settings) = &self.chroma_noise {
+            chroma_noise(yiq, &info, chroma_noise_settings);
         }
 
         if self.chroma_phase_error > 0.0 {

@@ -207,6 +207,23 @@ impl Default for RingingSettings {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChromaNoiseSettings {
+    pub frequency: f32,
+    pub intensity: f32,
+    pub detail: u32,
+}
+
+impl Default for ChromaNoiseSettings {
+    fn default() -> Self {
+        Self {
+            frequency: 0.05,
+            intensity: 0.1,
+            detail: 1,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SettingsBlock<T> {
     pub enabled: bool,
@@ -281,7 +298,8 @@ pub struct NtscEffect {
     pub composite_noise_intensity: f32,
     #[settings_block]
     pub ringing: Option<RingingSettings>,
-    pub chroma_noise_intensity: f32,
+    #[settings_block]
+    pub chroma_noise: Option<ChromaNoiseSettings>,
     pub snow_intensity: f32,
     pub snow_anisotropy: f32,
     pub chroma_phase_noise_intensity: f32,
@@ -311,7 +329,7 @@ impl Default for NtscEffect {
             snow_intensity: 0.003,
             snow_anisotropy: 0.5,
             composite_noise_intensity: 0.01,
-            chroma_noise_intensity: 0.1,
+            chroma_noise: Some(ChromaNoiseSettings::default()),
             chroma_phase_noise_intensity: 0.001,
             chroma_phase_error: 0.0,
             chroma_delay: (0.0, 0),
@@ -419,6 +437,10 @@ pub enum SettingID {
     VHS_EDGE_WAVE_ENABLED,
     VHS_EDGE_WAVE_FREQUENCY,
     VHS_EDGE_WAVE_DETAIL,
+
+    CHROMA_NOISE,
+    CHROMA_NOISE_FREQUENCY,
+    CHROMA_NOISE_DETAIL,
 }
 
 macro_rules! impl_get_field_ref {
@@ -436,7 +458,7 @@ macro_rules! impl_get_field_ref {
             SettingID::COMPOSITE_NOISE_INTENSITY => {
                 $settings.composite_noise_intensity.$borrow_op()
             }
-            SettingID::CHROMA_NOISE_INTENSITY => $settings.chroma_noise_intensity.$borrow_op(),
+            SettingID::CHROMA_NOISE_INTENSITY => $settings.chroma_noise.settings.intensity.$borrow_op(),
             SettingID::SNOW_INTENSITY => $settings.snow_intensity.$borrow_op(),
             SettingID::SNOW_ANISOTROPY => $settings.snow_anisotropy.$borrow_op(),
             SettingID::CHROMA_DEMODULATION => $settings.chroma_demodulation.$borrow_op(),
@@ -537,6 +559,10 @@ macro_rules! impl_get_field_ref {
 
             SettingID::CHROMA_PHASE_ERROR => $settings.chroma_phase_error.$borrow_op(),
             SettingID::INPUT_LUMA_FILTER => $settings.input_luma_filter.$borrow_op(),
+
+            SettingID::CHROMA_NOISE => $settings.chroma_noise.enabled.$borrow_op(),
+            SettingID::CHROMA_NOISE_FREQUENCY => $settings.chroma_noise.settings.frequency.$borrow_op(),
+            SettingID::CHROMA_NOISE_DETAIL => $settings.chroma_noise.settings.detail.$borrow_op(),
         }
     };
 }
@@ -681,6 +707,9 @@ impl SettingID {
             SettingID::RANDOM_SEED => "random_seed",
             SettingID::CHROMA_PHASE_ERROR => "chroma_phase_error",
             SettingID::INPUT_LUMA_FILTER => "input_luma_filter",
+            SettingID::CHROMA_NOISE => "chroma_noise",
+            SettingID::CHROMA_NOISE_FREQUENCY => "chroma_noise_frequency",
+            SettingID::CHROMA_NOISE_DETAIL => "chroma_noise_detail",
         }
     }
 }
@@ -1049,12 +1078,30 @@ impl SettingsList {
             SettingDescriptor {
                 label: "Chroma noise",
                 description: Some("Noise applied to the chrominance signal."),
-                kind: SettingKind::FloatRange {
-                    range: 0.0..=2.0,
-                    logarithmic: false,
-                    default_value: default_settings.chroma_noise_intensity,
+                kind: SettingKind::Group {
+                    children: vec![
+                        SettingDescriptor {
+                            label: "Intensity",
+                            description: Some("Intensity of the noise."),
+                            kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.chroma_noise.settings.intensity },
+                            id: SettingID::CHROMA_NOISE_INTENSITY
+                        },
+                        SettingDescriptor {
+                            label: "Frequency",
+                            description: Some("Base wavelength, in pixels, of the noise."),
+                            kind: SettingKind::FloatRange { range: 0.0..=0.5, logarithmic: false, default_value: default_settings.chroma_noise.settings.frequency },
+                            id: SettingID::CHROMA_NOISE_FREQUENCY
+                        },
+                        SettingDescriptor {
+                            label: "Detail",
+                            description: Some("Octaves of noise."),
+                            kind: SettingKind::IntRange { range: 1..=5, default_value: default_settings.chroma_noise.settings.detail as i32 },
+                            id: SettingID::CHROMA_NOISE_DETAIL
+                        },
+                    ],
+                    default_value: true,
                 },
-                id: SettingID::CHROMA_NOISE_INTENSITY,
+                id: SettingID::CHROMA_NOISE,
             },
             SettingDescriptor {
                 label: "Chroma phase error",
