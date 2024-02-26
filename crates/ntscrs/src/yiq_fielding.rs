@@ -1,50 +1,52 @@
+use std::{convert::identity, mem::MaybeUninit};
+
 use glam::{Mat3, Vec3};
 use image::RgbImage;
 use rayon::prelude::*;
 
-const YIQ_MATRIX: Mat3 = Mat3 {
-    x_axis: Vec3 {
-        x: 0.299,
-        y: 0.5959,
-        z: 0.2115,
-    },
-    y_axis: Vec3 {
-        x: 0.587,
-        y: -0.2746,
-        z: -0.5227,
-    },
-    z_axis: Vec3 {
-        x: 0.114,
-        y: -0.3213,
-        z: 0.3112,
-    },
-};
-
-const RGB_MATRIX: Mat3 = Mat3 {
-    x_axis: Vec3 {
-        x: 1.0,
-        y: 1.0,
-        z: 1.0,
-    },
-    y_axis: Vec3 {
-        x: 0.956,
-        y: -0.272,
-        z: -1.106,
-    },
-    z_axis: Vec3 {
-        x: 0.619,
-        y: -0.647,
-        z: 1.703,
-    },
-};
-
 #[inline(always)]
-pub fn rgb_to_yiq(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
+pub fn rgb_to_yiq([r, g, b]: [f32; 3]) -> [f32; 3] {
+    const YIQ_MATRIX: Mat3 = Mat3 {
+        x_axis: Vec3 {
+            x: 0.299,
+            y: 0.5959,
+            z: 0.2115,
+        },
+        y_axis: Vec3 {
+            x: 0.587,
+            y: -0.2746,
+            z: -0.5227,
+        },
+        z_axis: Vec3 {
+            x: 0.114,
+            y: -0.3213,
+            z: 0.3112,
+        },
+    };
+
     (YIQ_MATRIX * Vec3::new(r, g, b)).into()
 }
 
 #[inline(always)]
-pub fn yiq_to_rgb(y: f32, i: f32, q: f32) -> (f32, f32, f32) {
+pub fn yiq_to_rgb([y, i, q]: [f32; 3]) -> [f32; 3] {
+    const RGB_MATRIX: Mat3 = Mat3 {
+        x_axis: Vec3 {
+            x: 1.0,
+            y: 1.0,
+            z: 1.0,
+        },
+        y_axis: Vec3 {
+            x: 0.956,
+            y: -0.272,
+            z: -1.106,
+        },
+        z_axis: Vec3 {
+            x: 0.619,
+            y: -0.647,
+            z: 1.703,
+        },
+    };
+
     (RGB_MATRIX * Vec3::new(y, i, q)).into()
 }
 
@@ -111,6 +113,73 @@ impl Normalize for u8 {
     }
 }
 
+pub enum SwizzleOrder {
+    Rgbx,
+    Xrgb,
+    Bgrx,
+    Xbgr,
+    Rgb,
+    Bgr,
+}
+
+impl SwizzleOrder {
+    #[inline(always)]
+    pub const fn num_components(&self) -> usize {
+        match self {
+            Self::Rgbx | Self::Xrgb | Self::Bgrx | Self::Xbgr => 4,
+            Self::Rgb | Self::Bgr => 3,
+        }
+    }
+
+    #[inline(always)]
+    pub const fn rgba_indices(&self) -> (usize, usize, usize, Option<usize>) {
+        match self {
+            Self::Rgbx => (0, 1, 2, Some(3)),
+            Self::Rgb => (0, 1, 2, None),
+            Self::Xrgb => (1, 2, 3, Some(0)),
+            Self::Bgrx => (2, 1, 0, Some(3)),
+            Self::Bgr => (2, 1, 0, None),
+            Self::Xbgr => (3, 2, 1, Some(0)),
+        }
+    }
+}
+
+pub trait PixelFormat {
+    const ORDER: SwizzleOrder;
+    type DataFormat: Normalize;
+}
+
+macro_rules! impl_pix_fmt {
+    ($ty: ident, $order: expr, $format: ty) => {
+        pub struct $ty;
+        impl PixelFormat for $ty {
+            const ORDER: SwizzleOrder = $order;
+            type DataFormat = $format;
+        }
+    };
+}
+
+impl_pix_fmt!(Rgbx8, SwizzleOrder::Rgbx, u8);
+impl_pix_fmt!(Xrgb8, SwizzleOrder::Xrgb, u8);
+impl_pix_fmt!(Bgrx8, SwizzleOrder::Bgrx, u8);
+impl_pix_fmt!(Xbgr8, SwizzleOrder::Xbgr, u8);
+impl_pix_fmt!(Rgb8, SwizzleOrder::Rgb, u8);
+impl_pix_fmt!(Bgr8, SwizzleOrder::Bgr, u8);
+
+impl_pix_fmt!(Rgbx16, SwizzleOrder::Rgbx, u16);
+impl_pix_fmt!(Xrgb16, SwizzleOrder::Xrgb, u16);
+impl_pix_fmt!(Bgrx16, SwizzleOrder::Bgrx, u16);
+impl_pix_fmt!(Xbgr16, SwizzleOrder::Xbgr, u16);
+impl_pix_fmt!(Rgb16, SwizzleOrder::Rgb, u16);
+impl_pix_fmt!(Bgr16, SwizzleOrder::Bgr, u16);
+
+impl_pix_fmt!(Rgbx32f, SwizzleOrder::Rgbx, f32);
+impl_pix_fmt!(Xrgb32f, SwizzleOrder::Xrgb, f32);
+impl_pix_fmt!(Bgrx32f, SwizzleOrder::Bgrx, f32);
+impl_pix_fmt!(Xbgr32f, SwizzleOrder::Xbgr, f32);
+impl_pix_fmt!(Rgb32f, SwizzleOrder::Rgb, f32);
+impl_pix_fmt!(Bgr32f, SwizzleOrder::Bgr, f32);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeinterlaceMode {
     /// Interpolate between the given fields.
@@ -130,6 +199,19 @@ pub struct YiqView<'a> {
     /// The source field that this data is for.
     pub field: YiqField,
 }
+
+fn slice_to_maybe_uninit<T>(slice: &[T]) -> &[MaybeUninit<T>] {
+    // Safety: we know these are all initialized, so it's fine to transmute into a type that makes fewer assumptions
+    unsafe { std::mem::transmute(slice) }
+}
+
+fn slice_to_maybe_uninit_mut<T>(slice: &mut [T]) -> &mut [MaybeUninit<T>] {
+    // Safety: we know these are all initialized, so it's fine to transmute into a type that makes fewer assumptions
+    unsafe { std::mem::transmute(slice) }
+}
+
+pub trait PixelTransform: Fn([f32; 3]) -> [f32; 3] + Send + Sync {}
+impl<T: Fn([f32; 3]) -> [f32; 3] + Send + Sync> PixelTransform for T {}
 
 impl<'a> YiqView<'a> {
     pub fn split_at_row(&mut self, idx: usize) -> (YiqView<'_>, YiqView<'_>) {
@@ -158,13 +240,19 @@ impl<'a> YiqView<'a> {
         self.field.num_image_rows(self.dimensions.1)
     }
 
-    pub fn set_from_strided_buffer<S: PixelFormat>(
+    /// Safety:
+    /// - `buf` must be a valid pointer to a buffer of length `len`.
+    /// - All data within the portions of `buf` within each row, as specified by `row_bytes` and this view's dimensions,
+    ///   must be initialized and valid. Data outside of those portions need not be valid.
+    pub unsafe fn set_from_strided_buffer_maybe_uninit<S: PixelFormat, F: PixelTransform>(
         &mut self,
-        buf: &[S::DataFormat],
+        buf: &[MaybeUninit<S::DataFormat>],
         row_bytes: usize,
+        flip_y: bool,
+        pixel_transform: F,
     ) {
         let num_components = S::ORDER.num_components();
-        let (r_idx, g_idx, b_idx) = S::ORDER.rgb_indices();
+        let (r_idx, g_idx, b_idx, ..) = S::ORDER.rgba_indices();
         assert!(num_components >= 3);
         assert_eq!(row_bytes % std::mem::size_of::<S::DataFormat>(), 0);
 
@@ -177,7 +265,7 @@ impl<'a> YiqView<'a> {
             .for_each(|(row_idx, (y, (i, q)))| {
                 // For interleaved fields, we write the first field into the first half of the buffer,
                 // and the second field into the second half.
-                let src_row_idx = match self.field {
+                let mut src_row_idx = match self.field {
                     YiqField::Upper => row_idx * 2,
                     YiqField::Lower => (row_idx * 2) + 1,
                     YiqField::Both => row_idx,
@@ -200,14 +288,22 @@ impl<'a> YiqView<'a> {
                         }
                     }
                 };
+                if flip_y {
+                    src_row_idx = height - src_row_idx - 1;
+                }
                 let src_offset = src_row_idx * (row_bytes / std::mem::size_of::<S::DataFormat>());
                 for pixel_idx in 0..width {
-                    let yiq_pixel = YIQ_MATRIX
-                        * Vec3::new(
-                            (buf[((pixel_idx * num_components) + src_offset) + r_idx]).to_norm(),
-                            (buf[((pixel_idx * num_components) + src_offset) + g_idx]).to_norm(),
-                            (buf[((pixel_idx * num_components) + src_offset) + b_idx]).to_norm(),
-                        );
+                    let yiq_pixel = rgb_to_yiq(pixel_transform([
+                        buf[((pixel_idx * num_components) + src_offset) + r_idx]
+                            .assume_init()
+                            .to_norm(),
+                        buf[((pixel_idx * num_components) + src_offset) + g_idx]
+                            .assume_init()
+                            .to_norm(),
+                        buf[((pixel_idx * num_components) + src_offset) + b_idx]
+                            .assume_init()
+                            .to_norm(),
+                    ]));
                     y[pixel_idx] = yiq_pixel[0];
                     i[pixel_idx] = yiq_pixel[1];
                     q[pixel_idx] = yiq_pixel[2];
@@ -215,14 +311,33 @@ impl<'a> YiqView<'a> {
             });
     }
 
-    pub fn write_to_strided_buffer<S: PixelFormat>(
+    pub fn set_from_strided_buffer<S: PixelFormat, F: PixelTransform>(
+        &mut self,
+        buf: &[S::DataFormat],
+        row_bytes: usize,
+        flip_y: bool,
+        pixel_transform: F,
+    ) {
+        // Safety: We know this data is valid because it's a slice.
+        unsafe {
+            self.set_from_strided_buffer_maybe_uninit::<S, F>(
+                slice_to_maybe_uninit(buf),
+                row_bytes,
+                flip_y,
+                pixel_transform,
+            )
+        }
+    }
+
+    pub fn write_to_strided_buffer_maybe_uninit<S: PixelFormat, F: PixelTransform>(
         &self,
-        dst: &mut [S::DataFormat],
+        dst: &mut [MaybeUninit<S::DataFormat>],
         row_bytes: usize,
         deinterlace_mode: DeinterlaceMode,
+        pixel_transform: F,
     ) {
         let num_components = S::ORDER.num_components();
-        let (r_idx, g_idx, b_idx) = S::ORDER.rgb_indices();
+        let (r_idx, g_idx, b_idx, ..) = S::ORDER.rgba_indices();
         assert!(num_components >= 3);
         assert_eq!(row_bytes % std::mem::size_of::<S::DataFormat>(), 0);
 
@@ -258,27 +373,30 @@ impl<'a> YiqView<'a> {
                             let src_idx_lower = ((row_idx - 1) >> 1) * width + pix_idx;
                             let src_idx_upper = ((row_idx + 1) >> 1) * width + pix_idx;
 
-                            let interp_pixel = Vec3::new(
+                            let interp_pixel = [
                                 (self.y[src_idx_lower] + self.y[src_idx_upper]) * 0.5,
                                 (self.i[src_idx_lower] + self.i[src_idx_upper]) * 0.5,
                                 (self.q[src_idx_lower] + self.q[src_idx_upper]) * 0.5,
-                            );
+                            ];
 
-                            let rgb = RGB_MATRIX * interp_pixel;
-                            pixel[r_idx] = S::DataFormat::from_norm(rgb[0]);
-                            pixel[g_idx] = S::DataFormat::from_norm(rgb[1]);
-                            pixel[b_idx] = S::DataFormat::from_norm(rgb[2]);
+                            let rgb = pixel_transform(yiq_to_rgb(interp_pixel));
+                            pixel[r_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[0]));
+                            pixel[g_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[1]));
+                            pixel[b_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[2]));
                         }
                     } else {
                         // Copy the field directly
                         for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
                             let src_idx =
                                 (row_idx >> row_rshift).min(num_rows - 1) * width + pix_idx;
-                            let rgb = RGB_MATRIX
-                                * Vec3::new(self.y[src_idx], self.i[src_idx], self.q[src_idx]);
-                            pixel[r_idx] = S::DataFormat::from_norm(rgb[0]);
-                            pixel[g_idx] = S::DataFormat::from_norm(rgb[1]);
-                            pixel[b_idx] = S::DataFormat::from_norm(rgb[2]);
+                            let rgb = pixel_transform(yiq_to_rgb([
+                                self.y[src_idx],
+                                self.i[src_idx],
+                                self.q[src_idx],
+                            ]));
+                            pixel[r_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[0]));
+                            pixel[g_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[1]));
+                            pixel[b_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[2]));
                         }
                     }
                 });
@@ -290,11 +408,14 @@ impl<'a> YiqView<'a> {
                     }
                     for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
                         let src_idx = (row_idx >> row_rshift).min(num_rows - 1) * width + pix_idx;
-                        let rgb = RGB_MATRIX
-                            * Vec3::new(self.y[src_idx], self.i[src_idx], self.q[src_idx]);
-                        pixel[r_idx] = S::DataFormat::from_norm(rgb[0]);
-                        pixel[g_idx] = S::DataFormat::from_norm(rgb[1]);
-                        pixel[b_idx] = S::DataFormat::from_norm(rgb[2]);
+                        let rgb = pixel_transform(yiq_to_rgb([
+                            self.y[src_idx],
+                            self.i[src_idx],
+                            self.q[src_idx],
+                        ]));
+                        pixel[r_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[0]));
+                        pixel[g_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[1]));
+                        pixel[b_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[2]));
                     }
                 });
             }
@@ -312,15 +433,14 @@ impl<'a> YiqView<'a> {
                     let interleaved_row_idx = (row_idx >> 1) + row_offset;
                     let src_idx = interleaved_row_idx * width;
                     for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
-                        let rgb = RGB_MATRIX
-                            * Vec3::new(
-                                self.y[src_idx + pix_idx],
-                                self.i[src_idx + pix_idx],
-                                self.q[src_idx + pix_idx],
-                            );
-                        pixel[r_idx] = S::DataFormat::from_norm(rgb[0]);
-                        pixel[g_idx] = S::DataFormat::from_norm(rgb[1]);
-                        pixel[b_idx] = S::DataFormat::from_norm(rgb[2]);
+                        let rgb = pixel_transform(yiq_to_rgb([
+                            self.y[src_idx + pix_idx],
+                            self.i[src_idx + pix_idx],
+                            self.q[src_idx + pix_idx],
+                        ]));
+                        pixel[r_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[0]));
+                        pixel[g_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[1]));
+                        pixel[b_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[2]));
                     }
                 });
             }
@@ -328,14 +448,45 @@ impl<'a> YiqView<'a> {
                 chunks.for_each(|(row_idx, dst_row)| {
                     for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
                         let src_idx = (row_idx >> row_rshift).min(num_rows - 1) * width + pix_idx;
-                        let rgb = RGB_MATRIX
-                            * Vec3::new(self.y[src_idx], self.i[src_idx], self.q[src_idx]);
-                        pixel[r_idx] = S::DataFormat::from_norm(rgb[0]);
-                        pixel[g_idx] = S::DataFormat::from_norm(rgb[1]);
-                        pixel[b_idx] = S::DataFormat::from_norm(rgb[2]);
+                        let rgb = pixel_transform(yiq_to_rgb([
+                            self.y[src_idx],
+                            self.i[src_idx],
+                            self.q[src_idx],
+                        ]));
+                        pixel[r_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[0]));
+                        pixel[g_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[1]));
+                        pixel[b_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[2]));
                     }
                 });
             }
+        }
+    }
+
+    pub fn write_to_strided_buffer<S: PixelFormat, F: PixelTransform>(
+        &self,
+        dst: &mut [S::DataFormat],
+        row_bytes: usize,
+        deinterlace_mode: DeinterlaceMode,
+        pixel_transform: F,
+    ) {
+        self.write_to_strided_buffer_maybe_uninit::<S, F>(
+            slice_to_maybe_uninit_mut(dst),
+            row_bytes,
+            deinterlace_mode,
+            pixel_transform,
+        )
+    }
+
+    pub fn from_parts(buf: &'a mut [f32], dimensions: (usize, usize), field: YiqField) -> Self {
+        let num_pixels = dimensions.0 * field.num_image_rows(dimensions.1);
+        let (y, iq) = buf.split_at_mut(num_pixels);
+        let (i, q) = iq.split_at_mut(num_pixels);
+        YiqView {
+            y,
+            i,
+            q,
+            dimensions,
+            field,
         }
     }
 }
@@ -350,63 +501,6 @@ pub struct YiqOwned {
     /// The source field that this data is for.
     field: YiqField,
 }
-
-pub enum SwizzleOrder {
-    Rgbx,
-    Xrgb,
-    Bgrx,
-    Xbgr,
-    Rgb,
-    Bgr,
-}
-
-impl SwizzleOrder {
-    #[inline(always)]
-    pub const fn num_components(&self) -> usize {
-        match self {
-            Self::Rgbx | Self::Xrgb | Self::Bgrx | Self::Xbgr => 4,
-            Self::Rgb | Self::Bgr => 3,
-        }
-    }
-
-    #[inline(always)]
-    pub const fn rgb_indices(&self) -> (usize, usize, usize) {
-        match self {
-            Self::Rgbx | Self::Rgb => (0, 1, 2),
-            Self::Xrgb => (1, 2, 3),
-            Self::Bgrx | Self::Bgr => (2, 1, 0),
-            Self::Xbgr => (3, 2, 1),
-        }
-    }
-}
-
-pub trait PixelFormat {
-    const ORDER: SwizzleOrder;
-    type DataFormat: Normalize;
-}
-
-macro_rules! impl_pix_fmt {
-    ($ty: ident, $order: expr, $format: ty) => {
-        pub struct $ty();
-        impl PixelFormat for $ty {
-            const ORDER: SwizzleOrder = $order;
-            type DataFormat = $format;
-        }
-    };
-}
-
-impl_pix_fmt!(Rgbx8, SwizzleOrder::Rgbx, u8);
-impl_pix_fmt!(Rgbx16, SwizzleOrder::Rgbx, u16);
-impl_pix_fmt!(Xrgb8, SwizzleOrder::Xrgb, u8);
-impl_pix_fmt!(Xrgb16, SwizzleOrder::Xrgb, u16);
-impl_pix_fmt!(Bgrx8, SwizzleOrder::Bgrx, u8);
-impl_pix_fmt!(Bgrx16, SwizzleOrder::Bgrx, u16);
-impl_pix_fmt!(Xbgr8, SwizzleOrder::Xbgr, u8);
-impl_pix_fmt!(Xbgr16, SwizzleOrder::Xbgr, u16);
-impl_pix_fmt!(Rgb8, SwizzleOrder::Rgb, u8);
-impl_pix_fmt!(Rgb16, SwizzleOrder::Rgb, u16);
-impl_pix_fmt!(Bgr8, SwizzleOrder::Bgr, u8);
-impl_pix_fmt!(Bgr16, SwizzleOrder::Bgr, u16);
 
 impl YiqOwned {
     pub fn num_rows(&self) -> usize {
@@ -435,7 +529,7 @@ impl YiqOwned {
             field,
         };
 
-        view.set_from_strided_buffer::<S>(buf, row_bytes);
+        view.set_from_strided_buffer::<S, _>(buf, row_bytes, false, identity);
 
         YiqOwned {
             data: data.into_boxed_slice(),
@@ -464,7 +558,7 @@ impl YiqOwned {
             field,
         };
 
-        view.set_from_strided_buffer::<Rgb8>(image.as_raw(), width * 3);
+        view.set_from_strided_buffer::<Rgb8, _>(image.as_raw(), width * 3, false, identity);
 
         YiqOwned {
             data: data.into_boxed_slice(),
@@ -494,7 +588,12 @@ impl From<&YiqView<'_>> for RgbImage {
         let (width, output_height) = image.dimensions;
         let num_pixels = width * output_height;
         let mut dst = vec![0u8; num_pixels * 3];
-        image.write_to_strided_buffer::<Rgb8>(&mut dst, width * 3, DeinterlaceMode::Bob);
+        image.write_to_strided_buffer::<Rgb8, _>(
+            &mut dst,
+            width * 3,
+            DeinterlaceMode::Bob,
+            identity,
+        );
 
         RgbImage::from_raw(width as u32, output_height as u32, dst).unwrap()
     }

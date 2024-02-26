@@ -4,19 +4,26 @@
 
 use core::slice;
 use std::{
-    borrow::{Borrow, BorrowMut},
+    convert::identity,
     ffi::{c_char, c_int, c_void, CStr, CString, FromBytesWithNulError},
-    mem::{self, size_of, MaybeUninit},
+    mem::MaybeUninit,
     ptr::{self, NonNull},
     sync::{OnceLock, RwLock},
 };
 
-use ntscrs::settings::{NtscEffectFullSettings, SettingDescriptor, SettingKind, SettingsList};
+use allocator_api2::{
+    alloc::{AllocError, Allocator, Layout},
+    boxed::Box as AllocBox,
+};
+
 use ntscrs::ToPrimitive;
 use ntscrs::{
     ntsc::NtscEffect,
-    settings::UseField,
-    yiq_fielding::{rgb_to_yiq, yiq_to_rgb, YiqField, YiqView},
+    yiq_fielding::{yiq_to_rgb, YiqField, YiqView},
+};
+use ntscrs::{
+    settings::{NtscEffectFullSettings, SettingDescriptor, SettingKind, SettingsList},
+    yiq_fielding::{Normalize, PixelFormat, Rgb16, Rgb32f, Rgb8, Rgbx16, Rgbx32f, Rgbx8},
 };
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
@@ -857,7 +864,8 @@ unsafe fn action_instance_changed(
     Ok(())
 }
 
-fn srgb_gamma(value: f32) -> f32 {
+#[inline(always)]
+fn srgb_gamma_single(value: f32) -> f32 {
     if value <= 0.0031308 {
         value * 12.92
     } else {
@@ -865,12 +873,31 @@ fn srgb_gamma(value: f32) -> f32 {
     }
 }
 
-fn srgb_gamma_inv(value: f32) -> f32 {
+#[inline(always)]
+fn srgb_gamma_inv_single(value: f32) -> f32 {
     if value <= 0.04045 {
         value / 12.92
     } else {
         ((value + 0.055) / 1.055).powf(2.4)
     }
+}
+
+#[inline(always)]
+fn srgb_gamma(value: [f32; 3]) -> [f32; 3] {
+    [
+        srgb_gamma_single(value[0]),
+        srgb_gamma_single(value[1]),
+        srgb_gamma_single(value[2]),
+    ]
+}
+
+#[inline(always)]
+fn srgb_gamma_inv(value: [f32; 3]) -> [f32; 3] {
+    [
+        srgb_gamma_inv_single(value[0]),
+        srgb_gamma_inv_single(value[1]),
+        srgb_gamma_inv_single(value[2]),
+    ]
 }
 
 struct OfxClipImage(OfxPropertySetHandle);
@@ -885,107 +912,37 @@ impl Drop for OfxClipImage {
     }
 }
 
-// Is this *really* safe? Probably not, but at least I'm not leaking memory
-struct OfxAllocatedBuffer<T>(NonNull<[MaybeUninit<T>]>);
+struct OfxAllocator;
 
-impl<T> OfxAllocatedBuffer<T> {
-    pub fn alloc(elements: usize) -> OfxResult<Self> {
-        if elements == 0 {
-            return Err(OfxStat::kOfxStatErrValue);
+unsafe impl Allocator for OfxAllocator {
+    fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+        let data = shared_data.read().map_err(|_| AllocError)?;
+        let data = data.as_ref().ok_or(AllocError)?;
+        let memoryAlloc = data.memory_suite.memoryAlloc.ok_or(AllocError)?;
+
+        if layout.size() == 0 {
+            panic!("zero-size allocations are not supported");
         }
-        let data = shared_data.read().map_err(|_| OfxStat::kOfxStatFailed)?;
-        let data = data.as_ref().ok_or(OfxStat::kOfxStatFailed)?;
-        let memoryAlloc = data
-            .memory_suite
-            .memoryAlloc
-            .ok_or(OfxStat::kOfxStatFailed)?;
 
         let mut buf = ptr::null_mut();
         unsafe {
             ofx_err(memoryAlloc(
-                ptr::null_mut(),
-                elements * size_of::<T>(),
+                ptr::null_mut(), // effect instance handle (we don't care)
+                layout.size(),
                 &mut buf,
-            ))?
+            ))
+            .map_err(|_| AllocError)?
         };
 
-        let buf_slice = unsafe { slice::from_raw_parts_mut(buf as *mut MaybeUninit<T>, elements) };
-        let buf_ptr = NonNull::new(buf_slice).ok_or(OfxStat::kOfxStatErrMemory)?;
-
-        Ok(Self(buf_ptr))
+        let buf_slice = unsafe { slice::from_raw_parts_mut(buf as *mut u8, layout.size()) };
+        NonNull::new(buf_slice).ok_or(AllocError)
     }
 
-    #[allow(dead_code)]
-    unsafe fn borrow_assume_init(&self) -> &[T] {
-        mem::transmute(self.0.as_ref())
-    }
-
-    unsafe fn borrow_assume_init_mut(&mut self) -> &mut [T] {
-        mem::transmute(self.0.as_mut())
-    }
-}
-
-impl<T> Drop for OfxAllocatedBuffer<T> {
-    fn drop(&mut self) {
+    unsafe fn deallocate(&self, ptr: NonNull<u8>, _layout: Layout) {
         let data = shared_data.read().unwrap();
         let data = data.as_ref().unwrap();
         let memoryFree = data.memory_suite.memoryFree.unwrap();
-        let ptr = self.0;
-
-        unsafe { memoryFree(ptr.as_ptr() as *mut _) };
-    }
-}
-
-impl<T> Borrow<[MaybeUninit<T>]> for OfxAllocatedBuffer<T> {
-    fn borrow(&self) -> &[MaybeUninit<T>] {
-        unsafe { self.0.as_ref() }
-    }
-}
-
-impl<T> BorrowMut<[MaybeUninit<T>]> for OfxAllocatedBuffer<T> {
-    fn borrow_mut(&mut self) -> &mut [MaybeUninit<T>] {
-        unsafe { self.0.as_mut() }
-    }
-}
-
-trait Normalize {
-    fn from_norm(value: f32) -> Self;
-    fn to_norm(self) -> f32;
-}
-
-impl Normalize for f32 {
-    #[inline(always)]
-    fn from_norm(value: f32) -> Self {
-        value
-    }
-
-    #[inline(always)]
-    fn to_norm(self) -> f32 {
-        self
-    }
-}
-
-impl Normalize for u16 {
-    #[inline(always)]
-    fn from_norm(value: f32) -> Self {
-        (value.clamp(0.0, 1.0) * Self::MAX as f32) as Self
-    }
-
-    #[inline(always)]
-    fn to_norm(self) -> f32 {
-        (self as f32) / Self::MAX as f32
-    }
-}
-
-impl Normalize for u8 {
-    #[inline(always)]
-    fn from_norm(value: f32) -> Self {
-        (value.clamp(0.0, 1.0) * Self::MAX as f32) as Self
-    }
-
-    #[inline(always)]
-    fn to_norm(self) -> f32 {
-        (self as f32) / Self::MAX as f32
+        memoryFree(ptr.as_ptr() as *mut _);
     }
 }
 
@@ -1041,154 +998,173 @@ fn getRowInfo(cur_field: YiqField, src_height: usize) -> RowInfo {
     }
 }
 
-unsafe fn pixel_processing<S: Normalize + Sized, D: Normalize + Sized>(
-    srcPtr: *mut c_void,
-    dstPtr: *mut c_void,
-    srcRowBytes: i32,
-    dstRowBytes: i32,
-    srcBounds: OfxRectI,
-    dstBounds: OfxRectI,
-    num_source_components: usize,
-    num_output_components: usize,
-    effect: &NtscEffect,
+struct EffectApplicationParams<'a> {
+    src_ptr: *mut c_void,
+    src_row_bytes: i32,
+    src_bounds: OfxRectI,
+    dst_ptr: *mut c_void,
+    dst_row_bytes: i32,
+    dst_bounds: OfxRectI,
+    effect: &'a NtscEffect,
     frame_num: usize,
     apply_srgb_gamma: bool,
-) -> OfxResult<()> {
-    let dstWidth = (dstBounds.x2 - dstBounds.x1) as usize;
-    let dstHeight = (dstBounds.y2 - dstBounds.y1) as usize;
-    let srcWidth = (srcBounds.x2 - srcBounds.x1) as usize;
-    let srcHeight = (srcBounds.y2 - srcBounds.y1) as usize;
+}
 
-    let cur_field = match effect.use_field {
-        UseField::Alternating => {
-            if frame_num & 1 == 0 {
-                YiqField::Lower
-            } else {
-                YiqField::Upper
-            }
-        }
-        UseField::Upper => YiqField::Upper,
-        UseField::Lower => YiqField::Lower,
-        UseField::Both => YiqField::Both,
-        UseField::InterleavedUpper => YiqField::InterleavedUpper,
-        UseField::InterleavedLower => YiqField::InterleavedLower,
-    };
+struct EffectStorageParams<'a> {
+    yiq_data: AllocBox<[f32], OfxAllocator>,
+    dst_ptr: *mut c_void,
+    dst_row_bytes: i32,
+    src_bounds: OfxRectI,
+    dst_bounds: OfxRectI,
+    effect: &'a NtscEffect,
+    frame_num: usize,
+    apply_srgb_gamma: bool,
+}
 
-    let RowInfo {
-        row_lshift,
-        row_offset,
-        num_rows: numRows,
-    } = getRowInfo(cur_field, srcHeight);
+impl<'a> EffectApplicationParams<'a> {
+    unsafe fn apply<S: PixelFormat>(self) -> OfxResult<EffectStorageParams<'a>> {
+        let srcWidth = (self.src_bounds.x2 - self.src_bounds.x1) as usize;
+        let srcHeight = (self.src_bounds.y2 - self.src_bounds.y1) as usize;
 
-    // Pixels per YIQ plane
-    let numPlanePixels = srcWidth * numRows;
+        let cur_field = self.effect.use_field.to_yiq_field(self.frame_num);
+        let numRows = cur_field.num_image_rows(srcHeight);
 
-    let mut ntsc_buf = OfxAllocatedBuffer::<f32>::alloc(numPlanePixels * 3)?;
+        // Pixels per YIQ plane
+        let numPlanePixels = srcWidth * numRows;
 
-    {
-        let yiq_buf: &mut [MaybeUninit<f32>] = ntsc_buf.borrow_mut();
-        let (y, iq) = yiq_buf.split_at_mut(numPlanePixels);
+        let mut ntsc_buf =
+            AllocBox::<[f32], _>::new_zeroed_slice_in(numPlanePixels * 3, OfxAllocator)
+                .assume_init();
+
+        let (srcFirstRowPtr, flip_y) = if self.src_row_bytes < 0 {
+            // Currently untested because I can't find an OFX host that uses negative rowbytes. Fingers crossed it works!
+            (
+                self.src_ptr
+                    .add((self.src_row_bytes * (srcHeight - 1) as i32) as usize),
+                false,
+            )
+        } else {
+            (self.src_ptr, true)
+        };
+        let srcStride = self.src_row_bytes.abs() as usize;
+
+        let (y, iq) = ntsc_buf.split_at_mut(numPlanePixels);
         let (i, q) = iq.split_at_mut(numPlanePixels);
 
-        // Convert the source pixel data into YIQ normalized data
-        for yi in 0..numRows {
-            let row_idx = (yi << row_lshift) + row_offset;
+        let mut yiq_view = YiqView {
+            y,
+            i,
+            q,
+            dimensions: (srcWidth, srcHeight),
+            field: cur_field,
+        };
+
+        let srcData = slice::from_raw_parts(
+            srcFirstRowPtr as *const MaybeUninit<S::DataFormat>,
+            srcStride * srcHeight as usize,
+        );
+        if self.apply_srgb_gamma {
+            yiq_view.set_from_strided_buffer_maybe_uninit::<S, _>(
+                srcData, srcStride, flip_y, srgb_gamma,
+            );
+        } else {
+            yiq_view
+                .set_from_strided_buffer_maybe_uninit::<S, _>(srcData, srcStride, flip_y, identity);
+        }
+
+        self.effect
+            .apply_effect_to_yiq(&mut yiq_view, self.frame_num);
+
+        Ok(EffectStorageParams {
+            yiq_data: ntsc_buf,
+            dst_ptr: self.dst_ptr,
+            dst_row_bytes: self.dst_row_bytes,
+            src_bounds: self.src_bounds,
+            dst_bounds: self.dst_bounds,
+            effect: self.effect,
+            frame_num: self.frame_num,
+            apply_srgb_gamma: self.apply_srgb_gamma,
+        })
+    }
+}
+
+impl<'a> EffectStorageParams<'a> {
+    unsafe fn write_to_output<D: PixelFormat>(mut self) -> OfxResult<()> {
+        let dstWidth = (self.dst_bounds.x2 - self.dst_bounds.x1) as usize;
+        let dstHeight = (self.dst_bounds.y2 - self.dst_bounds.y1) as usize;
+        let srcWidth = (self.src_bounds.x2 - self.src_bounds.x1) as usize;
+        let srcHeight = (self.src_bounds.y2 - self.src_bounds.y1) as usize;
+
+        let cur_field = self.effect.use_field.to_yiq_field(self.frame_num);
+        let yiq_view = YiqView::from_parts(&mut self.yiq_data, (srcWidth, srcHeight), cur_field);
+        let (y, i, q) = (yiq_view.y, yiq_view.i, yiq_view.q);
+
+        let RowInfo {
+            row_lshift,
+            row_offset,
+            num_rows: numRows,
+        } = getRowInfo(cur_field, srcHeight);
+
+        // Convert back and copy into the destination buffer
+        for yi in 0..dstHeight {
             // We need to offset the row pointer in bytes, which is why we leave it as a *mut c_void here
-            let rowPtr = srcPtr.offset((srcRowBytes * row_idx as i32) as isize);
-            for x in 0..srcWidth {
+            let dstRowPtr = self
+                .dst_ptr
+                .offset((self.dst_row_bytes * yi as i32) as isize);
+            let src_y = yi as i32 + (self.dst_bounds.y1 - self.src_bounds.y1);
+            let interp_row = cur_field != YiqField::Both
+                && (yi & 1) != row_offset
+                && src_y > 0
+                && src_y < (srcHeight - 1) as i32;
+
+            for x in 0..dstWidth {
+                let (r_idx, g_idx, b_idx, a_idx) = D::ORDER.rgba_indices();
                 // Now that we have the row pointer, we offset by the actual datatype to get the pixel
-                let pixPtr = (rowPtr as *mut S).add(x * num_source_components);
-                let r = pixPtr.read().to_norm();
-                let g = pixPtr.offset(1).read().to_norm();
-                let b = pixPtr.offset(2).read().to_norm();
-                let (pix_y, pix_i, pix_q) = if apply_srgb_gamma {
-                    rgb_to_yiq(srgb_gamma(r), srgb_gamma(g), srgb_gamma(b))
+                let pixPtr = (dstRowPtr as *mut D::DataFormat).add(x * D::ORDER.num_components());
+                let src_x = x as i32 + (self.dst_bounds.x1 - self.src_bounds.x1);
+                if src_x < 0 || src_x >= srcWidth as i32 || src_y < 0 || src_y >= srcHeight as i32 {
+                    pixPtr.add(0).write(D::DataFormat::from_norm(0.0));
+                    pixPtr.add(1).write(D::DataFormat::from_norm(0.0));
+                    pixPtr.add(2).write(D::DataFormat::from_norm(0.0));
+                    if let Some(a_idx) = a_idx {
+                        pixPtr.add(a_idx).write(D::DataFormat::from_norm(0.0));
+                    }
+                    continue;
+                }
+
+                let (pix_y, pix_i, pix_q) = if interp_row {
+                    // This row was not processed this frame. Interpolate from the rows above and below it.
+                    let row_idx_bottom = (srcHeight as i32 - 1 - src_y + 1) as usize >> row_lshift;
+                    let row_idx_top = (srcHeight as i32 - 1 - src_y - 1) as usize >> row_lshift;
+                    let idx_top = (row_idx_top * srcWidth) + src_x as usize;
+                    let idx_bottom = (row_idx_bottom * srcWidth) + src_x as usize;
+                    (
+                        (y[idx_top] + y[idx_bottom]) * 0.5,
+                        (i[idx_top] + i[idx_bottom]) * 0.5,
+                        (q[idx_top] + q[idx_bottom]) * 0.5,
+                    )
                 } else {
-                    rgb_to_yiq(r, g, b)
+                    let row_idx =
+                        ((srcHeight as i32 - 1 - src_y) as usize >> row_lshift).min(numRows - 1);
+                    let idx = (row_idx * srcWidth) + src_x as usize;
+                    (y[idx], i[idx], q[idx])
                 };
 
-                y[((numRows - 1 - yi) * srcWidth) + x].write(pix_y);
-                i[((numRows - 1 - yi) * srcWidth) + x].write(pix_i);
-                q[((numRows - 1 - yi) * srcWidth) + x].write(pix_q);
-            }
-        }
-    }
-
-    // We've now initialized our buffer; construct a YiqView from it
-    let yiq_buf: &mut [f32] = ntsc_buf.borrow_assume_init_mut();
-    let (y, iq) = yiq_buf.split_at_mut(numPlanePixels);
-    let (i, q) = iq.split_at_mut(numPlanePixels);
-
-    let mut yiq_view = YiqView {
-        y,
-        i,
-        q,
-        dimensions: (srcWidth, srcHeight),
-        field: cur_field,
-    };
-
-    effect.apply_effect_to_yiq(&mut yiq_view, frame_num);
-
-    let (y, i, q) = (yiq_view.y, yiq_view.i, yiq_view.q);
-
-    // Convert back and copy into the destination buffer
-    for yi in 0..dstHeight {
-        // We need to offset the row pointer in bytes, which is why we leave it as a *mut c_void here
-        let dstRowPtr = dstPtr.offset((dstRowBytes * yi as i32) as isize);
-        let src_y = yi as i32 + (dstBounds.y1 - srcBounds.y1);
-        let interp_row = cur_field != YiqField::Both
-            && (yi & 1) != row_offset
-            && src_y > 0
-            && src_y < (srcHeight - 1) as i32;
-
-        for x in 0..dstWidth {
-            // Now that we have the row pointer, we offset by the actual datatype to get the pixel
-            let pixPtr = (dstRowPtr as *mut D).add(x * num_output_components);
-            let src_x = x as i32 + (dstBounds.x1 - srcBounds.x1);
-            if src_x < 0 || src_x >= srcWidth as i32 || src_y < 0 || src_y >= srcHeight as i32 {
-                pixPtr.write(D::from_norm(0.0));
-                pixPtr.offset(1).write(D::from_norm(0.0));
-                pixPtr.offset(2).write(D::from_norm(0.0));
-                if num_output_components == 4 {
-                    pixPtr.offset(3).write(D::from_norm(0.0));
+                let mut rgb = yiq_to_rgb([pix_y, pix_i, pix_q]);
+                if self.apply_srgb_gamma {
+                    rgb = srgb_gamma_inv(rgb);
                 }
-                continue;
-            }
-
-            let (pix_y, pix_i, pix_q) = if interp_row {
-                // This row was not processed this frame. Interpolate from the rows above and below it.
-                let row_idx_bottom = (srcHeight as i32 - 1 - src_y + 1) as usize >> row_lshift;
-                let row_idx_top = (srcHeight as i32 - 1 - src_y - 1) as usize >> row_lshift;
-                let idx_top = (row_idx_top * srcWidth) + src_x as usize;
-                let idx_bottom = (row_idx_bottom * srcWidth) + src_x as usize;
-                (
-                    (y[idx_top] + y[idx_bottom]) * 0.5,
-                    (i[idx_top] + i[idx_bottom]) * 0.5,
-                    (q[idx_top] + q[idx_bottom]) * 0.5,
-                )
-            } else {
-                let row_idx =
-                    ((srcHeight as i32 - 1 - src_y) as usize >> row_lshift).min(numRows - 1);
-                let idx = (row_idx * srcWidth) + src_x as usize;
-                (y[idx], i[idx], q[idx])
-            };
-
-            let (mut r, mut g, mut b) = yiq_to_rgb(pix_y, pix_i, pix_q);
-            if apply_srgb_gamma {
-                r = srgb_gamma_inv(r);
-                g = srgb_gamma_inv(g);
-                b = srgb_gamma_inv(b);
-            }
-            pixPtr.write(D::from_norm(r));
-            pixPtr.offset(1).write(D::from_norm(g));
-            pixPtr.offset(2).write(D::from_norm(b));
-            if num_output_components == 4 {
-                pixPtr.offset(3).write(D::from_norm(1.0));
+                pixPtr.add(r_idx).write(D::DataFormat::from_norm(rgb[0]));
+                pixPtr.add(g_idx).write(D::DataFormat::from_norm(rgb[1]));
+                pixPtr.add(b_idx).write(D::DataFormat::from_norm(rgb[2]));
+                if let Some(a_idx) = a_idx {
+                    pixPtr.add(a_idx).write(D::DataFormat::from_norm(1.0));
+                }
             }
         }
-    }
 
-    Ok(())
+        Ok(())
+    }
 }
 
 const PIXEL_DEPTH_BYTE: Result<&'static CStr, FromBytesWithNulError> =
@@ -1217,6 +1193,54 @@ impl TryFrom<&CStr> for SupportedPixelDepth {
             Ok(Self::Float)
         } else {
             Err(OfxStat::kOfxStatErrUnsupported)
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SupportedImageComponents {
+    Rgb,
+    Rgba,
+}
+
+const IMAGE_COMPONENTS_RGB: Result<&'static CStr, FromBytesWithNulError> =
+    CStr::from_bytes_with_nul(kOfxImageComponentRGB);
+const IMAGE_COMPONENTS_RGBA: Result<&'static CStr, FromBytesWithNulError> =
+    CStr::from_bytes_with_nul(kOfxImageComponentRGBA);
+
+impl TryFrom<&CStr> for SupportedImageComponents {
+    type Error = OfxStatus;
+
+    fn try_from(value: &CStr) -> OfxResult<Self> {
+        if value == IMAGE_COMPONENTS_RGB.unwrap() {
+            Ok(Self::Rgb)
+        } else if value == IMAGE_COMPONENTS_RGBA.unwrap() {
+            Ok(Self::Rgba)
+        } else {
+            Err(OfxStat::kOfxStatErrUnsupported)
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SupportedPixelFormat {
+    Rgb8,
+    Rgba8,
+    Rgb16,
+    Rgba16,
+    Rgb32f,
+    Rgba32f,
+}
+
+impl From<(SupportedImageComponents, SupportedPixelDepth)> for SupportedPixelFormat {
+    fn from(value: (SupportedImageComponents, SupportedPixelDepth)) -> Self {
+        match value {
+            (SupportedImageComponents::Rgb, SupportedPixelDepth::Byte) => Self::Rgb8,
+            (SupportedImageComponents::Rgba, SupportedPixelDepth::Byte) => Self::Rgba8,
+            (SupportedImageComponents::Rgb, SupportedPixelDepth::Short) => Self::Rgb16,
+            (SupportedImageComponents::Rgba, SupportedPixelDepth::Short) => Self::Rgba16,
+            (SupportedImageComponents::Rgb, SupportedPixelDepth::Float) => Self::Rgb32f,
+            (SupportedImageComponents::Rgba, SupportedPixelDepth::Float) => Self::Rgba32f,
         }
     }
 }
@@ -1315,15 +1339,8 @@ unsafe fn action_render(
             0,
             &mut cstr,
         );
-        let components = CStr::from_ptr(cstr);
-        if components == CStr::from_ptr(ofx_str!(kOfxImageComponentRGBA)) {
-            4
-        } else if components == CStr::from_ptr(ofx_str!(kOfxImageComponentRGB)) {
-            3
-        } else {
-            return Err(OfxStat::kOfxStatErrFormat);
-        }
-    };
+        SupportedImageComponents::try_from(CStr::from_ptr(cstr))
+    }?;
 
     let num_output_components = {
         let mut cstr: *mut c_char = ptr::null_mut();
@@ -1333,15 +1350,8 @@ unsafe fn action_render(
             0,
             &mut cstr,
         );
-        let components = CStr::from_ptr(cstr);
-        if components == CStr::from_ptr(ofx_str!(kOfxImageComponentRGBA)) {
-            4
-        } else if components == CStr::from_ptr(ofx_str!(kOfxImageComponentRGB)) {
-            3
-        } else {
-            return Err(OfxStat::kOfxStatErrFormat);
-        }
-    };
+        SupportedImageComponents::try_from(CStr::from_ptr(cstr))
+    }?;
 
     let source_pixel_depth = {
         let mut cstr: *mut c_char = ptr::null_mut();
@@ -1432,60 +1442,40 @@ unsafe fn action_render(
     let apply_srgb_gamma = srgb_bool_value != 0;
 
     let effect: NtscEffect = out_settings.into();
-
     let frame_num = time as usize;
 
-    if source_pixel_depth != output_pixel_depth {
-        return Err(OfxStat::kOfxStatErrUnsupported);
-    }
+    let application_params = EffectApplicationParams {
+        src_ptr: srcPtr,
+        src_row_bytes: srcRowBytes,
+        src_bounds: srcBounds,
+        dst_ptr: dstPtr,
+        dst_row_bytes: dstRowBytes,
+        dst_bounds: dstBounds,
+        effect: &effect,
+        frame_num,
+        apply_srgb_gamma,
+    };
 
-    match output_pixel_depth {
-        SupportedPixelDepth::Byte => {
-            pixel_processing::<u8, u8>(
-                srcPtr,
-                dstPtr,
-                srcRowBytes,
-                dstRowBytes,
-                srcBounds,
-                dstBounds,
-                num_source_components,
-                num_output_components,
-                &effect,
-                frame_num,
-                apply_srgb_gamma,
-            )?;
-        }
-        SupportedPixelDepth::Short => {
-            pixel_processing::<u16, u16>(
-                srcPtr,
-                dstPtr,
-                srcRowBytes,
-                dstRowBytes,
-                srcBounds,
-                dstBounds,
-                num_source_components,
-                num_output_components,
-                &effect,
-                frame_num,
-                apply_srgb_gamma,
-            )?;
-        }
-        SupportedPixelDepth::Float => {
-            pixel_processing::<f32, f32>(
-                srcPtr,
-                dstPtr,
-                srcRowBytes,
-                dstRowBytes,
-                srcBounds,
-                dstBounds,
-                num_source_components,
-                num_output_components,
-                &effect,
-                frame_num,
-                apply_srgb_gamma,
-            )?;
-        }
-    }
+    let storage_params =
+        match SupportedPixelFormat::from((num_source_components, source_pixel_depth)) {
+            SupportedPixelFormat::Rgb8 => application_params.apply::<Rgb8>()?,
+            SupportedPixelFormat::Rgb16 => application_params.apply::<Rgb16>()?,
+            SupportedPixelFormat::Rgb32f => application_params.apply::<Rgb32f>()?,
+
+            SupportedPixelFormat::Rgba8 => application_params.apply::<Rgbx8>()?,
+            SupportedPixelFormat::Rgba16 => application_params.apply::<Rgbx16>()?,
+            SupportedPixelFormat::Rgba32f => application_params.apply::<Rgbx32f>()?,
+        };
+
+    match SupportedPixelFormat::from((num_output_components, output_pixel_depth)) {
+        SupportedPixelFormat::Rgb8 => storage_params.write_to_output::<Rgb8>()?,
+        SupportedPixelFormat::Rgb16 => storage_params.write_to_output::<Rgb16>()?,
+        SupportedPixelFormat::Rgb32f => storage_params.write_to_output::<Rgb32f>()?,
+
+        SupportedPixelFormat::Rgba8 => storage_params.write_to_output::<Rgbx8>()?,
+        SupportedPixelFormat::Rgba16 => storage_params.write_to_output::<Rgbx16>()?,
+        SupportedPixelFormat::Rgba32f => storage_params.write_to_output::<Rgbx32f>()?,
+    };
 
     Ok(())
 }

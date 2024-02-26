@@ -2900,6 +2900,7 @@ checksum = "0ab1bc2a289d34bd04a330323ac98a1b4bc82c9d9fcb1e66b63caa84da26b575"
 name = "openfx-plugin"
 version = "0.1.2"
 dependencies = [
+ "allocator-api2",
  "bindgen",
  "ntscrs",
 ]
