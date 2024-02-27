@@ -1994,7 +1994,7 @@ impl NtscApp {
             ui.separator();
 
             ui.rtl(|ui| {
-                let save_file = ui.button("📁").clicked();
+                let save_file = ui.button("📁").on_hover_text("Browse for a path").clicked();
 
                 ui.ltr(|ui| {
                     ui.label("Destination file:");
