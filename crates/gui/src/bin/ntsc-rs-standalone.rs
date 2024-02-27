@@ -22,7 +22,7 @@ use eframe::egui::{self, Response};
 use eframe::epaint::vec2;
 use futures_lite::{Future, FutureExt};
 use glib::clone::Downgrade;
-use gstreamer::{glib, prelude::*};
+use gstreamer::{glib, prelude::*, ClockTime};
 use gstreamer_video::{VideoCapsBuilder, VideoFormat, VideoInterlaceMode};
 
 use gui::{
@@ -193,7 +193,7 @@ struct PipelineInfo {
     state: Arc<Mutex<PipelineInfoState>>,
     path: PathBuf,
     egui_sink: gstreamer::Element,
-    last_seek_pos: gstreamer::ClockTime,
+    last_seek_pos: ClockTime,
     preview: egui::TextureHandle,
     at_eos: Arc<Mutex<bool>>,
     metadata: Arc<Mutex<PipelineMetadata>>,
@@ -205,14 +205,14 @@ impl PipelineInfo {
             gstreamer::State::Paused | gstreamer::State::Ready => {
                 // Restart from the beginning if "play" is pressed at the end of the video
                 let (position, duration) = (
-                    self.pipeline.query_position::<gstreamer::ClockTime>(),
-                    self.pipeline.query_duration::<gstreamer::ClockTime>(),
+                    self.pipeline.query_position::<ClockTime>(),
+                    self.pipeline.query_duration::<ClockTime>(),
                 );
                 if let (Some(position), Some(duration)) = (position, duration) {
                     if position == duration {
                         self.pipeline.seek_simple(
                             gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
-                            gstreamer::ClockTime::ZERO,
+                            ClockTime::ZERO,
                         )?;
                     }
                 }
@@ -299,7 +299,7 @@ enum RenderJobState {
     Waiting,
     Rendering,
     Paused,
-    Complete,
+    Complete { end_time: f64 },
     Error(GstreamerError),
 }
 
@@ -312,7 +312,7 @@ struct RenderJob {
     /// Used for estimating time remaining. A queue that holds (progress, timestamp) pairs.
     progress_samples: VecDeque<(f64, f64)>,
     start_time: Option<f64>,
-    estimated_time_remaining: Option<f64>,
+    estimated_completion_time: Option<f64>,
 }
 
 const NUM_PROGRESS_SAMPLES: usize = 5;
@@ -406,7 +406,7 @@ enum RenderInterlaceMode {
 struct RenderPipelineSettings {
     codec_settings: RenderPipelineCodec,
     output_path: PathBuf,
-    duration: gstreamer::ClockTime,
+    duration: ClockTime,
     interlacing: RenderInterlaceMode,
     effect_settings: NtscEffect,
 }
@@ -419,7 +419,7 @@ struct RenderSettings {
     h264_settings: H264Settings,
     ffv1_settings: Ffv1Settings,
     output_path: PathBuf,
-    duration: gstreamer::ClockTime,
+    duration: ClockTime,
     interlaced: bool,
 }
 
@@ -686,7 +686,7 @@ impl NtscApp {
 
     fn rescale_video(
         pipeline: &gstreamer::Pipeline,
-        seek_pos: gstreamer::ClockTime,
+        seek_pos: ClockTime,
         scanlines: Option<usize>,
     ) -> Result<(), GstreamerError> {
         let caps_filter = pipeline.by_name("caps_filter").unwrap();
@@ -716,9 +716,7 @@ impl NtscApp {
 
         pipeline.seek_simple(
             gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
-            pipeline
-                .query_position::<gstreamer::ClockTime>()
-                .unwrap_or(seek_pos),
+            pipeline.query_position::<ClockTime>().unwrap_or(seek_pos),
         )?;
 
         Ok(())
@@ -741,7 +739,7 @@ impl NtscApp {
         // elements' caps would use the old framerate and some would use the new framerate. This would cause caps
         // negotiation to fail, even though the caps filter sends a "reconfigure" event. This in turn woulc make the
         // entire pipeline error out.
-        if let Some(seek_pos) = pipeline.query_position::<gstreamer::ClockTime>() {
+        if let Some(seek_pos) = pipeline.query_position::<ClockTime>() {
             pipeline.seek_simple(
                 gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
                 seek_pos,
@@ -935,7 +933,7 @@ impl NtscApp {
             path,
             egui_sink: video_sink,
             at_eos,
-            last_seek_pos: gstreamer::ClockTime::ZERO,
+            last_seek_pos: ClockTime::ZERO,
             preview: tex,
             metadata,
         })
@@ -1036,8 +1034,8 @@ impl NtscApp {
         let current_time = self
             .pipeline
             .as_ref()
-            .and_then(|info| info.pipeline.query_position::<gstreamer::ClockTime>())
-            .unwrap_or(gstreamer::ClockTime::ZERO);
+            .and_then(|info| info.pipeline.query_position::<ClockTime>())
+            .unwrap_or(ClockTime::ZERO);
         let is_png = matches!(settings.codec_settings, RenderPipelineCodec::Png);
 
         let pipeline = create_pipeline(
@@ -1235,22 +1233,28 @@ impl NtscApp {
                         let pipeline_for_handler = pipeline.clone();
                         if let gstreamer::MessageView::Eos(_) = msg.view() {
                             let job_state_inner = Arc::clone(job_state);
+                            let end_time = ctx.input(|input| input.time);
                             exec(async move {
                                 let _ = pipeline_for_handler.set_state(gstreamer::State::Null);
-                                *job_state_inner.lock().unwrap() = RenderJobState::Complete;
+                                *job_state_inner.lock().unwrap() =
+                                    RenderJobState::Complete { end_time };
                                 None
                             })
                         }
 
                         if let gstreamer::MessageView::StateChanged(state_changed) = msg.view() {
                             if state_changed.pending() == gstreamer::State::Null {
-                                *job_state.lock().unwrap() = RenderJobState::Complete;
+                                let end_time = ctx.input(|input| input.time);
+                                *job_state.lock().unwrap() = RenderJobState::Complete { end_time };
                             } else {
                                 *job_state.lock().unwrap() = match state_changed.current() {
                                     gstreamer::State::Paused => RenderJobState::Paused,
                                     gstreamer::State::Playing => RenderJobState::Rendering,
                                     gstreamer::State::Ready => RenderJobState::Waiting,
-                                    gstreamer::State::Null => RenderJobState::Complete,
+                                    gstreamer::State::Null => {
+                                        let end_time = ctx.input(|input| input.time);
+                                        RenderJobState::Complete { end_time }
+                                    }
                                     gstreamer::State::VoidPending => {
                                         unreachable!("current state should never be VOID_PENDING")
                                     }
@@ -1318,7 +1322,7 @@ impl NtscApp {
             last_progress: 0.0,
             progress_samples: VecDeque::new(),
             start_time: None,
-            estimated_time_remaining: None,
+            estimated_completion_time: None,
         })
     }
 
@@ -1805,10 +1809,8 @@ impl NtscApp {
                         RenderJobState::Paused
                         | RenderJobState::Rendering
                         | RenderJobState::Error(_) => {
-                            let job_position =
-                                job.pipeline.query_position::<gstreamer::ClockTime>();
-                            let job_duration =
-                                job.pipeline.query_duration::<gstreamer::ClockTime>();
+                            let job_position = job.pipeline.query_position::<ClockTime>();
+                            let job_duration = job.pipeline.query_duration::<ClockTime>();
 
                             (
                                 if let (Some(job_position), Some(job_duration)) =
@@ -1822,7 +1824,7 @@ impl NtscApp {
                                 job_duration,
                             )
                         }
-                        RenderJobState::Complete => (1.0, None, None),
+                        RenderJobState::Complete { .. } => (1.0, None, None),
                     };
 
                     if matches!(
@@ -1853,9 +1855,7 @@ impl NtscApp {
                                 let time_estimate =
                                     (current_time - old_sample_time) / (progress - old_progress);
                                 if time_estimate.is_finite() {
-                                    let elapsed_time = current_time - job.start_time.unwrap();
-                                    let remaining_time = (time_estimate - elapsed_time).max(0.0);
-                                    job.estimated_time_remaining = Some(remaining_time);
+                                    job.estimated_completion_time = Some(time_estimate);
                                 }
                             }
                         }
@@ -1893,7 +1893,13 @@ impl NtscApp {
                             }
                         }
                         RenderJobState::Paused => Cow::Borrowed("Paused"),
-                        RenderJobState::Complete => Cow::Borrowed("Complete"),
+                        // if the job's start_time is missing, it's probably because it never got a chance to update--in that case, just say it took 0 seconds
+                        RenderJobState::Complete { end_time } => Cow::Owned(format!(
+                            "Completed in {:.2}",
+                            ClockTime::from_mseconds(
+                                ((*end_time - job.start_time.unwrap_or(*end_time)) * 1000.0) as u64
+                            )
+                        )),
                         RenderJobState::Error(err) => Cow::Owned(format!("Error: {err}")),
                     });
 
@@ -1901,7 +1907,10 @@ impl NtscApp {
                         job_state,
                         RenderJobState::Rendering | RenderJobState::Paused
                     ) {
-                        if let Some(time_remaining) = job.estimated_time_remaining {
+                        if let Some(estimated_completion_time) = job.estimated_completion_time {
+                            let current_time = ui.ctx().input(|input| input.time);
+                            let time_remaining =
+                                (estimated_completion_time - current_time).max(0.0).ceil();
                             ui.label(format!("Time remaining: {time_remaining:.0} seconds"));
                         }
                     }
@@ -2052,7 +2061,7 @@ impl NtscApp {
                             egui::DragValue::new(&mut duration)
                                 .custom_formatter(|value, _| {
                                     clock_time_format(
-                                        (value * gstreamer::ClockTime::MSECOND.nseconds() as f64)
+                                        (value * ClockTime::MSECOND.nseconds() as f64)
                                             as u64,
                                     )
                                 })
@@ -2062,7 +2071,7 @@ impl NtscApp {
                         .changed()
                     {
                         self.render_settings.duration =
-                            gstreamer::ClockTime::from_mseconds(duration);
+                            ClockTime::from_mseconds(duration);
                     }
                 });
             }
@@ -2134,13 +2143,13 @@ impl NtscApp {
         let last_seek_pos = if let Some(info) = &mut self.pipeline {
             // While seeking, GStreamer sometimes doesn't return a timecode. In that case, use the last timecode it
             // did respond with.
-            let queried_pos = info.pipeline.query_position::<gstreamer::ClockTime>();
+            let queried_pos = info.pipeline.query_position::<ClockTime>();
             if let Some(position) = queried_pos {
                 info.last_seek_pos = position;
             }
             info.last_seek_pos
         } else {
-            gstreamer::ClockTime::ZERO
+            ClockTime::ZERO
         };
 
         let framerate = (|| {
@@ -2263,7 +2272,7 @@ impl NtscApp {
                                     RenderPipelineSettings {
                                         codec_settings: RenderPipelineCodec::Png,
                                         output_path: handle.into(),
-                                        duration: gstreamer::ClockTime::from_seconds(1),
+                                        duration: ClockTime::from_seconds(1),
                                         interlacing: RenderInterlaceMode::Progressive,
                                         effect_settings: (&app.effect_settings).into(),
                                     },
@@ -2341,13 +2350,13 @@ impl NtscApp {
                     }
 
                     let duration = if let Some(info) = &self.pipeline {
-                        info.pipeline.query_duration::<gstreamer::ClockTime>()
+                        info.pipeline.query_duration::<ClockTime>()
                     } else {
                         None
                     };
 
-                    let mut timecode_ms = last_seek_pos.nseconds() as f64
-                        / gstreamer::ClockTime::MSECOND.nseconds() as f64;
+                    let mut timecode_ms =
+                        last_seek_pos.nseconds() as f64 / ClockTime::MSECOND.nseconds() as f64;
                     let frame_pace = if let Some(framerate) = framerate {
                         framerate.denom() as f64 / framerate.numer() as f64
                     } else {
@@ -2356,9 +2365,7 @@ impl NtscApp {
 
                     let mut drag_value = egui::DragValue::new(&mut timecode_ms)
                         .custom_formatter(|value, _| {
-                            clock_time_format(
-                                (value * gstreamer::ClockTime::MSECOND.nseconds() as f64) as u64,
-                            )
+                            clock_time_format((value * ClockTime::MSECOND.nseconds() as f64) as u64)
                         })
                         .custom_parser(clock_time_parser)
                         .speed(frame_pace * 1000.0 * 0.5);
@@ -2372,9 +2379,8 @@ impl NtscApp {
                             // don't use KEY_UNIT here; it causes seeking to often be very inaccurate (almost a second of deviation)
                             let _ = info.pipeline.seek_simple(
                                 gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
-                                gstreamer::ClockTime::from_nseconds(
-                                    (timecode_ms * gstreamer::ClockTime::MSECOND.nseconds() as f64)
-                                        as u64,
+                                ClockTime::from_nseconds(
+                                    (timecode_ms * ClockTime::MSECOND.nseconds() as f64) as u64,
                                 ),
                             );
                         }
@@ -2540,7 +2546,7 @@ impl NtscApp {
                     if let Some(info) = &mut self.pipeline {
                         let mut timecode = info.last_seek_pos.nseconds();
 
-                        let duration = info.pipeline.query_duration::<gstreamer::ClockTime>();
+                        let duration = info.pipeline.query_duration::<ClockTime>();
 
                         if let Some(duration) = duration {
                             if ui
@@ -2553,7 +2559,7 @@ impl NtscApp {
                             {
                                 let _ = info.pipeline.seek_simple(
                                     gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
-                                    gstreamer::ClockTime::from_nseconds(timecode),
+                                    ClockTime::from_nseconds(timecode),
                                 );
                             }
                         }
