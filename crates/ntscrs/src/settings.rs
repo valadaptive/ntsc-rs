@@ -320,7 +320,7 @@ impl Default for NtscEffect {
             input_luma_filter: LumaLowpass::Notch,
             chroma_lowpass_in: ChromaLowpass::Full,
             chroma_demodulation: ChromaDemodulationFilter::Box,
-            luma_smear: 1.0,
+            luma_smear: 0.0,
             chroma_lowpass_out: ChromaLowpass::Full,
             composite_preemphasis: 1.0,
             video_scanline_phase_shift: PhaseShift::Degrees180,
@@ -989,7 +989,7 @@ impl SettingsList {
             SettingDescriptor {
                 label: "Luma smear",
                 description: None,
-                kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false, default_value: 0.0 },
+                kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false, default_value: default_settings.luma_smear },
                 id: SettingID::LUMA_SMEAR
             },
             SettingDescriptor {
