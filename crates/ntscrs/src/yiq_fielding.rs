@@ -430,7 +430,8 @@ impl<'a> YiqView<'a> {
                         }
                         _ => unreachable!(),
                     };
-                    let interleaved_row_idx = (row_idx >> 1) + row_offset;
+                    // handle edge case where there's only one row and the mode is InterleavedLower
+                    let interleaved_row_idx = ((row_idx >> 1) + row_offset).min(self.dimensions.1 - 1);
                     let src_idx = interleaved_row_idx * width;
                     for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
                         let rgb = pixel_transform(yiq_to_rgb([

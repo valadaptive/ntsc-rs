@@ -1112,10 +1112,6 @@ impl<'a> EffectStorageParams<'a> {
                 .dst_ptr
                 .offset((self.dst_row_bytes * yi as i32) as isize);
             let src_y = yi as i32 + (self.dst_bounds.y1 - self.src_bounds.y1);
-            let interp_row = cur_field != YiqField::Both
-                && (yi & 1) != row_offset
-                && src_y > 0
-                && src_y < (srcHeight - 1) as i32;
 
             for x in 0..dstWidth {
                 let (r_idx, g_idx, b_idx, a_idx) = D::ORDER.rgba_indices();
@@ -1132,25 +1128,56 @@ impl<'a> EffectStorageParams<'a> {
                     continue;
                 }
 
-                let (pix_y, pix_i, pix_q) = if interp_row {
-                    // This row was not processed this frame. Interpolate from the rows above and below it.
-                    let row_idx_bottom = (srcHeight as i32 - 1 - src_y + 1) as usize >> row_lshift;
-                    let row_idx_top = (srcHeight as i32 - 1 - src_y - 1) as usize >> row_lshift;
-                    let idx_top = (row_idx_top * srcWidth) + src_x as usize;
-                    let idx_bottom = (row_idx_bottom * srcWidth) + src_x as usize;
-                    (
-                        (y[idx_top] + y[idx_bottom]) * 0.5,
-                        (i[idx_top] + i[idx_bottom]) * 0.5,
-                        (q[idx_top] + q[idx_bottom]) * 0.5,
-                    )
-                } else {
-                    let row_idx =
-                        ((srcHeight as i32 - 1 - src_y) as usize >> row_lshift).min(numRows - 1);
-                    let idx = (row_idx * srcWidth) + src_x as usize;
-                    (y[idx], i[idx], q[idx])
+                let yiq = match cur_field {
+                    YiqField::Upper | YiqField::Lower => {
+                        let interp_row = cur_field != YiqField::Both
+                            && (yi & 1) != row_offset
+                            && src_y > 0
+                            && src_y < (srcHeight - 1) as i32;
+
+                        if interp_row {
+                            // This row was not processed this frame. Interpolate from the rows above and below it.
+                            let row_idx_bottom = (srcHeight as i32 - 1 - src_y + 1) as usize >> row_lshift;
+                            let row_idx_top = (srcHeight as i32 - 1 - src_y - 1) as usize >> row_lshift;
+                            let idx_top = (row_idx_top * srcWidth) + src_x as usize;
+                            let idx_bottom = (row_idx_bottom * srcWidth) + src_x as usize;
+                            [
+                                (y[idx_top] + y[idx_bottom]) * 0.5,
+                                (i[idx_top] + i[idx_bottom]) * 0.5,
+                                (q[idx_top] + q[idx_bottom]) * 0.5,
+                            ]
+                        } else {
+                            let row_idx =
+                                ((srcHeight as i32 - 1 - src_y) as usize >> row_lshift).min(numRows - 1);
+                            let idx = (row_idx * srcWidth) + src_x as usize;
+                            [y[idx], i[idx], q[idx]]
+                        }
+                    },
+                    YiqField::Both => {
+                            let row_idx = (srcHeight as i32 - 1 - src_y) as usize;
+                            let idx = (row_idx * srcWidth) + src_x as usize;
+                            [y[idx], i[idx], q[idx]]
+                    },
+                    YiqField::InterleavedUpper | YiqField::InterleavedLower => {
+                        let row_idx = (srcHeight as i32 - 1 - src_y) as usize;
+
+                        let row_offset = match cur_field {
+                            YiqField::InterleavedUpper => {
+                                YiqField::Upper.num_image_rows(srcHeight) * (row_idx & 1)
+                            }
+                            YiqField::InterleavedLower => {
+                                YiqField::Lower.num_image_rows(srcHeight) * (1 - (row_idx & 1))
+                            }
+                            _ => unreachable!(),
+                        };
+                        let interleaved_row_idx = ((row_idx >> 1) + row_offset).min(srcHeight - 1);
+
+                        let idx = (interleaved_row_idx * srcWidth) + src_x as usize;
+                        [y[idx], i[idx], q[idx]]
+                    },
                 };
 
-                let mut rgb = yiq_to_rgb([pix_y, pix_i, pix_q]);
+                let mut rgb = yiq_to_rgb(yiq);
                 if self.apply_srgb_gamma {
                     rgb = srgb_gamma_inv(rgb);
                 }
