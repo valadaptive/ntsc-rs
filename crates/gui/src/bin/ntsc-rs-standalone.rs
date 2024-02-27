@@ -1999,7 +1999,7 @@ impl NtscApp {
                 ui.ltr(|ui| {
                     ui.label("Destination file:");
                     let mut path = self.render_settings.output_path.to_string_lossy();
-                    if ui.text_edit_singleline(&mut path).changed() {
+                    if ui.add_sized(ui.available_size(), egui::TextEdit::singleline(&mut path)).changed() {
                         self.render_settings.output_path = PathBuf::from(OsStr::new(path.as_ref()));
                     }
                 });
