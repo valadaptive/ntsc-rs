@@ -803,12 +803,12 @@ impl SettingsList {
                             index: UseField::Lower.to_u32().unwrap(),
                         },
                         MenuItem {
-                            label: "Interleaved (upper field first)",
+                            label: "Interleaved (upper first)",
                             description: Some("Treat the video as interlaced, with the upper field as the earlier frame."),
                             index: UseField::InterleavedUpper.to_u32().unwrap(),
                         },
                         MenuItem {
-                            label: "Interleaved (lower field first)",
+                            label: "Interleaved (lower first)",
                             description: Some("Treat the video as interlaced, with the lower field as the earlier frame."),
                             index: UseField::InterleavedLower.to_u32().unwrap(),
                         },
