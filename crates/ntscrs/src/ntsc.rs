@@ -480,12 +480,16 @@ fn luma_into_chroma(
     };
 }
 
-fn luma_smear(
-    yiq: &mut YiqView,
-    amount: f32,
-) {
+fn luma_smear(yiq: &mut YiqView, amount: f32) {
     let lowpass = make_lowpass(f32::exp2(-4.0 * amount) * 0.25, 1.0);
-    filter_plane(yiq.y, yiq.dimensions.0, &lowpass, InitialCondition::Zero, 1.0, 0);
+    filter_plane(
+        yiq.y,
+        yiq.dimensions.0,
+        &lowpass,
+        InitialCondition::Zero,
+        1.0,
+        0,
+    );
 }
 
 /// We use a seeded RNG to generate random noise deterministically, but we don't want every pass which uses noise to use
@@ -547,7 +551,7 @@ fn composite_noise(yiq: &mut YiqView, info: &CommonInfo, frequency: f32, intensi
                 index,
                 frequency / info.bandwidth_scale,
                 intensity,
-                1
+                1,
             );
         });
 }
