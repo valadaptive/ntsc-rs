@@ -288,6 +288,7 @@ pub struct NtscEffect {
     pub input_luma_filter: LumaLowpass,
     pub chroma_lowpass_in: ChromaLowpass,
     pub chroma_demodulation: ChromaDemodulationFilter,
+    pub luma_smear: f32,
     pub composite_preemphasis: f32,
     pub video_scanline_phase_shift: PhaseShift,
     pub video_scanline_phase_shift_offset: i32,
@@ -319,6 +320,7 @@ impl Default for NtscEffect {
             input_luma_filter: LumaLowpass::Notch,
             chroma_lowpass_in: ChromaLowpass::Full,
             chroma_demodulation: ChromaDemodulationFilter::Box,
+            luma_smear: 1.0,
             chroma_lowpass_out: ChromaLowpass::Full,
             composite_preemphasis: 1.0,
             video_scanline_phase_shift: PhaseShift::Degrees180,
@@ -441,6 +443,8 @@ pub enum SettingID {
     CHROMA_NOISE,
     CHROMA_NOISE_FREQUENCY,
     CHROMA_NOISE_DETAIL,
+
+    LUMA_SMEAR,
 }
 
 macro_rules! impl_get_field_ref {
@@ -563,6 +567,8 @@ macro_rules! impl_get_field_ref {
             SettingID::CHROMA_NOISE => $settings.chroma_noise.enabled.$borrow_op(),
             SettingID::CHROMA_NOISE_FREQUENCY => $settings.chroma_noise.settings.frequency.$borrow_op(),
             SettingID::CHROMA_NOISE_DETAIL => $settings.chroma_noise.settings.detail.$borrow_op(),
+
+            SettingID::LUMA_SMEAR => $settings.luma_smear.$borrow_op(),
         }
     };
 }
@@ -710,6 +716,7 @@ impl SettingID {
             SettingID::CHROMA_NOISE => "chroma_noise",
             SettingID::CHROMA_NOISE_FREQUENCY => "chroma_noise_frequency",
             SettingID::CHROMA_NOISE_DETAIL => "chroma_noise_detail",
+            SettingID::LUMA_SMEAR => "luma_smear",
         }
     }
 }
@@ -978,6 +985,12 @@ impl SettingsList {
                     default_value: default_settings.chroma_demodulation.to_u32().unwrap(),
                 },
                 id: SettingID::CHROMA_DEMODULATION,
+            },
+            SettingDescriptor {
+                label: "Luma smear",
+                description: None,
+                kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false, default_value: 0.0 },
+                id: SettingID::LUMA_SMEAR
             },
             SettingDescriptor {
                 label: "Head switching",

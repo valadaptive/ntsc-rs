@@ -480,6 +480,14 @@ fn luma_into_chroma(
     };
 }
 
+fn luma_smear(
+    yiq: &mut YiqView,
+    amount: f32,
+) {
+    let lowpass = make_lowpass(f32::exp2(-4.0 * amount) * 0.25, 1.0);
+    filter_plane(yiq.y, yiq.dimensions.0, &lowpass, InitialCondition::Zero, 1.0, 0);
+}
+
 /// We use a seeded RNG to generate random noise deterministically, but we don't want every pass which uses noise to use
 /// the *same* noise. Each pass gets its own random seed which is mixed into the RNG.
 mod noise_seeds {
@@ -1072,6 +1080,10 @@ impl NtscEffect {
             self.video_scanline_phase_shift_offset,
             50.0,
         );
+
+        if self.luma_smear > 0.0 {
+            luma_smear(yiq, self.luma_smear);
+        }
 
         if let Some(ringing) = &self.ringing {
             let notch_filter = make_notch_filter(
