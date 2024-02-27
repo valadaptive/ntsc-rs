@@ -168,15 +168,35 @@ static inline void interp_yiq_full(CopyPixelFloat_t* data, A_long x, A_long y, f
 	*in_q = data->out_buffer[(y * data->src_width) + x + data->plane_size * 2];
 }
 
+// Convert a YIQ pixel back into the RGB plane from a frame with every field rendered, interleaving the upper and lower
+// halves of the image.
+static inline void interp_yiq_interleaved(CopyPixelFloat_t* data, A_long x, A_long y, float* in_y, float* in_i, float* in_q) {
+	A_long idx = y / 2;
+	if ((y & 1) == data->skip_field) {
+        // On an image with an odd input height, we do ceiling division if we render upper-field-first
+        // (take an image 3 pixels tall. it goes render, skip, render--that's 2 renders) but floor division if we
+        // render lower-field-first (skip, render, skip--only 1 render).
+		A_long num_logical_rows = (data->src_height + data->skip_field) / 2;
+		idx += num_logical_rows;
+	}
+
+	// Handle the edge case where there's only 1 row
+	if (idx > data->src_height - 1) {
+		idx = data->src_height - 1;
+	}
+
+	*in_y = data->out_buffer[(idx * data->src_width) + x];
+	*in_i = data->out_buffer[(idx * data->src_width) + x + data->plane_size];
+	*in_q = data->out_buffer[(idx * data->src_width) + x + data->plane_size * 2];
+}
+
 
 // Routines for copying pixels to and from the intermediate buffer, converting between YIQ and RGB at the same time.
 // Since ntsc-rs needs its own buffer to render anyways, we can make things faster by copying into that buffer and
 // converting to YIQ in one pass.
 
-// TODO: The AE SDK's SmartyPants example cheats and iterates entire rows at a time, probably to avoid the overhead from
-// making one function pointer dispatch into a dynamic library *per pixel* (genius API design, Adobe).
-// Some informal benchmarks I did during development seemed to indicate it didn't really have much of a performance
-// benefit, but I should probably revisit that.
+// TODO: Stop using the pixel iteration suite and manually iterate over the PF_EffectWorld. Better yet, rip all this out
+// entirely and export the yiq_fielding routines via the C API.
 
 static PF_Err convert_pixel_float_full(void *refcon, A_long x, A_long y, PF_PixelFloat *in, PF_PixelFloat *out) {
 	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
@@ -210,6 +230,35 @@ static PF_Err convert_pixel_float_skip(void *refcon, A_long x, A_long y, PF_Pixe
 	return PF_Err_NONE;
 }
 
+static PF_Err convert_pixel_float_interleaved(void *refcon, A_long x, A_long y, PF_PixelFloat *in, PF_PixelFloat *out) {
+	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
+
+	A_long idx = y / 2;
+	if ((y & 1) == data->skip_field) {
+        // On an image with an odd input height, we do ceiling division if we render upper-field-first
+        // (take an image 3 pixels tall. it goes render, skip, render--that's 2 renders) but floor division if we
+        // render lower-field-first (skip, render, skip--only 1 render).
+		A_long num_logical_rows = (data->src_height + data->skip_field) / 2;
+		idx += num_logical_rows;
+	}
+
+	// Handle the edge case where there's only 1 row
+	if (idx > data->src_height - 1) {
+		idx = data->src_height - 1;
+	}
+
+	rgb_to_yiq_pixel(
+		in->red,
+		in->green,
+		in->blue,
+		data->out_buffer + ((idx * data->src_width) + x), // y plane
+		data->out_buffer + ((idx * data->src_width) + x) + data->plane_size, // i plane
+		data->out_buffer + ((idx * data->src_width) + x) + data->plane_size * 2 // q plane
+	);
+
+	return PF_Err_NONE;
+}
+
 static PF_Err convert_back_pixel_float_full(void *refcon, A_long x, A_long y, PF_PixelFloat *in, PF_PixelFloat *out) {
 	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
 
@@ -226,6 +275,17 @@ static PF_Err convert_back_pixel_float_skip(void *refcon, A_long x, A_long y, PF
 
 	float in_y, in_i, in_q;
 	interp_yiq_skip(data, x, y, &in_y, &in_i, &in_q);
+	yiq_to_rgb_pixel(in_y, in_i, in_q, &out->red, &out->green, &out->blue);
+	out->alpha = 1.0;
+
+	return PF_Err_NONE;
+}
+
+static PF_Err convert_back_pixel_float_interleaved(void *refcon, A_long x, A_long y, PF_PixelFloat *in, PF_PixelFloat *out) {
+	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
+
+	float in_y, in_i, in_q;
+	interp_yiq_interleaved(data, x, y, &in_y, &in_i, &in_q);
 	yiq_to_rgb_pixel(in_y, in_i, in_q, &out->red, &out->green, &out->blue);
 	out->alpha = 1.0;
 
@@ -265,6 +325,35 @@ static PF_Err convert_pixel_16_skip(void *refcon, A_long x, A_long y, PF_Pixel16
 	return PF_Err_NONE;
 }
 
+static PF_Err convert_pixel_16_interleaved(void *refcon, A_long x, A_long y, PF_Pixel16 *in, PF_Pixel16 *out) {
+	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
+
+	A_long idx = y / 2;
+	if ((y & 1) == data->skip_field) {
+        // On an image with an odd input height, we do ceiling division if we render upper-field-first
+        // (take an image 3 pixels tall. it goes render, skip, render--that's 2 renders) but floor division if we
+        // render lower-field-first (skip, render, skip--only 1 render).
+		A_long num_logical_rows = (data->src_height + data->skip_field) / 2;
+		idx += num_logical_rows;
+	}
+
+	// Handle the edge case where there's only 1 row
+	if (idx > data->src_height - 1) {
+		idx = data->src_height - 1;
+	}
+
+	rgb_to_yiq_pixel(
+		(float)in->red / 32767.0,
+		(float)in->green / 32767.0,
+		(float)in->blue / 32767.0,
+		data->out_buffer + ((idx * data->src_width) + x), // y plane
+		data->out_buffer + ((idx * data->src_width) + x) + data->plane_size, // i plane
+		data->out_buffer + ((idx * data->src_width) + x) + data->plane_size * 2 // q plane
+	);
+
+	return PF_Err_NONE;
+}
+
 static PF_Err convert_back_pixel_16_full(void *refcon, A_long x, A_long y, PF_Pixel16 *in, PF_Pixel16 *out) {
 	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
 
@@ -285,6 +374,21 @@ static PF_Err convert_back_pixel_16_skip(void *refcon, A_long x, A_long y, PF_Pi
 
 	float in_y, in_i, in_q;
 	interp_yiq_skip(data, x, y, &in_y, &in_i, &in_q);
+	float out_r, out_g, out_b;
+	yiq_to_rgb_pixel(in_y, in_i, in_q, &out_r, &out_g, &out_b);
+	out->red = clamp(out_r * 32767.0, 0.0, 32767.0);
+	out->green = clamp(out_g * 32767.0, 0.0, 32767.0);
+	out->blue = clamp(out_b * 32767.0, 0.0, 32767.0);
+	out->alpha = 32767;
+
+	return PF_Err_NONE;
+}
+
+static PF_Err convert_back_pixel_16_interleaved(void *refcon, A_long x, A_long y, PF_Pixel16 *in, PF_Pixel16 *out) {
+	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
+
+	float in_y, in_i, in_q;
+	interp_yiq_interleaved(data, x, y, &in_y, &in_i, &in_q);
 	float out_r, out_g, out_b;
 	yiq_to_rgb_pixel(in_y, in_i, in_q, &out_r, &out_g, &out_b);
 	out->red = clamp(out_r * 32767.0, 0.0, 32767.0);
@@ -328,6 +432,35 @@ static PF_Err convert_pixel_8_skip(void *refcon, A_long x, A_long y, PF_Pixel *i
 	return PF_Err_NONE;
 }
 
+static PF_Err convert_pixel_8_interleaved(void *refcon, A_long x, A_long y, PF_Pixel *in, PF_Pixel *out) {
+	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
+
+	A_long idx = y / 2;
+	if ((y & 1) == data->skip_field) {
+        // On an image with an odd input height, we do ceiling division if we render upper-field-first
+        // (take an image 3 pixels tall. it goes render, skip, render--that's 2 renders) but floor division if we
+        // render lower-field-first (skip, render, skip--only 1 render).
+		A_long num_logical_rows = (data->src_height + data->skip_field) / 2;
+		idx += num_logical_rows;
+	}
+
+	// Handle the edge case where there's only 1 row
+	if (idx > data->src_height - 1) {
+		idx = data->src_height - 1;
+	}
+
+	rgb_to_yiq_pixel(
+		(float)in->red / 255.0,
+		(float)in->green / 255.0,
+		(float)in->blue / 255.0,
+		data->out_buffer + ((idx * data->src_width) + x), // y plane
+		data->out_buffer + ((idx * data->src_width) + x) + data->plane_size, // i plane
+		data->out_buffer + ((idx * data->src_width) + x) + data->plane_size * 2 // q plane
+	);
+
+	return PF_Err_NONE;
+}
+
 static PF_Err convert_back_pixel_8_full(void *refcon, A_long x, A_long y, PF_Pixel *in, PF_Pixel *out) {
 	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
 
@@ -348,6 +481,21 @@ static PF_Err convert_back_pixel_8_skip(void *refcon, A_long x, A_long y, PF_Pix
 
 	float in_y, in_i, in_q;
 	interp_yiq_skip(data, x, y, &in_y, &in_i, &in_q);
+	float out_r, out_g, out_b;
+	yiq_to_rgb_pixel(in_y, in_i, in_q, &out_r, &out_g, &out_b);
+	out->red = clamp(out_r * 255.0, 0.0, 255.0);
+	out->green = clamp(out_g * 255.0, 0.0, 255.0);
+	out->blue = clamp(out_b * 255.0, 0.0, 255.0);
+	out->alpha = 255;
+
+	return PF_Err_NONE;
+}
+
+static PF_Err convert_back_pixel_8_interleaved(void *refcon, A_long x, A_long y, PF_Pixel *in, PF_Pixel *out) {
+	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
+
+	float in_y, in_i, in_q;
+	interp_yiq_interleaved(data, x, y, &in_y, &in_i, &in_q);
 	float out_r, out_g, out_b;
 	yiq_to_rgb_pixel(in_y, in_i, in_q, &out_r, &out_g, &out_b);
 	out->red = clamp(out_r * 255.0, 0.0, 255.0);
@@ -489,32 +637,51 @@ ActuallyRender(
 	}
 
 	if (!err) {
-		// Number of YIQ rows/fields for ntsc-rs to operate on. We use ceiling division here.
-		// TODO: On an image with an odd input height, we should do ceiling division if we render upper-field-first
-		// (take an image 3 pixels tall. it goes render, skip, render--that's 2 renders) but floor division if we
-		// render lower-field-first (skip, render, skip--only 1 render).
-		// If we render both fields, we change out_buf_height in the switch case below.
-		A_long out_buf_height = (output->height + 1) / 2;
+		// Number of YIQ rows/fields for ntsc-rs to operate on.
+		A_long out_buf_height;
+
+		switch (use_field) {
+			case NTSCRS_USE_FIELD_ALTERNATING:
+			case NTSCRS_USE_FIELD_UPPER:
+			case NTSCRS_USE_FIELD_LOWER:
+				// TODO: On an image with an odd input height, we should do ceiling division if we render upper-field-first
+				// (take an image 3 pixels tall. it goes render, skip, render--that's 2 renders) but floor division if we
+				// render lower-field-first (skip, render, skip--only 1 render).
+				out_buf_height = (output->height + 1) / 2;
+				break;
+			case NTSCRS_USE_FIELD_BOTH:
+			case NTSCRS_USE_FIELD_INTERLEAVED_UPPER:
+			case NTSCRS_USE_FIELD_INTERLEAVED_LOWER:
+				out_buf_height = output->height;
+				break;
+			default:
+				return PF_Err_UNRECOGNIZED_PARAM_TYPE;
+		}
 
 		A_long frame_num = in_data->current_time / in_data->time_step;
-		// If the row index modulo 2 equals this number, skip that row.
+
+		// If the row index modulo 2 equals this number, skip that row. Also used to determine which field goes second
+		// for the interleaved options.
 		A_long skip_field;
 		switch (use_field) {
 			case NTSCRS_USE_FIELD_ALTERNATING:
 				skip_field = frame_num & 1;
 				break;
 			case NTSCRS_USE_FIELD_UPPER:
+			case NTSCRS_USE_FIELD_INTERLEAVED_UPPER:
 				skip_field = 1;
 				break;
 			case NTSCRS_USE_FIELD_LOWER:
+			case NTSCRS_USE_FIELD_INTERLEAVED_LOWER:
 				skip_field = 0;
 				break;
 			case NTSCRS_USE_FIELD_BOTH:
 				// When rendering both fields, don't skip any rows when copying. The row index modulo 2 will never equal
 				// 2, so setting skip_field to 2 means no rows will be skipped.
 				skip_field = 2;
-				out_buf_height = output->height;
 				break;
+			default:
+				return PF_Err_UNRECOGNIZED_PARAM_TYPE;
 		}
 
 		A_long output_plane_size = output->width * out_buf_height;
@@ -538,46 +705,166 @@ ActuallyRender(
 					CopyPixelFloat_t refcon = {out_buf, output->width, output->height, output_plane_size, skip_field};
 					switch (format) {
 						case PF_PixelFormat_ARGB128: {
-							PF_IteratePixelFloatFunc func = use_field == NTSCRS_USE_FIELD_BOTH ? convert_pixel_float_full : convert_pixel_float_skip;
+							PF_IteratePixelFloatFunc func;
+							switch (use_field) {
+								case NTSCRS_USE_FIELD_BOTH:
+									func = convert_pixel_float_full;
+									break;
+								case NTSCRS_USE_FIELD_ALTERNATING:
+								case NTSCRS_USE_FIELD_UPPER:
+								case NTSCRS_USE_FIELD_LOWER:
+									func = convert_pixel_float_skip;
+									break;
+								case NTSCRS_USE_FIELD_INTERLEAVED_UPPER:
+								case NTSCRS_USE_FIELD_INTERLEAVED_LOWER:
+									func = convert_pixel_float_interleaved;
+									break;
+								default:
+									return PF_Err_UNRECOGNIZED_PARAM_TYPE;
+							}
 							ERR(suites.IterateFloatSuite1()->
 								iterate_origin_non_clip_src(in_data, 0, output->height, input, &areaR, &origin, (void*)(&refcon), func, output));
 							break;
 						}
 						case PF_PixelFormat_ARGB64: {
-							PF_IteratePixel16Func func = use_field == NTSCRS_USE_FIELD_BOTH ? convert_pixel_16_full : convert_pixel_16_skip;
+							PF_IteratePixel16Func func;
+							switch (use_field) {
+								case NTSCRS_USE_FIELD_BOTH:
+									func = convert_pixel_16_full;
+									break;
+								case NTSCRS_USE_FIELD_ALTERNATING:
+								case NTSCRS_USE_FIELD_UPPER:
+								case NTSCRS_USE_FIELD_LOWER:
+									func = convert_pixel_16_skip;
+									break;
+								case NTSCRS_USE_FIELD_INTERLEAVED_UPPER:
+								case NTSCRS_USE_FIELD_INTERLEAVED_LOWER:
+									func = convert_pixel_16_interleaved;
+									break;
+								default:
+									return PF_Err_UNRECOGNIZED_PARAM_TYPE;
+							}
 							ERR(suites.Iterate16Suite1()->
 								iterate_origin_non_clip_src(in_data, 0, output->height, input, &areaR, &origin, (void*)(&refcon), func, output));
 							break;
 						}
 						case PF_PixelFormat_ARGB32: {
-							PF_IteratePixel8Func func = use_field == NTSCRS_USE_FIELD_BOTH ? convert_pixel_8_full : convert_pixel_8_skip;
+							PF_IteratePixel8Func func;
+							switch (use_field) {
+								case NTSCRS_USE_FIELD_BOTH:
+									func = convert_pixel_8_full;
+									break;
+								case NTSCRS_USE_FIELD_ALTERNATING:
+								case NTSCRS_USE_FIELD_UPPER:
+								case NTSCRS_USE_FIELD_LOWER:
+									func = convert_pixel_8_skip;
+									break;
+								case NTSCRS_USE_FIELD_INTERLEAVED_UPPER:
+								case NTSCRS_USE_FIELD_INTERLEAVED_LOWER:
+									func = convert_pixel_8_interleaved;
+									break;
+								default:
+									return PF_Err_UNRECOGNIZED_PARAM_TYPE;
+							}
 							ERR(suites.Iterate8Suite1()->
 								iterate_origin_non_clip_src(in_data, 0, output->height, input, &areaR, &origin, (void*)(&refcon), func, output));
 							break;
 						}
 					}
 
+					ntscrs_YiqField yiq_field;
+					switch (use_field) {
+						case NTSCRS_USE_FIELD_ALTERNATING:
+							yiq_field = frame_num & 1 ? ntscrs_YiqField_Upper : ntscrs_YiqField_Lower;
+							break;
+						case NTSCRS_USE_FIELD_BOTH:
+							yiq_field = ntscrs_YiqField_Both;
+							break;
+						case NTSCRS_USE_FIELD_UPPER:
+							yiq_field = ntscrs_YiqField_Upper;
+							break;
+						case NTSCRS_USE_FIELD_LOWER:
+							yiq_field = ntscrs_YiqField_Lower;
+							break;
+						case NTSCRS_USE_FIELD_INTERLEAVED_UPPER:
+							yiq_field = ntscrs_YiqField_InterleavedUpper;
+							break;
+						case NTSCRS_USE_FIELD_INTERLEAVED_LOWER:
+							yiq_field = ntscrs_YiqField_InterleavedLower;
+							break;
+						default:
+							return PF_Err_UNRECOGNIZED_PARAM_TYPE;
+					}
+
 					ntscrs_process_yiq(
 						out_buf, // y plane
 						&out_buf[output_plane_size], // i plane
 						&out_buf[output_plane_size * 2], // q plane
-						output->width, out_buf_height, configurator, frame_num);
+						output->width, out_buf_height, configurator, frame_num, yiq_field);
 
 					switch (format) {
 						case PF_PixelFormat_ARGB128: {
-							PF_IteratePixelFloatFunc func = use_field == NTSCRS_USE_FIELD_BOTH ? convert_back_pixel_float_full : convert_back_pixel_float_skip;
+							PF_IteratePixelFloatFunc func;
+							switch (use_field) {
+								case NTSCRS_USE_FIELD_BOTH:
+									func = convert_back_pixel_float_full;
+									break;
+								case NTSCRS_USE_FIELD_UPPER:
+								case NTSCRS_USE_FIELD_LOWER:
+								case NTSCRS_USE_FIELD_ALTERNATING:
+									func = convert_back_pixel_float_skip;
+									break;
+								case NTSCRS_USE_FIELD_INTERLEAVED_UPPER:
+								case NTSCRS_USE_FIELD_INTERLEAVED_LOWER:
+									func = convert_back_pixel_float_interleaved;
+									break;
+								default:
+									return PF_Err_UNRECOGNIZED_PARAM_TYPE;
+							}
 							ERR(suites.IterateFloatSuite1()->
 								iterate(in_data, 0, output->height, output, &areaR, (void*)(&refcon), func, output));
 							break;
 						}
 						case PF_PixelFormat_ARGB64: {
-							PF_IteratePixel16Func func = use_field == NTSCRS_USE_FIELD_BOTH ? convert_back_pixel_16_full : convert_back_pixel_16_skip;
+							PF_IteratePixel16Func func;
+							switch (use_field) {
+								case NTSCRS_USE_FIELD_BOTH:
+									func = convert_back_pixel_16_full;
+									break;
+								case NTSCRS_USE_FIELD_UPPER:
+								case NTSCRS_USE_FIELD_LOWER:
+								case NTSCRS_USE_FIELD_ALTERNATING:
+									func = convert_back_pixel_16_skip;
+									break;
+								case NTSCRS_USE_FIELD_INTERLEAVED_UPPER:
+								case NTSCRS_USE_FIELD_INTERLEAVED_LOWER:
+									func = convert_back_pixel_16_interleaved;
+									break;
+								default:
+									return PF_Err_UNRECOGNIZED_PARAM_TYPE;
+							}
 							ERR(suites.Iterate16Suite1()->
 								iterate(in_data, 0, output->height, output, &areaR, (void*)(&refcon), func, output));
 							break;
 						}
 						case PF_PixelFormat_ARGB32: {
-							PF_IteratePixel8Func func = use_field == NTSCRS_USE_FIELD_BOTH ? convert_back_pixel_8_full : convert_back_pixel_8_skip;
+							PF_IteratePixel8Func func;
+							switch (use_field) {
+								case NTSCRS_USE_FIELD_BOTH:
+									func = convert_back_pixel_8_full;
+									break;
+								case NTSCRS_USE_FIELD_UPPER:
+								case NTSCRS_USE_FIELD_LOWER:
+								case NTSCRS_USE_FIELD_ALTERNATING:
+									func = convert_back_pixel_8_skip;
+									break;
+								case NTSCRS_USE_FIELD_INTERLEAVED_UPPER:
+								case NTSCRS_USE_FIELD_INTERLEAVED_LOWER:
+									func = convert_back_pixel_8_interleaved;
+									break;
+								default:
+									return PF_Err_UNRECOGNIZED_PARAM_TYPE;
+							}
 							ERR(suites.Iterate8Suite1()->
 								iterate(in_data, 0, output->height, output, &areaR, (void*)(&refcon), func, output));
 							break;

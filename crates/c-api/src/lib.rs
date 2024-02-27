@@ -6,8 +6,29 @@ use ntscrs::settings::{
     NtscEffectFullSettings, SettingDescriptor as RsSettingDescriptor, SettingID as RsSettingID,
     SettingKind as RsSettingKind, SettingsList as RsSettingsList,
 };
-use ntscrs::{ntsc::NtscEffect, yiq_fielding::YiqView};
+use ntscrs::{ntsc::NtscEffect, yiq_fielding::{YiqView, YiqField as RsYiqField}};
 use ntscrs::{FromPrimitive, ToPrimitive};
+
+#[repr(C)]
+pub enum YiqField {
+    Upper,
+    Lower,
+    Both,
+    InterleavedUpper,
+    InterleavedLower,
+}
+
+impl From<YiqField> for RsYiqField {
+    fn from(value: YiqField) -> Self {
+        match value {
+            YiqField::Upper => RsYiqField::Upper,
+            YiqField::Lower => RsYiqField::Lower,
+            YiqField::Both => RsYiqField::Both,
+            YiqField::InterleavedUpper => RsYiqField::InterleavedUpper,
+            YiqField::InterleavedLower => RsYiqField::InterleavedLower,
+        }
+    }
+}
 
 #[repr(C)]
 /// Represents a menu item in the Enumeration setting type.
@@ -380,6 +401,7 @@ pub unsafe extern "C" fn ntscrs_process_yiq(
     height: usize,
     settings: &Configurator,
     frame_num: usize,
+    field: YiqField,
 ) {
     let len = width * height;
     let mut yiq = YiqView {
@@ -387,7 +409,7 @@ pub unsafe extern "C" fn ntscrs_process_yiq(
         i: slice::from_raw_parts_mut(i, len),
         q: slice::from_raw_parts_mut(q, len),
         dimensions: (width, height),
-        field: ntscrs::yiq_fielding::YiqField::Both,
+        field: field.into(),
     };
     NtscEffect::from(&settings.0).apply_effect_to_yiq(&mut yiq, frame_num);
 }
