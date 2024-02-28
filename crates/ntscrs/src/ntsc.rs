@@ -480,8 +480,8 @@ fn luma_into_chroma(
     };
 }
 
-fn luma_smear(yiq: &mut YiqView, amount: f32) {
-    let lowpass = make_lowpass(f32::exp2(-4.0 * amount) * 0.25, 1.0);
+fn luma_smear(yiq: &mut YiqView, info: &CommonInfo, amount: f32) {
+    let lowpass = make_lowpass(f32::exp2(-4.0 * amount) * 0.25, info.bandwidth_scale);
     filter_plane(
         yiq.y,
         yiq.dimensions.0,
@@ -1086,7 +1086,7 @@ impl NtscEffect {
         );
 
         if self.luma_smear > 0.0 {
-            luma_smear(yiq, self.luma_smear);
+            luma_smear(yiq, &info, self.luma_smear);
         }
 
         if let Some(ringing) = &self.ringing {
