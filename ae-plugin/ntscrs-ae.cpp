@@ -778,13 +778,9 @@ ActuallyRender(
 							yiq_field = frame_num & 1 ? ntscrs_YiqField_Upper : ntscrs_YiqField_Lower;
 							break;
 						case NTSCRS_USE_FIELD_BOTH:
-							yiq_field = ntscrs_YiqField_Both;
-							break;
-						case NTSCRS_USE_FIELD_UPPER:
-							yiq_field = ntscrs_YiqField_Upper;
-							break;
 						case NTSCRS_USE_FIELD_LOWER:
-							yiq_field = ntscrs_YiqField_Lower;
+						case NTSCRS_USE_FIELD_UPPER:
+							yiq_field = ntscrs_YiqField_Both;
 							break;
 						case NTSCRS_USE_FIELD_INTERLEAVED_UPPER:
 							yiq_field = ntscrs_YiqField_InterleavedUpper;
