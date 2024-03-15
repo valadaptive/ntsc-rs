@@ -15,6 +15,12 @@
 
 The latest version of ntsc-rs can be downloaded from [the releases page](https://github.com/valadaptive/ntsc-rs/releases).
 
+### Windows
+
+The GUI, and possibly the plugins as well, require [the Microsoft Visual C++ Redistributable](https://learn.microsoft.com/en-US/cpp/windows/latest-supported-vc-redist?view=msvc-170#visual-studio-2015-2017-2019-and-2022). Since a lot of other software does too, you probably already have it installed, but if you get an error about VCRUNTIME140.dll being missing, you need to install it.
+
+### Linux
+
 If you're using Linux, the GUI in particular requires GStreamer and some of its plugins to be installed:
 
 <details>
