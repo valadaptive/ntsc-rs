@@ -232,14 +232,13 @@ fn chroma_into_luma_line(
     i: &mut [f32],
     q: &mut [f32],
     xi: usize,
-    subcarrier_amplitude: f32,
 ) {
     y.iter_mut()
         .zip(i.iter_mut().zip(q))
         .enumerate()
         .for_each(|(index, (y, (i, q)))| {
             let phase = (index + (xi & 3)) & 3;
-            *y += (*i * I_MULT[phase] + *q * Q_MULT[phase]) * subcarrier_amplitude / 50.0;
+            *y += *i * I_MULT[phase] + *q * Q_MULT[phase];
             // *i = 0.0;
             // *q = 0.0;
         });
@@ -252,7 +251,6 @@ fn chroma_into_luma(
     info: &CommonInfo,
     phase_shift: PhaseShift,
     phase_offset: i32,
-    subcarrier_amplitude: f32,
 ) {
     let width = yiq.dimensions.0;
 
@@ -266,21 +264,19 @@ fn chroma_into_luma(
         .for_each(|(index, (y, (i, q)))| {
             let xi = chroma_phase_shift(phase_shift, phase_offset, info.frame_num, index * 2);
 
-            chroma_into_luma_line(y, i, q, xi, subcarrier_amplitude);
+            chroma_into_luma_line(y, i, q, xi);
         });
 }
 
-#[inline]
+#[inline(always)]
 fn demodulate_chroma(
     chroma: f32,
     index: usize,
     xi: usize,
-    subcarrier_amplitude: f32,
     i: &mut [f32],
     q: &mut [f32],
 ) {
     let width = i.len();
-    let chroma = (chroma * 50.0) / subcarrier_amplitude;
 
     let offset = (index + (xi & 3)) & 3;
 
@@ -307,7 +303,6 @@ fn luma_into_chroma_line_box(
     i: &mut [f32],
     q: &mut [f32],
     xi: usize,
-    subcarrier_amplitude: f32,
 ) {
     let mut delay = VecDeque::<f32>::with_capacity(4);
     delay.push_back(16.0 / 255.0);
@@ -326,7 +321,7 @@ fn luma_into_chroma_line_box(
         y[index] = sum * 0.25;
 
         let chroma = c - y[index];
-        demodulate_chroma(chroma, index, xi, subcarrier_amplitude, i, q);
+        demodulate_chroma(chroma, index, xi, i, q);
     }
 }
 
@@ -338,7 +333,6 @@ fn luma_into_chroma_line_iir(
     filter: &TransferFunction,
     delay: usize,
     xi: usize,
-    subcarrier_amplitude: f32,
 ) {
     let width = y.len();
     filter.filter_signal_into(y, scratch, 0.0, 1.0, delay);
@@ -346,7 +340,7 @@ fn luma_into_chroma_line_iir(
     for index in 0..width {
         let chroma = scratch[index] - y[index];
         y[index] = scratch[index];
-        demodulate_chroma(chroma, index, xi, subcarrier_amplitude, i, q);
+        demodulate_chroma(chroma, index, xi, i, q);
     }
 }
 
@@ -359,7 +353,6 @@ fn luma_into_chroma(
     scratch_buffer: &mut ScratchBuffer,
     phase_shift: PhaseShift,
     phase_offset: i32,
-    subcarrier_amplitude: f32,
 ) {
     let width = yiq.dimensions.0;
 
@@ -380,7 +373,7 @@ fn luma_into_chroma(
                                 index * 2,
                             );
 
-                            luma_into_chroma_line_box(y, i, q, xi, subcarrier_amplitude);
+                            luma_into_chroma_line_box(y, i, q, xi);
                         },
                     );
                 }
@@ -406,7 +399,6 @@ fn luma_into_chroma(
                                 &filter,
                                 1,
                                 xi,
-                                subcarrier_amplitude,
                             );
                         });
                 }
@@ -433,7 +425,7 @@ fn luma_into_chroma(
                             info.frame_num,
                             line_index * 2,
                         );
-                        demodulate_chroma(chroma, index, xi, subcarrier_amplitude, i, q);
+                        demodulate_chroma(chroma, index, xi, i, q);
                     }
                 });
         }
@@ -470,7 +462,6 @@ fn luma_into_chroma(
                         chroma,
                         sample_index,
                         xi,
-                        subcarrier_amplitude,
                         &mut yiq.i[line_index * width..(line_index + 1) * width],
                         &mut yiq.q[line_index * width..(line_index + 1) * width],
                     );
@@ -1021,7 +1012,6 @@ impl NtscEffect {
             &info,
             self.video_scanline_phase_shift,
             self.video_scanline_phase_shift_offset,
-            50.0,
         );
 
         if self.composite_preemphasis > 0.0 {
@@ -1082,7 +1072,6 @@ impl NtscEffect {
             &mut scratch_buffer,
             self.video_scanline_phase_shift,
             self.video_scanline_phase_shift_offset,
-            50.0,
         );
 
         if self.luma_smear > 0.0 {
