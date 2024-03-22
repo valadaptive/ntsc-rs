@@ -1,53 +1,53 @@
 use std::{convert::identity, mem::MaybeUninit};
 
-use glam::{Mat3, Vec3};
+use glam::{Mat3A, Vec3A};
 use image::RgbImage;
 use rayon::prelude::*;
 
 #[inline(always)]
 pub fn rgb_to_yiq([r, g, b]: [f32; 3]) -> [f32; 3] {
-    const YIQ_MATRIX: Mat3 = Mat3 {
-        x_axis: Vec3 {
-            x: 0.299,
-            y: 0.5959,
-            z: 0.2115,
-        },
-        y_axis: Vec3 {
-            x: 0.587,
-            y: -0.2746,
-            z: -0.5227,
-        },
-        z_axis: Vec3 {
-            x: 0.114,
-            y: -0.3213,
-            z: 0.3112,
-        },
-    };
+    const YIQ_MATRIX: Mat3A = Mat3A::from_cols(
+        Vec3A::new(
+            0.299,
+            0.5959,
+            0.2115,
+        ),
+        Vec3A::new(
+            0.587,
+            -0.2746,
+            -0.5227,
+        ),
+        Vec3A::new(
+            0.114,
+            -0.3213,
+            0.3112,
+        ),
+    );
 
-    (YIQ_MATRIX * Vec3::new(r, g, b)).into()
+    (YIQ_MATRIX * Vec3A::new(r, g, b)).into()
 }
 
 #[inline(always)]
 pub fn yiq_to_rgb([y, i, q]: [f32; 3]) -> [f32; 3] {
-    const RGB_MATRIX: Mat3 = Mat3 {
-        x_axis: Vec3 {
-            x: 1.0,
-            y: 1.0,
-            z: 1.0,
-        },
-        y_axis: Vec3 {
-            x: 0.956,
-            y: -0.272,
-            z: -1.106,
-        },
-        z_axis: Vec3 {
-            x: 0.619,
-            y: -0.647,
-            z: 1.703,
-        },
-    };
+    const RGB_MATRIX: Mat3A = Mat3A::from_cols(
+        Vec3A::new(
+            1.0,
+            1.0,
+            1.0,
+        ),
+        Vec3A::new(
+            0.956,
+            -0.272,
+            -1.106,
+        ),
+        Vec3A::new(
+            0.619,
+            -0.647,
+            1.703,
+        ),
+    );
 
-    (RGB_MATRIX * Vec3::new(y, i, q)).into()
+    (RGB_MATRIX * Vec3A::new(y, i, q)).into()
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
