@@ -1769,15 +1769,7 @@ impl NtscApp {
             egui::ScrollArea::vertical()
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
-                    const LABEL_WIDTH: f32 = 180.0;
-
-                    let remaining_width = ui.max_rect().width() - LABEL_WIDTH;
-
-                    let spacing = ui.spacing_mut();
-                    spacing.slider_width = remaining_width - 48.0;
-                    spacing.interact_size.x = 48.0;
-                    spacing.combo_width =
-                        spacing.slider_width + spacing.interact_size.x + spacing.item_spacing.x;
+                    Self::setup_control_rows(ui);
 
                     let Self {
                         settings_list,
@@ -1800,6 +1792,18 @@ impl NtscApp {
                     }
                 });
         });
+    }
+
+    fn setup_control_rows(ui: &mut egui::Ui) {
+        const LABEL_WIDTH: f32 = 180.0;
+
+        let remaining_width = ui.max_rect().width() - LABEL_WIDTH;
+
+        let spacing = ui.spacing_mut();
+        spacing.slider_width = remaining_width - 48.0;
+        spacing.interact_size.x = 48.0;
+        spacing.combo_width =
+            spacing.slider_width + spacing.interact_size.x + spacing.item_spacing.x;
     }
 
     fn show_render_job(ui: &mut egui::Ui, job: &mut RenderJob) -> bool {
@@ -1934,6 +1938,7 @@ impl NtscApp {
 
     fn show_render_settings(&mut self, ui: &mut egui::Ui) {
         egui::Frame::central_panel(ui.style()).show(ui, |ui| {
+            Self::setup_control_rows(ui);
             egui::ComboBox::from_label("Codec")
                 .selected_text(self.render_settings.output_codec.label())
                 .show_ui(ui, |ui| {
