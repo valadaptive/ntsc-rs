@@ -1717,11 +1717,14 @@ impl NtscApp {
                             .show(ui.ctx(), |ui| {
                                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
                                     if ui.button("Load").clicked() {
-                                        if let Ok(settings) =
-                                            self.settings_list.from_json(&self.settings_json_paste)
-                                        {
-                                            self.effect_settings = settings;
-                                            self.update_effect();
+                                        match self.settings_list.from_json(&self.settings_json_paste) {
+                                            Ok(settings) => {
+                                                self.effect_settings = settings;
+                                                self.update_effect();
+                                            }
+                                            Err(e) => {
+                                                self.handle_error(&e);
+                                            }
                                         }
                                     }
                                     ui.with_layout(
