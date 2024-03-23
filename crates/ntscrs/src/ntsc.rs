@@ -1165,10 +1165,6 @@ impl NtscEffect {
                 chroma_loss(yiq, &info, vhs_settings.chroma_loss);
             }
 
-            if vhs_settings.chroma_vert_blend {
-                chroma_vert_blend(yiq);
-            }
-
             if vhs_settings.sharpen > 0.0 {
                 if let Some(tape_speed) = &vhs_settings.tape_speed {
                     let VHSTapeParams { luma_cut, .. } = tape_speed.filter_params();
@@ -1189,6 +1185,10 @@ impl NtscEffect {
                     // filter_plane_scaled(&mut yiq.q, width, &chroma_sharpen_filter, -vhs_settings.sharpen * 0.85);
                 }
             }
+        }
+
+        if self.chroma_vert_blend {
+            chroma_vert_blend(yiq);
         }
 
         match self.chroma_lowpass_out {

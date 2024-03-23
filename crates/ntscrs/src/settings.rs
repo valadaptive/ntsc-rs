@@ -118,7 +118,6 @@ impl Default for VHSEdgeWaveSettings {
 #[derive(FullSettings, Debug, Clone, PartialEq)]
 pub struct VHSSettings {
     pub tape_speed: Option<VHSTapeSpeed>,
-    pub chroma_vert_blend: bool,
     pub chroma_loss: f32,
     pub sharpen: f32,
     #[settings_block]
@@ -129,7 +128,6 @@ impl Default for VHSSettings {
     fn default() -> Self {
         Self {
             tape_speed: Some(VHSTapeSpeed::LP),
-            chroma_vert_blend: true,
             chroma_loss: 0.0,
             sharpen: 1.0,
             edge_wave: Some(VHSEdgeWaveSettings::default()),
@@ -308,6 +306,7 @@ pub struct NtscEffect {
     pub chroma_delay: (f32, i32),
     #[settings_block(nested)]
     pub vhs_settings: Option<VHSSettings>,
+    pub chroma_vert_blend: bool,
     pub chroma_lowpass_out: ChromaLowpass,
     pub bandwidth_scale: f32,
 }
@@ -336,6 +335,7 @@ impl Default for NtscEffect {
             chroma_phase_error: 0.0,
             chroma_delay: (0.0, 0),
             vhs_settings: Some(VHSSettings::default()),
+            chroma_vert_blend: true,
             bandwidth_scale: 1.0,
         }
     }
@@ -418,7 +418,9 @@ pub enum SettingID {
 
     VHS_SETTINGS,
     VHS_TAPE_SPEED,
-    VHS_CHROMA_VERT_BLEND,
+
+    CHROMA_VERT_BLEND,
+
     VHS_CHROMA_LOSS,
     VHS_SHARPEN,
     VHS_EDGE_WAVE_INTENSITY,
@@ -462,7 +464,9 @@ macro_rules! impl_get_field_ref {
             SettingID::COMPOSITE_NOISE_INTENSITY => {
                 $settings.composite_noise_intensity.$borrow_op()
             }
-            SettingID::CHROMA_NOISE_INTENSITY => $settings.chroma_noise.settings.intensity.$borrow_op(),
+            SettingID::CHROMA_NOISE_INTENSITY => {
+                $settings.chroma_noise.settings.intensity.$borrow_op()
+            }
             SettingID::SNOW_INTENSITY => $settings.snow_intensity.$borrow_op(),
             SettingID::SNOW_ANISOTROPY => $settings.snow_anisotropy.$borrow_op(),
             SettingID::CHROMA_DEMODULATION => $settings.chroma_demodulation.$borrow_op(),
@@ -516,11 +520,7 @@ macro_rules! impl_get_field_ref {
 
             SettingID::VHS_SETTINGS => $settings.vhs_settings.enabled.$borrow_op(),
             SettingID::VHS_TAPE_SPEED => $settings.vhs_settings.settings.tape_speed.$borrow_op(),
-            SettingID::VHS_CHROMA_VERT_BLEND => $settings
-                .vhs_settings
-                .settings
-                .chroma_vert_blend
-                .$borrow_op(),
+            SettingID::CHROMA_VERT_BLEND => $settings.chroma_vert_blend.$borrow_op(),
             SettingID::VHS_CHROMA_LOSS => $settings.vhs_settings.settings.chroma_loss.$borrow_op(),
             SettingID::VHS_SHARPEN => $settings.vhs_settings.settings.sharpen.$borrow_op(),
             SettingID::VHS_EDGE_WAVE_ENABLED => $settings
@@ -565,7 +565,9 @@ macro_rules! impl_get_field_ref {
             SettingID::INPUT_LUMA_FILTER => $settings.input_luma_filter.$borrow_op(),
 
             SettingID::CHROMA_NOISE => $settings.chroma_noise.enabled.$borrow_op(),
-            SettingID::CHROMA_NOISE_FREQUENCY => $settings.chroma_noise.settings.frequency.$borrow_op(),
+            SettingID::CHROMA_NOISE_FREQUENCY => {
+                $settings.chroma_noise.settings.frequency.$borrow_op()
+            }
             SettingID::CHROMA_NOISE_DETAIL => $settings.chroma_noise.settings.detail.$borrow_op(),
 
             SettingID::LUMA_SMEAR => $settings.luma_smear.$borrow_op(),
@@ -696,7 +698,7 @@ impl SettingID {
             SettingID::RINGING_SCALE => "ringing_scale",
             SettingID::VHS_SETTINGS => "vhs_settings",
             SettingID::VHS_TAPE_SPEED => "vhs_tape_speed",
-            SettingID::VHS_CHROMA_VERT_BLEND => "vhs_chroma_vert_blend",
+            SettingID::CHROMA_VERT_BLEND => "vhs_chroma_vert_blend",
             SettingID::VHS_CHROMA_LOSS => "vhs_chroma_loss",
             SettingID::VHS_SHARPEN => "vhs_sharpen",
             SettingID::VHS_EDGE_WAVE_ENABLED => "vhs_edge_wave_enabled",
@@ -1189,12 +1191,6 @@ impl SettingsList {
                             id: SettingID::VHS_TAPE_SPEED
                         },
                         SettingDescriptor {
-                            label: "Vertically blend chroma",
-                            description: Some("Vertically blend each scanline's chrominance with the scanline above it."),
-                            kind: SettingKind::Boolean { default_value: default_settings.vhs_settings.settings.chroma_vert_blend },
-                            id: SettingID::VHS_CHROMA_VERT_BLEND
-                        },
-                        SettingDescriptor {
                             label: "Chroma loss",
                             description: Some("Chance that the chrominance signal is completely lost in each scanline."),
                             kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.vhs_settings.settings.chroma_loss },
@@ -1246,6 +1242,12 @@ impl SettingsList {
                 id: SettingID::VHS_SETTINGS,
             },
             SettingDescriptor {
+                label: "Vertically blend chroma",
+                description: Some("Vertically blend each scanline's chrominance with the scanline above it."),
+                kind: SettingKind::Boolean { default_value: default_settings.chroma_vert_blend },
+                id: SettingID::CHROMA_VERT_BLEND
+            },
+            SettingDescriptor {
                 label: "Chroma low-pass out",
                 description: Some("Apply a low-pass filter to the output chroma signal."),
                 kind: SettingKind::Enumeration {
@@ -1286,7 +1288,6 @@ impl SettingsList {
         descriptors: &[SettingDescriptor],
         settings: &NtscEffectFullSettings,
     ) {
-        //NtscEffect::from(&settings).vhs_settings.map(f)
         for descriptor in descriptors {
             let value = match &descriptor.kind {
                 SettingKind::Enumeration { .. } => {
