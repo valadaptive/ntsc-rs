@@ -1717,10 +1717,17 @@ impl NtscApp {
                             .show(ui.ctx(), |ui| {
                                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
                                     if ui.button("Load").clicked() {
-                                        match self.settings_list.from_json(&self.settings_json_paste) {
+                                        match self
+                                            .settings_list
+                                            .from_json(&self.settings_json_paste)
+                                        {
                                             Ok(settings) => {
                                                 self.effect_settings = settings;
                                                 self.update_effect();
+                                                // Close the popup if the JSON was successfully loaded
+                                                ui.ctx().data_mut(|map| {
+                                                    map.insert_temp(paste_popup_id, false)
+                                                });
                                             }
                                             Err(e) => {
                                                 self.handle_error(&e);
