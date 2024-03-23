@@ -2519,7 +2519,7 @@ impl NtscApp {
                     ui.separator();
 
                     let mut update_effect_preview = false;
-                    ui.label("Effect preview: ");
+                    ui.label("✨").on_hover_text("Effect preview");
                     update_effect_preview |= ui
                         .selectable_value(
                             &mut self.effect_preview.mode,
