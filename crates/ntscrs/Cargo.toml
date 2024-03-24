@@ -1,6 +1,6 @@
 [package]
 name = "ntscrs"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT OR ISC OR Apache-2.0"
 
@@ -11,7 +11,7 @@ image = { version = "0.24.7", default-features = false }
 glam = "0.24.2"
 rand = { version = "0.8.5", default-features = false }
 rand_xoshiro = "0.6.0"
-simdnoise = { git = "https://github.com/valadaptive/rust-simd-noise", rev = "84ec75d8" }
+simdnoise = { git = "https://github.com/valadaptive/rust-simd-noise", rev = "c684b5d" }
 num-traits = "0.2"
 macros = {path = "../macros"}
 siphasher = "1.0.0"
