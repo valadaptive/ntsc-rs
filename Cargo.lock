@@ -2693,7 +2693,7 @@ dependencies = [
 
 [[package]]
 name = "ntscrs"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "criterion",
  "glam",
@@ -3615,7 +3615,7 @@ dependencies = [
 [[package]]
 name = "simdnoise"
 version = "3.1.7"
-source = "git+https://github.com/valadaptive/rust-simd-noise?rev=c684b5d#c684b5ddccf2fde9d3c42b3bce8c0c126202c974"
+source = "git+https://github.com/valadaptive/rust-simd-noise?rev=f399f9d#f399f9d3c5b16b67b10dae6c9224a3b5d8640df5"
 dependencies = [
  "simdeez",
 ]
