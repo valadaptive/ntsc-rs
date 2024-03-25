@@ -694,7 +694,7 @@ impl NtscApp {
         if let Some(scanlines) = scanlines {
             let scale_caps = pipeline
                 .by_name("video_scale")
-                .and_then(|elem| elem.static_pad("src"))
+                .and_then(|elem| elem.static_pad("sink"))
                 .and_then(|pad| pad.current_caps());
             let scale_caps = match scale_caps {
                 Some(caps) => caps,
