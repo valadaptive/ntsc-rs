@@ -288,6 +288,9 @@ impl<'a> YiqView<'a> {
                         }
                     }
                 };
+                if self.dimensions.1 == 1 {
+                    src_row_idx = 0;
+                }
                 if flip_y {
                     src_row_idx = height - src_row_idx - 1;
                 }
