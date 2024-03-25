@@ -2117,7 +2117,7 @@ dependencies = [
 
 [[package]]
 name = "gui"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "async-executor",
  "async-task",
