@@ -2489,7 +2489,7 @@ impl NtscApp {
                                 .custom_formatter(format_percentage),
                         );
 
-                        if resp.drag_released() {
+                        if resp.drag_stopped() {
                             if self.audio_volume.gain > 0.0 {
                                 // Set the gain to restore after dragging the slider to 0
                                 self.audio_volume.gain_pre_mute = self.audio_volume.gain;
