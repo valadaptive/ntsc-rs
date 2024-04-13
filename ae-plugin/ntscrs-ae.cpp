@@ -10,10 +10,11 @@ About (
 	PF_LayerDef		*output )
 {
 	PF_SPRINTF(	out_data->return_msg,
-				"%s %d.%d\r\r%s",
+				"%s %d.%d.%d\r\r%s",
 				StrID_Name,
 				MAJOR_VERSION,
 				MINOR_VERSION,
+				BUG_VERSION,
 				StrID_Description);
 
 	return PF_Err_NONE;
