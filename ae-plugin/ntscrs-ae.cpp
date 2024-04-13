@@ -93,6 +93,7 @@ PreRender(
 	};
 
 	extra->output->result_rect = extra->output->max_result_rect = constrained_rect;
+	extra->output->flags |= PF_RenderOutputFlag_RETURNS_EXTRA_PIXELS;
 
 	// The SDK example says:
 	// "For SmartFX, AE automagically checks in any params checked out
