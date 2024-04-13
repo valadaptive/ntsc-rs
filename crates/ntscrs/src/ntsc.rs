@@ -128,7 +128,7 @@ fn filter_plane_with_rows<const ROWS: usize>(
     delay: usize,
 ) {
     let mut row_chunks = plane.par_chunks_exact_mut(width * ROWS);
-    row_chunks.take_remainder().chunks_exact_mut(width).for_each(|row| {
+    row_chunks.take_remainder().par_chunks_exact_mut(width).for_each(|row| {
         let initial = match initial {
             InitialCondition::Zero => 0.0,
             InitialCondition::Constant(c) => c,
