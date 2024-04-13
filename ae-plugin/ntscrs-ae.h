@@ -104,11 +104,14 @@ typedef struct {
 // We need to handle the "use field" setting ourselves, so define the setting ID here.
 // It's fine to hardcode--if these IDs ever changed, it'd break a bunch of *other* stuff even worse.
 #define NTSCRS_USE_FIELD 30
-#define NTSCRS_USE_FIELD_ALTERNATING 0
-#define NTSCRS_USE_FIELD_UPPER 1
-#define NTSCRS_USE_FIELD_LOWER 2
-#define NTSCRS_USE_FIELD_BOTH 3
-#define NTSCRS_USE_FIELD_INTERLEAVED_UPPER 4
-#define NTSCRS_USE_FIELD_INTERLEAVED_LOWER 5
+
+typedef enum {
+	NTSCRS_USE_FIELD_ALTERNATING = 0,
+	NTSCRS_USE_FIELD_UPPER = 1,
+	NTSCRS_USE_FIELD_LOWER = 2,
+	NTSCRS_USE_FIELD_BOTH = 3,
+	NTSCRS_USE_FIELD_INTERLEAVED_UPPER = 4,
+	NTSCRS_USE_FIELD_INTERLEAVED_LOWER = 5
+} ntscrs_use_field;
 
 #endif // NtscRS_AE_H

@@ -400,13 +400,14 @@ pub unsafe extern "C" fn ntscrs_process_yiq(
     y: *mut f32,
     i: *mut f32,
     q: *mut f32,
+    num_rows: usize,
     width: usize,
     height: usize,
     settings: &Configurator,
     frame_num: usize,
     field: YiqField,
 ) {
-    let len = width * height;
+    let len = width * num_rows;
     let mut yiq = YiqView {
         y: slice::from_raw_parts_mut(y, len),
         i: slice::from_raw_parts_mut(i, len),

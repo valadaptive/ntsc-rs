@@ -107,6 +107,7 @@ static inline float clamp(float value, float min, float max) {
 
 struct CopyPixelFloat_t {
 	float* out_buffer;
+	A_long num_rows;
 	A_long src_width;
 	A_long src_height;
 	A_long plane_size;
@@ -154,10 +155,11 @@ static inline void interp_yiq_skip(CopyPixelFloat_t* data, A_long x, A_long y, f
 		*in_i = (in_i_lower + in_i_upper) * 0.5;
 		*in_q = (in_q_lower + in_q_upper) * 0.5;
 	} else {
+		A_long row_idx = MIN((y >> 1), data->num_rows - 1) * data->src_width;
 		// This row of pixels was rendered, or we're at the very top or bottom and cannot interpolate.
-		*in_y = data->out_buffer[((y >> 1) * data->src_width) + x];
-		*in_i = data->out_buffer[((y >> 1) * data->src_width) + x + data->plane_size];
-		*in_q = data->out_buffer[((y >> 1) * data->src_width) + x + data->plane_size * 2];
+		*in_y = data->out_buffer[row_idx + x];
+		*in_i = data->out_buffer[row_idx + x + data->plane_size];
+		*in_q = data->out_buffer[row_idx + x + data->plane_size * 2];
 	}
 }
 
@@ -214,7 +216,7 @@ static PF_Err convert_pixel_float_full(void *refcon, A_long x, A_long y, PF_Pixe
 
 static PF_Err convert_pixel_float_skip(void *refcon, A_long x, A_long y, PF_PixelFloat *in, PF_PixelFloat *out) {
 	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
-	if (data->skip_field == (y & 1) && y != data->src_height - 1) {
+	if (data->skip_field == (y & 1)) {
 		return PF_Err_NONE;
 	}
 
@@ -309,7 +311,7 @@ static PF_Err convert_pixel_16_full(void *refcon, A_long x, A_long y, PF_Pixel16
 
 static PF_Err convert_pixel_16_skip(void *refcon, A_long x, A_long y, PF_Pixel16 *in, PF_Pixel16 *out) {
 	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
-	if (data->skip_field == (y & 1) && y != data->src_height - 1) {
+	if (data->skip_field == (y & 1)) {
 		return PF_Err_NONE;
 	}
 
@@ -416,7 +418,7 @@ static PF_Err convert_pixel_8_full(void *refcon, A_long x, A_long y, PF_Pixel *i
 
 static PF_Err convert_pixel_8_skip(void *refcon, A_long x, A_long y, PF_Pixel *in, PF_Pixel *out) {
 	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
-	if (data->skip_field == (y & 1) && y != data->src_height - 1) {
+	if (data->skip_field == (y & 1)) {
 		return PF_Err_NONE;
 	}
 
@@ -638,44 +640,65 @@ ActuallyRender(
 
 	if (!err) {
 		// Number of YIQ rows/fields for ntsc-rs to operate on.
-		A_long out_buf_height;
+		A_long num_rows;
+		A_long frame_num = in_data->current_time / in_data->time_step;
 
+		ntscrs_YiqField yiq_field;
 		switch (use_field) {
 			case NTSCRS_USE_FIELD_ALTERNATING:
+				yiq_field = frame_num & 1 ? ntscrs_YiqField_Upper : ntscrs_YiqField_Lower;
+				break;
 			case NTSCRS_USE_FIELD_UPPER:
+				yiq_field = ntscrs_YiqField_Upper;
+				break;
 			case NTSCRS_USE_FIELD_LOWER:
-				// TODO: On an image with an odd input height, we should do ceiling division if we render upper-field-first
-				// (take an image 3 pixels tall. it goes render, skip, render--that's 2 renders) but floor division if we
-				// render lower-field-first (skip, render, skip--only 1 render).
-				out_buf_height = (output->height + 1) / 2;
+				yiq_field = ntscrs_YiqField_Lower;
 				break;
 			case NTSCRS_USE_FIELD_BOTH:
+				yiq_field = ntscrs_YiqField_Both;
+				break;
 			case NTSCRS_USE_FIELD_INTERLEAVED_UPPER:
+				yiq_field = ntscrs_YiqField_InterleavedUpper;
+				break;
 			case NTSCRS_USE_FIELD_INTERLEAVED_LOWER:
-				out_buf_height = output->height;
+				yiq_field = ntscrs_YiqField_InterleavedLower;
 				break;
 			default:
 				return PF_Err_UNRECOGNIZED_PARAM_TYPE;
 		}
 
-		A_long frame_num = in_data->current_time / in_data->time_step;
+		switch (yiq_field) {
+			// On an image with an odd input height, we do ceiling division if we render upper-field-first (take an
+			// image 3 pixels tall. it goes render, skip, render--that's 2 renders) but floor division if we render
+			// lower-field-first (skip, render, skip--only 1 render).
+			case ntscrs_YiqField_Upper:
+				num_rows = (output->height + 1) / 2;
+				break;
+			case ntscrs_YiqField_Lower:
+				num_rows = MAX(output->height / 2, 1);
+				break;
+			case ntscrs_YiqField_Both:
+			case ntscrs_YiqField_InterleavedUpper:
+			case ntscrs_YiqField_InterleavedLower:
+				num_rows = output->height;
+				break;
+			default:
+				return PF_Err_UNRECOGNIZED_PARAM_TYPE;
+		}
 
 		// If the row index modulo 2 equals this number, skip that row. Also used to determine which field goes second
 		// for the interleaved options.
 		A_long skip_field;
-		switch (use_field) {
-			case NTSCRS_USE_FIELD_ALTERNATING:
-				skip_field = frame_num & 1;
-				break;
-			case NTSCRS_USE_FIELD_UPPER:
-			case NTSCRS_USE_FIELD_INTERLEAVED_UPPER:
+		switch (yiq_field) {
+			case ntscrs_YiqField_Upper:
+			case ntscrs_YiqField_InterleavedUpper:
 				skip_field = 1;
 				break;
-			case NTSCRS_USE_FIELD_LOWER:
-			case NTSCRS_USE_FIELD_INTERLEAVED_LOWER:
+			case ntscrs_YiqField_Lower:
+			case ntscrs_YiqField_InterleavedLower:
 				skip_field = 0;
 				break;
-			case NTSCRS_USE_FIELD_BOTH:
+			case ntscrs_YiqField_Both:
 				// When rendering both fields, don't skip any rows when copying. The row index modulo 2 will never equal
 				// 2, so setting skip_field to 2 means no rows will be skipped.
 				skip_field = 2;
@@ -684,7 +707,7 @@ ActuallyRender(
 				return PF_Err_UNRECOGNIZED_PARAM_TYPE;
 		}
 
-		A_long output_plane_size = output->width * out_buf_height;
+		A_long output_plane_size = output->width * num_rows;
 		// Allocate an intermediate buffer which the ntscrs library will operate on.
 		size_t out_buf_size = sizeof(float) * 3 * output_plane_size;
 
@@ -702,21 +725,20 @@ ActuallyRender(
 
 				ERR(wsP->PF_GetPixelFormat(input, &format));
 				if (format == PF_PixelFormat_ARGB32 || format == PF_PixelFormat_ARGB64 || format == PF_PixelFormat_ARGB128) {
-					CopyPixelFloat_t refcon = {out_buf, output->width, output->height, output_plane_size, skip_field};
+					CopyPixelFloat_t refcon = {out_buf, num_rows, output->width, output->height, output_plane_size, skip_field};
 					switch (format) {
 						case PF_PixelFormat_ARGB128: {
 							PF_IteratePixelFloatFunc func;
-							switch (use_field) {
-								case NTSCRS_USE_FIELD_BOTH:
+							switch (yiq_field) {
+								case ntscrs_YiqField_Both:
 									func = convert_pixel_float_full;
 									break;
-								case NTSCRS_USE_FIELD_ALTERNATING:
-								case NTSCRS_USE_FIELD_UPPER:
-								case NTSCRS_USE_FIELD_LOWER:
+								case ntscrs_YiqField_Upper:
+								case ntscrs_YiqField_Lower:
 									func = convert_pixel_float_skip;
 									break;
-								case NTSCRS_USE_FIELD_INTERLEAVED_UPPER:
-								case NTSCRS_USE_FIELD_INTERLEAVED_LOWER:
+								case ntscrs_YiqField_InterleavedUpper:
+								case ntscrs_YiqField_InterleavedLower:
 									func = convert_pixel_float_interleaved;
 									break;
 								default:
@@ -728,17 +750,16 @@ ActuallyRender(
 						}
 						case PF_PixelFormat_ARGB64: {
 							PF_IteratePixel16Func func;
-							switch (use_field) {
-								case NTSCRS_USE_FIELD_BOTH:
+							switch (yiq_field) {
+								case ntscrs_YiqField_Both:
 									func = convert_pixel_16_full;
 									break;
-								case NTSCRS_USE_FIELD_ALTERNATING:
-								case NTSCRS_USE_FIELD_UPPER:
-								case NTSCRS_USE_FIELD_LOWER:
+								case ntscrs_YiqField_Upper:
+								case ntscrs_YiqField_Lower:
 									func = convert_pixel_16_skip;
 									break;
-								case NTSCRS_USE_FIELD_INTERLEAVED_UPPER:
-								case NTSCRS_USE_FIELD_INTERLEAVED_LOWER:
+								case ntscrs_YiqField_InterleavedUpper:
+								case ntscrs_YiqField_InterleavedLower:
 									func = convert_pixel_16_interleaved;
 									break;
 								default:
@@ -750,17 +771,16 @@ ActuallyRender(
 						}
 						case PF_PixelFormat_ARGB32: {
 							PF_IteratePixel8Func func;
-							switch (use_field) {
-								case NTSCRS_USE_FIELD_BOTH:
+							switch (yiq_field) {
+								case ntscrs_YiqField_Both:
 									func = convert_pixel_8_full;
 									break;
-								case NTSCRS_USE_FIELD_ALTERNATING:
-								case NTSCRS_USE_FIELD_UPPER:
-								case NTSCRS_USE_FIELD_LOWER:
+								case ntscrs_YiqField_Upper:
+								case ntscrs_YiqField_Lower:
 									func = convert_pixel_8_skip;
 									break;
-								case NTSCRS_USE_FIELD_INTERLEAVED_UPPER:
-								case NTSCRS_USE_FIELD_INTERLEAVED_LOWER:
+								case ntscrs_YiqField_InterleavedUpper:
+								case ntscrs_YiqField_InterleavedLower:
 									func = convert_pixel_8_interleaved;
 									break;
 								default:
@@ -772,46 +792,25 @@ ActuallyRender(
 						}
 					}
 
-					ntscrs_YiqField yiq_field;
-					switch (use_field) {
-						case NTSCRS_USE_FIELD_ALTERNATING:
-							yiq_field = frame_num & 1 ? ntscrs_YiqField_Upper : ntscrs_YiqField_Lower;
-							break;
-						case NTSCRS_USE_FIELD_BOTH:
-						case NTSCRS_USE_FIELD_LOWER:
-						case NTSCRS_USE_FIELD_UPPER:
-							yiq_field = ntscrs_YiqField_Both;
-							break;
-						case NTSCRS_USE_FIELD_INTERLEAVED_UPPER:
-							yiq_field = ntscrs_YiqField_InterleavedUpper;
-							break;
-						case NTSCRS_USE_FIELD_INTERLEAVED_LOWER:
-							yiq_field = ntscrs_YiqField_InterleavedLower;
-							break;
-						default:
-							return PF_Err_UNRECOGNIZED_PARAM_TYPE;
-					}
-
 					ntscrs_process_yiq(
 						out_buf, // y plane
 						&out_buf[output_plane_size], // i plane
 						&out_buf[output_plane_size * 2], // q plane
-						output->width, out_buf_height, configurator, frame_num, yiq_field);
+						num_rows, output->width, output->height, configurator, frame_num, yiq_field);
 
 					switch (format) {
 						case PF_PixelFormat_ARGB128: {
 							PF_IteratePixelFloatFunc func;
-							switch (use_field) {
-								case NTSCRS_USE_FIELD_BOTH:
+							switch (yiq_field) {
+								case ntscrs_YiqField_Both:
 									func = convert_back_pixel_float_full;
 									break;
-								case NTSCRS_USE_FIELD_UPPER:
-								case NTSCRS_USE_FIELD_LOWER:
-								case NTSCRS_USE_FIELD_ALTERNATING:
+								case ntscrs_YiqField_Upper:
+								case ntscrs_YiqField_Lower:
 									func = convert_back_pixel_float_skip;
 									break;
-								case NTSCRS_USE_FIELD_INTERLEAVED_UPPER:
-								case NTSCRS_USE_FIELD_INTERLEAVED_LOWER:
+								case ntscrs_YiqField_InterleavedUpper:
+								case ntscrs_YiqField_InterleavedLower:
 									func = convert_back_pixel_float_interleaved;
 									break;
 								default:
@@ -823,17 +822,16 @@ ActuallyRender(
 						}
 						case PF_PixelFormat_ARGB64: {
 							PF_IteratePixel16Func func;
-							switch (use_field) {
-								case NTSCRS_USE_FIELD_BOTH:
+							switch (yiq_field) {
+								case ntscrs_YiqField_Both:
 									func = convert_back_pixel_16_full;
 									break;
-								case NTSCRS_USE_FIELD_UPPER:
-								case NTSCRS_USE_FIELD_LOWER:
-								case NTSCRS_USE_FIELD_ALTERNATING:
+								case ntscrs_YiqField_Upper:
+								case ntscrs_YiqField_Lower:
 									func = convert_back_pixel_16_skip;
 									break;
-								case NTSCRS_USE_FIELD_INTERLEAVED_UPPER:
-								case NTSCRS_USE_FIELD_INTERLEAVED_LOWER:
+								case ntscrs_YiqField_InterleavedUpper:
+								case ntscrs_YiqField_InterleavedLower:
 									func = convert_back_pixel_16_interleaved;
 									break;
 								default:
@@ -845,17 +843,16 @@ ActuallyRender(
 						}
 						case PF_PixelFormat_ARGB32: {
 							PF_IteratePixel8Func func;
-							switch (use_field) {
-								case NTSCRS_USE_FIELD_BOTH:
+							switch (yiq_field) {
+								case ntscrs_YiqField_Both:
 									func = convert_back_pixel_8_full;
 									break;
-								case NTSCRS_USE_FIELD_UPPER:
-								case NTSCRS_USE_FIELD_LOWER:
-								case NTSCRS_USE_FIELD_ALTERNATING:
+								case ntscrs_YiqField_Upper:
+								case ntscrs_YiqField_Lower:
 									func = convert_back_pixel_8_skip;
 									break;
-								case NTSCRS_USE_FIELD_INTERLEAVED_UPPER:
-								case NTSCRS_USE_FIELD_INTERLEAVED_LOWER:
+								case ntscrs_YiqField_InterleavedUpper:
+								case ntscrs_YiqField_InterleavedLower:
 									func = convert_back_pixel_8_interleaved;
 									break;
 								default:
