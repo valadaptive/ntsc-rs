@@ -332,11 +332,6 @@ impl<'a> YiqView<'a> {
             YiqField::Both | YiqField::InterleavedUpper | YiqField::InterleavedLower => 2,
         };
 
-        let row_rshift = match self.field {
-            YiqField::Both | YiqField::InterleavedUpper | YiqField::InterleavedLower => 0,
-            YiqField::Upper | YiqField::Lower => 1,
-        };
-
         let num_rows = self.num_rows();
 
         let chunks = dst
@@ -367,7 +362,7 @@ impl<'a> YiqView<'a> {
                         // Copy the field directly
                         for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
                             let src_idx =
-                                (row_idx >> row_rshift).min(num_rows - 1) * width + pix_idx;
+                                (row_idx >> 1).min(num_rows - 1) * width + pix_idx;
                             let rgb = pixel_transform(yiq_to_rgb([
                                 self.y[src_idx],
                                 self.i[src_idx],
@@ -386,7 +381,7 @@ impl<'a> YiqView<'a> {
                         return;
                     }
                     for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
-                        let src_idx = (row_idx >> row_rshift).min(num_rows - 1) * width + pix_idx;
+                        let src_idx = (row_idx >> 1).min(num_rows - 1) * width + pix_idx;
                         let rgb = pixel_transform(yiq_to_rgb([
                             self.y[src_idx],
                             self.i[src_idx],
@@ -428,7 +423,7 @@ impl<'a> YiqView<'a> {
             _ => {
                 chunks.for_each(|(row_idx, dst_row)| {
                     for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
-                        let src_idx = (row_idx >> row_rshift).min(num_rows - 1) * width + pix_idx;
+                        let src_idx = row_idx.min(num_rows - 1) * width + pix_idx;
                         let rgb = pixel_transform(yiq_to_rgb([
                             self.y[src_idx],
                             self.i[src_idx],
