@@ -7,21 +7,9 @@ use rayon::prelude::*;
 #[inline(always)]
 pub fn rgb_to_yiq([r, g, b]: [f32; 3]) -> [f32; 3] {
     const YIQ_MATRIX: Mat3A = Mat3A::from_cols(
-        Vec3A::new(
-            0.299,
-            0.5959,
-            0.2115,
-        ),
-        Vec3A::new(
-            0.587,
-            -0.2746,
-            -0.5227,
-        ),
-        Vec3A::new(
-            0.114,
-            -0.3213,
-            0.3112,
-        ),
+        Vec3A::new(0.299, 0.5959, 0.2115),
+        Vec3A::new(0.587, -0.2746, -0.5227),
+        Vec3A::new(0.114, -0.3213, 0.3112),
     );
 
     (YIQ_MATRIX * Vec3A::new(r, g, b)).into()
@@ -30,21 +18,9 @@ pub fn rgb_to_yiq([r, g, b]: [f32; 3]) -> [f32; 3] {
 #[inline(always)]
 pub fn yiq_to_rgb([y, i, q]: [f32; 3]) -> [f32; 3] {
     const RGB_MATRIX: Mat3A = Mat3A::from_cols(
-        Vec3A::new(
-            1.0,
-            1.0,
-            1.0,
-        ),
-        Vec3A::new(
-            0.956,
-            -0.272,
-            -1.106,
-        ),
-        Vec3A::new(
-            0.619,
-            -0.647,
-            1.703,
-        ),
+        Vec3A::new(1.0, 1.0, 1.0),
+        Vec3A::new(0.956, -0.272, -1.106),
+        Vec3A::new(0.619, -0.647, 1.703),
     );
 
     (RGB_MATRIX * Vec3A::new(y, i, q)).into()
@@ -434,7 +410,8 @@ impl<'a> YiqView<'a> {
                         _ => unreachable!(),
                     };
                     // handle edge case where there's only one row and the mode is InterleavedLower
-                    let interleaved_row_idx = ((row_idx >> 1) + row_offset).min(self.dimensions.1 - 1);
+                    let interleaved_row_idx =
+                        ((row_idx >> 1) + row_offset).min(self.dimensions.1 - 1);
                     let src_idx = interleaved_row_idx * width;
                     for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
                         let rgb = pixel_transform(yiq_to_rgb([

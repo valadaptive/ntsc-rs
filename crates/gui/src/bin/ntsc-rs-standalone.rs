@@ -1882,8 +1882,9 @@ impl NtscApp {
                                 };
                             job.progress_samples.push_back(new_sample);
                             if let Some((old_progress, old_sample_time)) = oldest_sample {
-                                let time_estimate =
-                                    (current_time - old_sample_time) / (progress - old_progress) + job.start_time.unwrap();
+                                let time_estimate = (current_time - old_sample_time)
+                                    / (progress - old_progress)
+                                    + job.start_time.unwrap();
                                 if time_estimate.is_finite() {
                                     job.estimated_completion_time = Some(time_estimate);
                                 }

@@ -60,7 +60,12 @@ pub fn process_gst_frame<T, OutFormat: PixelFormat<DataFormat = T>>(
             let mut yiq = frame_to_yiq(in_frame, field)?;
             let mut view = YiqView::from(&mut yiq);
             settings.apply_effect_to_yiq(&mut view, frame as usize);
-            view.write_to_strided_buffer::<OutFormat, _>(out_frame, out_stride, DeinterlaceMode::Bob, identity);
+            view.write_to_strided_buffer::<OutFormat, _>(
+                out_frame,
+                out_stride,
+                DeinterlaceMode::Bob,
+                identity,
+            );
         }
         VideoInterlaceMode::Interleaved | VideoInterlaceMode::Mixed => {
             let field = match (in_frame.is_tff(), in_frame.is_onefield()) {
@@ -73,7 +78,12 @@ pub fn process_gst_frame<T, OutFormat: PixelFormat<DataFormat = T>>(
             let mut yiq = frame_to_yiq(in_frame, field)?;
             let mut view = YiqView::from(&mut yiq);
             settings.apply_effect_to_yiq(&mut view, frame as usize * 2);
-            view.write_to_strided_buffer::<OutFormat, _>(out_frame, out_stride, DeinterlaceMode::Skip, identity);
+            view.write_to_strided_buffer::<OutFormat, _>(
+                out_frame,
+                out_stride,
+                DeinterlaceMode::Skip,
+                identity,
+            );
         }
         _ => Err(FlowError::NotSupported)?,
     }

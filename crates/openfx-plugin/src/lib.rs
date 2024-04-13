@@ -1137,8 +1137,10 @@ impl<'a> EffectStorageParams<'a> {
 
                         if interp_row {
                             // This row was not processed this frame. Interpolate from the rows above and below it.
-                            let row_idx_bottom = (srcHeight as i32 - 1 - src_y + 1) as usize >> row_lshift;
-                            let row_idx_top = (srcHeight as i32 - 1 - src_y - 1) as usize >> row_lshift;
+                            let row_idx_bottom =
+                                (srcHeight as i32 - 1 - src_y + 1) as usize >> row_lshift;
+                            let row_idx_top =
+                                (srcHeight as i32 - 1 - src_y - 1) as usize >> row_lshift;
                             let idx_top = (row_idx_top * srcWidth) + src_x as usize;
                             let idx_bottom = (row_idx_bottom * srcWidth) + src_x as usize;
                             [
@@ -1147,17 +1149,17 @@ impl<'a> EffectStorageParams<'a> {
                                 (q[idx_top] + q[idx_bottom]) * 0.5,
                             ]
                         } else {
-                            let row_idx =
-                                ((srcHeight as i32 - 1 - src_y) as usize >> row_lshift).min(numRows - 1);
+                            let row_idx = ((srcHeight as i32 - 1 - src_y) as usize >> row_lshift)
+                                .min(numRows - 1);
                             let idx = (row_idx * srcWidth) + src_x as usize;
                             [y[idx], i[idx], q[idx]]
                         }
-                    },
+                    }
                     YiqField::Both => {
-                            let row_idx = (srcHeight as i32 - 1 - src_y) as usize;
-                            let idx = (row_idx * srcWidth) + src_x as usize;
-                            [y[idx], i[idx], q[idx]]
-                    },
+                        let row_idx = (srcHeight as i32 - 1 - src_y) as usize;
+                        let idx = (row_idx * srcWidth) + src_x as usize;
+                        [y[idx], i[idx], q[idx]]
+                    }
                     YiqField::InterleavedUpper | YiqField::InterleavedLower => {
                         let row_idx = (srcHeight as i32 - 1 - src_y) as usize;
 
@@ -1174,7 +1176,7 @@ impl<'a> EffectStorageParams<'a> {
 
                         let idx = (interleaved_row_idx * srcWidth) + src_x as usize;
                         [y[idx], i[idx], q[idx]]
-                    },
+                    }
                 };
 
                 let mut rgb = yiq_to_rgb(yiq);

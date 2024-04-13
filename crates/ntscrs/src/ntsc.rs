@@ -227,12 +227,7 @@ fn chroma_phase_shift(
 const I_MULT: [f32; 4] = [1.0, 0.0, -1.0, 0.0];
 const Q_MULT: [f32; 4] = [0.0, 1.0, 0.0, -1.0];
 
-fn chroma_into_luma_line(
-    y: &mut [f32],
-    i: &mut [f32],
-    q: &mut [f32],
-    xi: usize,
-) {
+fn chroma_into_luma_line(y: &mut [f32], i: &mut [f32], q: &mut [f32], xi: usize) {
     y.iter_mut()
         .zip(i.iter_mut().zip(q))
         .enumerate()
@@ -269,13 +264,7 @@ fn chroma_into_luma(
 }
 
 #[inline(always)]
-fn demodulate_chroma(
-    chroma: f32,
-    index: usize,
-    xi: usize,
-    i: &mut [f32],
-    q: &mut [f32],
-) {
+fn demodulate_chroma(chroma: f32, index: usize, xi: usize, i: &mut [f32], q: &mut [f32]) {
     let width = i.len();
 
     let offset = (index + (xi & 3)) & 3;
@@ -298,12 +287,7 @@ fn demodulate_chroma(
 }
 
 /// Demodulate the chrominance signal using a box filter to separate it out.
-fn luma_into_chroma_line_box(
-    y: &mut [f32],
-    i: &mut [f32],
-    q: &mut [f32],
-    xi: usize,
-) {
+fn luma_into_chroma_line_box(y: &mut [f32], i: &mut [f32], q: &mut [f32], xi: usize) {
     let mut delay = VecDeque::<f32>::with_capacity(4);
     delay.push_back(16.0 / 255.0);
     delay.push_back(16.0 / 255.0);
@@ -391,15 +375,7 @@ fn luma_into_chroma(
                                 index * 2,
                             );
 
-                            luma_into_chroma_line_iir(
-                                y,
-                                i,
-                                q,
-                                scratch,
-                                &filter,
-                                1,
-                                xi,
-                            );
+                            luma_into_chroma_line_iir(y, i, q, scratch, &filter, 1, xi);
                         });
                 }
                 _ => unreachable!(),

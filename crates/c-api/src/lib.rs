@@ -6,7 +6,10 @@ use ntscrs::settings::{
     NtscEffectFullSettings, SettingDescriptor as RsSettingDescriptor, SettingID as RsSettingID,
     SettingKind as RsSettingKind, SettingsList as RsSettingsList,
 };
-use ntscrs::{ntsc::NtscEffect, yiq_fielding::{YiqView, YiqField as RsYiqField}};
+use ntscrs::{
+    ntsc::NtscEffect,
+    yiq_fielding::{YiqField as RsYiqField, YiqView},
+};
 use ntscrs::{FromPrimitive, ToPrimitive};
 
 #[repr(C)]
