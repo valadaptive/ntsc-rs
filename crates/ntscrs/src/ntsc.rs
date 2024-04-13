@@ -127,7 +127,17 @@ fn filter_plane_with_rows<const ROWS: usize>(
     scale: f32,
     delay: usize,
 ) {
-    plane.par_chunks_exact_mut(width * ROWS).for_each(|rows| {
+    let mut row_chunks = plane.par_chunks_exact_mut(width * ROWS);
+    row_chunks.take_remainder().chunks_exact_mut(width).for_each(|row| {
+        let initial = match initial {
+            InitialCondition::Zero => 0.0,
+            InitialCondition::Constant(c) => c,
+            InitialCondition::FirstSample => row[0],
+        };
+        filter.filter_signal_in_place::<1>(&mut [row], [initial], scale, delay)
+    });
+
+    row_chunks.for_each(|rows| {
         let mut row_chunks: Vec<&mut [f32]> = rows.chunks_exact_mut(width).into_iter().collect();
         let rows: &mut [&mut [f32]; ROWS] = row_chunks.as_mut_slice().try_into().unwrap();
 
@@ -959,6 +969,7 @@ fn chroma_vert_blend(yiq: &mut YiqView) {
 
 impl NtscEffect {
     fn apply_effect_to_yiq_field(&self, yiq: &mut YiqView, frame_num: usize) {
+        dbg!(yiq.num_rows());
         let width = yiq.dimensions.0;
 
         let seed = self.random_seed as u32 as u64;
