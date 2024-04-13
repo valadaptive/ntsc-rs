@@ -18,7 +18,7 @@ use std::{
     thread,
 };
 
-use eframe::egui::{self, Response};
+use eframe::egui::{self, util::undoer::Undoer, Response};
 use eframe::epaint::vec2;
 use futures_lite::{Future, FutureExt};
 use glib::clone::Downgrade;
@@ -590,6 +590,7 @@ struct NtscApp {
     settings_list: SettingsList,
     executor: Arc<Mutex<AppExecutor>>,
     pipeline: Option<PipelineInfo>,
+    undoer: Undoer<NtscEffectFullSettings>,
     video_zoom: VideoZoom,
     video_scale: VideoScale,
     audio_volume: AudioVolume,
@@ -615,6 +616,7 @@ impl NtscApp {
             gstreamer_initialized,
             settings_list,
             pipeline: None,
+            undoer: Undoer::default(),
             executor: Arc::new(Mutex::new(AppExecutor::new(ctx.clone()))),
             video_zoom: VideoZoom {
                 scale: 1.0,
@@ -1357,6 +1359,20 @@ impl NtscApp {
     fn handle_result_with<T, E: Error, F: FnOnce(&mut Self) -> Result<T, E>>(&mut self, cb: F) {
         let result = cb(self);
         self.handle_result(result);
+    }
+
+    fn undo(&mut self) {
+        if let Some(new_state) = self.undoer.undo(&self.effect_settings) {
+            self.effect_settings = new_state.clone();
+            self.update_effect();
+        }
+    }
+
+    fn redo(&mut self) {
+        if let Some(new_state) = self.undoer.redo(&self.effect_settings) {
+            self.effect_settings = new_state.clone();
+            self.update_effect();
+        }
     }
 }
 
@@ -2684,6 +2700,29 @@ impl NtscApp {
                     }
                 });
 
+                ui.menu_button("Edit", |ui| {
+                    if ui
+                        .add_enabled(
+                            self.undoer.has_undo(&mut self.effect_settings),
+                            egui::Button::new("Undo"),
+                        )
+                        .clicked()
+                    {
+                        self.undo();
+                        ui.close_menu();
+                    }
+                    if ui
+                        .add_enabled(
+                            self.undoer.has_redo(&mut self.effect_settings),
+                            egui::Button::new("Redo"),
+                        )
+                        .clicked()
+                    {
+                        self.redo();
+                        ui.close_menu();
+                    }
+                });
+
                 ui.menu_button("View", |ui| {
                     ui.menu_button("Theme", |ui| {
                         let mut color_theme_changed = false;
@@ -2783,6 +2822,27 @@ impl NtscApp {
             });
         });
     }
+
+    fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
+        // Seems to deadlock if we call undo() / redo() inside the ctx.input callback, probably due to Undoer accessing
+        // context state from behind a mutex.
+        let (should_undo, should_redo) = ctx.input(|input| {
+            (
+                // Note that we match command/ctrl *only*; otherwise Ctrl+Shift+Z would count as undo since Ctrl+Z is a subset of Ctrl+Shift+Z
+                input.modifiers.command_only() && input.key_pressed(egui::Key::Z),
+                (input.modifiers.command_only() && input.key_pressed(egui::Key::Y))
+                    || (input
+                        .modifiers
+                        .matches_exact(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT)
+                        && input.key_pressed(egui::Key::Z)),
+            )
+        });
+        if should_undo {
+            self.undo();
+        } else if should_redo {
+            self.redo();
+        }
+    }
 }
 
 impl eframe::App for NtscApp {
@@ -2819,7 +2879,12 @@ impl eframe::App for NtscApp {
             self.handle_error(&err);
         }
 
+        self.handle_keyboard_shortcuts(ctx);
+
         self.show_app(ctx, frame);
+
+        self.undoer
+            .feed_state(ctx.input(|input| input.time), &self.effect_settings);
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {

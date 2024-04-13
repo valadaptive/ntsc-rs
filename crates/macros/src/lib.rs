@@ -206,7 +206,7 @@ pub fn full_settings(item: TokenStream) -> TokenStream {
     let full_struct = generate(&item);
 
     let out = quote! {
-        #[derive(Clone, Debug)]
+        #[derive(Clone, Debug, PartialEq)]
         #full_struct
     };
 

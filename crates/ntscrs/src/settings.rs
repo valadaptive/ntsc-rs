@@ -222,7 +222,7 @@ impl Default for ChromaNoiseSettings {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SettingsBlock<T> {
     pub enabled: bool,
     pub settings: T,
@@ -278,7 +278,7 @@ impl<T: Default> Default for SettingsBlock<T> {
     }
 }
 
-#[derive(FullSettings, Clone, Debug)]
+#[derive(FullSettings, Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct NtscEffect {
     pub random_seed: i32,
