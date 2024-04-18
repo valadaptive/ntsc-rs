@@ -8,12 +8,12 @@ use ntscrs::settings::{
     NtscEffectFullSettings, SettingDescriptor as RsSettingDescriptor, SettingID as RsSettingID,
     SettingKind as RsSettingKind, SettingsList as RsSettingsList,
 };
+pub use ntscrs::yiq_fielding::{BlitInfo as RsBlitInfo, Rect as RsRect};
 use ntscrs::yiq_fielding::{DeinterlaceMode, PixelFormat, Xrgb16s, Xrgb32f, Xrgb8};
 use ntscrs::{
     ntsc::NtscEffect,
     yiq_fielding::{YiqField as RsYiqField, YiqView},
 };
-pub use ntscrs::yiq_fielding::{Rect as RsRect, BlitInfo as RsBlitInfo};
 use ntscrs::{FromPrimitive, ToPrimitive};
 
 #[repr(C)]
@@ -560,9 +560,7 @@ pub unsafe extern "C" fn ntscrs_yiq_set_from_strided_buffer_Xrgb8(
     height: usize,
     field: YiqField,
 ) {
-    yiq_set_from_strided_buffer_generic::<Xrgb8>(
-        src_data, dst_yiq, blit_info, width, height, field,
-    )
+    yiq_set_from_strided_buffer_generic::<Xrgb8>(src_data, dst_yiq, blit_info, width, height, field)
 }
 
 #[no_mangle]

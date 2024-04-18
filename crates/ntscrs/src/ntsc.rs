@@ -128,14 +128,17 @@ fn filter_plane_with_rows<const ROWS: usize>(
     delay: usize,
 ) {
     let mut row_chunks = plane.par_chunks_exact_mut(width * ROWS);
-    row_chunks.take_remainder().par_chunks_exact_mut(width).for_each(|row| {
-        let initial = match initial {
-            InitialCondition::Zero => 0.0,
-            InitialCondition::Constant(c) => c,
-            InitialCondition::FirstSample => row[0],
-        };
-        filter.filter_signal_in_place::<1>(&mut [row], [initial], scale, delay)
-    });
+    row_chunks
+        .take_remainder()
+        .par_chunks_exact_mut(width)
+        .for_each(|row| {
+            let initial = match initial {
+                InitialCondition::Zero => 0.0,
+                InitialCondition::Constant(c) => c,
+                InitialCondition::FirstSample => row[0],
+            };
+            filter.filter_signal_in_place::<1>(&mut [row], [initial], scale, delay)
+        });
 
     row_chunks.for_each(|rows| {
         let mut row_chunks: Vec<&mut [f32]> = rows.chunks_exact_mut(width).into_iter().collect();
@@ -1191,35 +1194,35 @@ impl NtscEffect {
 
     pub fn apply_effect_to_yiq(&self, yiq: &mut YiqView, frame_num: usize) {
         // On Windows debug builds, the stack overflows with the default stack size
-        let pool = rayon::ThreadPoolBuilder::new().stack_size(2 * 1024 * 1024).build().unwrap();
-        pool.scope(|_| {
-            match yiq.field {
-                YiqField::Upper | YiqField::Lower | YiqField::Both => {
-                    self.apply_effect_to_yiq_field(yiq, frame_num);
-                }
-                YiqField::InterleavedUpper | YiqField::InterleavedLower => {
-                    let num_upper_rows = YiqField::Upper.num_image_rows(yiq.dimensions.1);
-                    let num_lower_rows = YiqField::Lower.num_image_rows(yiq.dimensions.1);
-                    let (mut yiq_upper, mut yiq_lower, frame_num_upper, frame_num_lower) =
-                        match yiq.field {
-                            YiqField::InterleavedUpper => {
-                                let (upper, lower) = yiq.split_at_row(num_upper_rows);
-                                (upper, lower, frame_num * 2, frame_num * 2 + 1)
-                            }
-                            YiqField::InterleavedLower => {
-                                let (lower, upper) = yiq.split_at_row(num_lower_rows);
-                                (upper, lower, frame_num * 2 + 1, frame_num * 2)
-                            }
-                            _ => unreachable!(),
-                        };
-                    yiq_upper.field = YiqField::Upper;
-                    yiq_lower.field = YiqField::Lower;
-                    self.apply_effect_to_yiq_field(&mut yiq_upper, frame_num_upper);
-                    self.apply_effect_to_yiq_field(&mut yiq_lower, frame_num_lower);
-                }
+        let pool = rayon::ThreadPoolBuilder::new()
+            .stack_size(2 * 1024 * 1024)
+            .build()
+            .unwrap();
+        pool.scope(|_| match yiq.field {
+            YiqField::Upper | YiqField::Lower | YiqField::Both => {
+                self.apply_effect_to_yiq_field(yiq, frame_num);
+            }
+            YiqField::InterleavedUpper | YiqField::InterleavedLower => {
+                let num_upper_rows = YiqField::Upper.num_image_rows(yiq.dimensions.1);
+                let num_lower_rows = YiqField::Lower.num_image_rows(yiq.dimensions.1);
+                let (mut yiq_upper, mut yiq_lower, frame_num_upper, frame_num_lower) =
+                    match yiq.field {
+                        YiqField::InterleavedUpper => {
+                            let (upper, lower) = yiq.split_at_row(num_upper_rows);
+                            (upper, lower, frame_num * 2, frame_num * 2 + 1)
+                        }
+                        YiqField::InterleavedLower => {
+                            let (lower, upper) = yiq.split_at_row(num_lower_rows);
+                            (upper, lower, frame_num * 2 + 1, frame_num * 2)
+                        }
+                        _ => unreachable!(),
+                    };
+                yiq_upper.field = YiqField::Upper;
+                yiq_lower.field = YiqField::Lower;
+                self.apply_effect_to_yiq_field(&mut yiq_upper, frame_num_upper);
+                self.apply_effect_to_yiq_field(&mut yiq_lower, frame_num_lower);
             }
         })
-
     }
 
     pub fn apply_effect(&self, input_frame: &RgbImage, frame_num: usize) -> RgbImage {

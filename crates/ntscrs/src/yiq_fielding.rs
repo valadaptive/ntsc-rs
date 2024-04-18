@@ -373,13 +373,16 @@ impl<'a> YiqView<'a> {
                 let src_offset = src_row_idx * row_length;
                 for pixel_idx in 0..width {
                     let yiq_pixel = rgb_to_yiq(pixel_transform([
-                        buf[(((pixel_idx + blit_info.rect.left) * num_components) + src_offset) + r_idx]
+                        buf[(((pixel_idx + blit_info.rect.left) * num_components) + src_offset)
+                            + r_idx]
                             .assume_init()
                             .to_norm(),
-                        buf[(((pixel_idx + blit_info.rect.left) * num_components) + src_offset) + g_idx]
+                        buf[(((pixel_idx + blit_info.rect.left) * num_components) + src_offset)
+                            + g_idx]
                             .assume_init()
                             .to_norm(),
-                        buf[(((pixel_idx + blit_info.rect.left) * num_components) + src_offset) + b_idx]
+                        buf[(((pixel_idx + blit_info.rect.left) * num_components) + src_offset)
+                            + b_idx]
                             .assume_init()
                             .to_norm(),
                     ]));

@@ -16,7 +16,6 @@ use allocator_api2::{
     boxed::Box as AllocBox,
 };
 
-use ntscrs::{yiq_fielding::{BlitInfo, Rect}, ToPrimitive};
 use ntscrs::{
     ntsc::NtscEffect,
     yiq_fielding::{yiq_to_rgb, YiqField, YiqView},
@@ -24,6 +23,10 @@ use ntscrs::{
 use ntscrs::{
     settings::{NtscEffectFullSettings, SettingDescriptor, SettingKind, SettingsList},
     yiq_fielding::{Normalize, PixelFormat, Rgb16, Rgb32f, Rgb8, Rgbx16, Rgbx32f, Rgbx8},
+};
+use ntscrs::{
+    yiq_fielding::{BlitInfo, Rect},
+    ToPrimitive,
 };
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
@@ -1069,15 +1072,12 @@ impl<'a> EffectApplicationParams<'a> {
         let blit_info = BlitInfo::new(
             Rect::from_width_height(srcWidth, srcHeight),
             srcStride,
-            flip_y
+            flip_y,
         );
         if self.apply_srgb_gamma {
-            yiq_view.set_from_strided_buffer_maybe_uninit::<S, _>(
-                srcData, blit_info, srgb_gamma,
-            );
+            yiq_view.set_from_strided_buffer_maybe_uninit::<S, _>(srcData, blit_info, srgb_gamma);
         } else {
-            yiq_view
-                .set_from_strided_buffer_maybe_uninit::<S, _>(srcData, blit_info, identity);
+            yiq_view.set_from_strided_buffer_maybe_uninit::<S, _>(srcData, blit_info, identity);
         }
 
         self.effect
