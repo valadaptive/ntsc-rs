@@ -11,3 +11,4 @@ crate-type = ["staticlib"]
 
 [dependencies]
 ntscrs = { path = "../ntscrs" }
+paste = "1.0"

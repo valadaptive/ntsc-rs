@@ -6,7 +6,7 @@ use core::slice;
 use std::{
     convert::identity,
     ffi::{c_char, c_int, c_void, CStr, CString, FromBytesWithNulError},
-    mem::MaybeUninit,
+    mem::{self, MaybeUninit},
     ptr::{self, NonNull},
     sync::{OnceLock, RwLock},
 };
@@ -16,7 +16,7 @@ use allocator_api2::{
     boxed::Box as AllocBox,
 };
 
-use ntscrs::ToPrimitive;
+use ntscrs::{yiq_fielding::{BlitInfo, Rect}, ToPrimitive};
 use ntscrs::{
     ntsc::NtscEffect,
     yiq_fielding::{yiq_to_rgb, YiqField, YiqView},
@@ -1038,9 +1038,9 @@ impl<'a> EffectApplicationParams<'a> {
 
         let (srcFirstRowPtr, flip_y) = if self.src_row_bytes < 0 {
             // Currently untested because I can't find an OFX host that uses negative rowbytes. Fingers crossed it works!
+            let row_size = self.src_row_bytes / mem::size_of::<S::DataFormat>() as i32;
             (
-                self.src_ptr
-                    .add((self.src_row_bytes * (srcHeight - 1) as i32) as usize),
+                self.src_ptr.sub(-row_size as usize * (srcHeight - 1)),
                 false,
             )
         } else {
@@ -1061,15 +1061,23 @@ impl<'a> EffectApplicationParams<'a> {
 
         let srcData = slice::from_raw_parts(
             srcFirstRowPtr as *const MaybeUninit<S::DataFormat>,
-            srcStride * srcHeight as usize,
+            srcStride / std::mem::size_of::<S::DataFormat>() * srcHeight as usize,
+        );
+        // TODO: ported from code written under the assumption that we go from (0, 0) to (width, height).
+        // I could change this now to use the actual source rect (in case we need that), but then I'd have to convert
+        // from positive Y = up to positive Y = down.
+        let blit_info = BlitInfo::new(
+            Rect::from_width_height(srcWidth, srcHeight),
+            srcStride,
+            flip_y
         );
         if self.apply_srgb_gamma {
             yiq_view.set_from_strided_buffer_maybe_uninit::<S, _>(
-                srcData, srcStride, flip_y, srgb_gamma,
+                srcData, blit_info, srgb_gamma,
             );
         } else {
             yiq_view
-                .set_from_strided_buffer_maybe_uninit::<S, _>(srcData, srcStride, flip_y, identity);
+                .set_from_strided_buffer_maybe_uninit::<S, _>(srcData, blit_info, identity);
         }
 
         self.effect
@@ -1597,7 +1605,7 @@ pub extern "C" fn OfxGetPlugin(nth: c_int) -> *const OfxPlugin {
                 apiVersion: 1,
                 pluginIdentifier: static_cstr!("wtf.vala:NtscRs").as_ptr(),
                 pluginVersionMajor: 1,
-                pluginVersionMinor: 2,
+                pluginVersionMinor: 3,
                 setHost: Some(set_host_info),
                 mainEntry: Some(main_entry),
             }

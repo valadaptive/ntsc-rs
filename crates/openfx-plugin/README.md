@@ -33,7 +33,7 @@ OpenFX plugins are typically installed to a common folder. Your editing software
 else--consult its documentation to be sure.
 
 To install the plugin, copy the `NtscRs.ofx.bundle` folder itself to the [common directory for your
-platform](https://openfx.readthedocs.io/en/master/Reference/ofxPackaging.html#installation-location).
+platform](https://openfx.readthedocs.io/en/main/Reference/ofxPackaging.html#installation-location).
 
 ## Usage Notes
 

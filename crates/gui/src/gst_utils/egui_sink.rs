@@ -86,7 +86,7 @@ impl EguiSink {
         image: &mut ColorImage,
     ) -> Result<(), gstreamer::FlowError> {
         let out_stride = image.width() * 4;
-        process_gst_frame::<u8, Rgbx8>(
+        process_gst_frame::<Rgbx8>(
             &vframe.as_video_frame_ref(),
             image.as_raw_mut(),
             out_stride,

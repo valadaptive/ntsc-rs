@@ -52,14 +52,14 @@
 // For future reference:
 // https://community.adobe.com/t5/after-effects-discussions/pipl-and-code-version-mismatch-warning/m-p/5531276
 // RESOURCE_VERSION =
-// (MAJOR_VERSION << 19) +
-// (MINOR_VERSION << 15) +
-// (BUG_VERSION << 11) +
-// (STAGE_VERSION << 9) +
+// (MAJOR_VERSION << 19) |
+// (MINOR_VERSION << 15) |
+// (BUG_VERSION << 11) |
+// (STAGE_VERSION << 9) |
 // BUILD_VERSION
 #define	MAJOR_VERSION	1
-#define	MINOR_VERSION	2
-#define	BUG_VERSION		2
+#define	MINOR_VERSION	3
+#define	BUG_VERSION		0
 #define	STAGE_VERSION	PF_Stage_RELEASE
 #define	BUILD_VERSION	1
 

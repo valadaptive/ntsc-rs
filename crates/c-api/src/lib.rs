@@ -1,15 +1,19 @@
 use core::slice;
+use std::convert::identity;
 use std::ffi::CString;
+use std::mem::{self, MaybeUninit};
 use std::{ffi::c_char, mem::ManuallyDrop, ptr};
 
 use ntscrs::settings::{
     NtscEffectFullSettings, SettingDescriptor as RsSettingDescriptor, SettingID as RsSettingID,
     SettingKind as RsSettingKind, SettingsList as RsSettingsList,
 };
+use ntscrs::yiq_fielding::{DeinterlaceMode, PixelFormat, Xrgb16s, Xrgb32f, Xrgb8};
 use ntscrs::{
     ntsc::NtscEffect,
     yiq_fielding::{YiqField as RsYiqField, YiqView},
 };
+pub use ntscrs::yiq_fielding::{Rect as RsRect, BlitInfo as RsBlitInfo};
 use ntscrs::{FromPrimitive, ToPrimitive};
 
 #[repr(C)]
@@ -21,14 +25,55 @@ pub enum YiqField {
     InterleavedLower,
 }
 
-impl From<YiqField> for RsYiqField {
-    fn from(value: YiqField) -> Self {
+impl From<&YiqField> for RsYiqField {
+    fn from(value: &YiqField) -> Self {
         match value {
             YiqField::Upper => RsYiqField::Upper,
             YiqField::Lower => RsYiqField::Lower,
             YiqField::Both => RsYiqField::Both,
             YiqField::InterleavedUpper => RsYiqField::InterleavedUpper,
             YiqField::InterleavedLower => RsYiqField::InterleavedLower,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub struct Rect {
+    pub top: usize,
+    pub right: usize,
+    pub bottom: usize,
+    pub left: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub struct BlitInfo {
+    /// The rectangular area which will be read out of or written into the other buffer.
+    pub rect: Rect,
+    /// Number of bytes per pixel row in the other buffer. May include padding.
+    pub row_bytes: usize,
+    /// True if the source buffer is y-up instead of y-down.
+    pub flip_y: bool,
+}
+
+impl From<&Rect> for RsRect {
+    fn from(value: &Rect) -> Self {
+        Self {
+            top: value.top,
+            right: value.right,
+            bottom: value.bottom,
+            left: value.left,
+        }
+    }
+}
+
+impl From<&BlitInfo> for RsBlitInfo {
+    fn from(value: &BlitInfo) -> Self {
+        RsBlitInfo {
+            rect: (&value.rect).into(),
+            row_bytes: value.row_bytes,
+            flip_y: value.flip_y,
         }
     }
 }
@@ -413,7 +458,151 @@ pub unsafe extern "C" fn ntscrs_process_yiq(
         i: slice::from_raw_parts_mut(i, len),
         q: slice::from_raw_parts_mut(q, len),
         dimensions: (width, height),
-        field: field.into(),
+        field: (&field).into(),
     };
     NtscEffect::from(&settings.0).apply_effect_to_yiq(&mut yiq, frame_num);
+}
+
+unsafe fn yiq_set_from_strided_buffer_generic<S: PixelFormat>(
+    src_data: *mut S::DataFormat,
+    dst_yiq: *mut f32,
+    blit_info: BlitInfo,
+    width: usize,
+    height: usize,
+    field: YiqField,
+) {
+    let num_rows = RsYiqField::from(&field).num_image_rows(height);
+    let len = width * num_rows;
+    let (y, iq) = slice::from_raw_parts_mut(dst_yiq, len * 3).split_at_mut(len);
+    let (i, q) = iq.split_at_mut(len);
+    let mut yiq = YiqView {
+        y,
+        i,
+        q,
+        dimensions: (width, height),
+        field: (&field).into(),
+    };
+    yiq.set_from_strided_buffer_maybe_uninit::<S, _>(
+        slice::from_raw_parts_mut(
+            src_data as *mut MaybeUninit<S::DataFormat>,
+            blit_info.row_bytes / mem::size_of::<S::DataFormat>() * height,
+        ),
+        (&blit_info).into(),
+        identity,
+    )
+}
+
+unsafe fn ntscrs_yiq_write_to_strided_buffer_generic<S: PixelFormat>(
+    src_yiq: *mut f32,
+    dst_data: *mut S::DataFormat,
+    blit_info: BlitInfo,
+    width: usize,
+    height: usize,
+    field: YiqField,
+) {
+    let num_rows = RsYiqField::from(&field).num_image_rows(height);
+    let len = width * num_rows;
+    let (y, iq) = slice::from_raw_parts_mut(src_yiq, len * 3).split_at_mut(len);
+    let (i, q) = iq.split_at_mut(len);
+    let yiq = YiqView {
+        y,
+        i,
+        q,
+        dimensions: (width, height),
+        field: (&field).into(),
+    };
+    yiq.write_to_strided_buffer_maybe_uninit::<S, _>(
+        slice::from_raw_parts_mut(
+            dst_data as *mut MaybeUninit<S::DataFormat>,
+            blit_info.row_bytes / mem::size_of::<S::DataFormat>() * height,
+        ),
+        (&blit_info).into(),
+        DeinterlaceMode::Bob,
+        true,
+        identity,
+    )
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn ntscrs_yiq_set_from_strided_buffer_Xrgb32f(
+    src_data: *mut f32,
+    dst_yiq: *mut f32,
+    blit_info: BlitInfo,
+    width: usize,
+    height: usize,
+    field: YiqField,
+) {
+    yiq_set_from_strided_buffer_generic::<Xrgb32f>(
+        src_data, dst_yiq, blit_info, width, height, field,
+    )
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn ntscrs_yiq_set_from_strided_buffer_Xrgb16s(
+    src_data: *mut i16,
+    dst_yiq: *mut f32,
+    blit_info: BlitInfo,
+    width: usize,
+    height: usize,
+    field: YiqField,
+) {
+    yiq_set_from_strided_buffer_generic::<Xrgb16s>(
+        src_data, dst_yiq, blit_info, width, height, field,
+    )
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn ntscrs_yiq_set_from_strided_buffer_Xrgb8(
+    src_data: *mut u8,
+    dst_yiq: *mut f32,
+    blit_info: BlitInfo,
+    width: usize,
+    height: usize,
+    field: YiqField,
+) {
+    yiq_set_from_strided_buffer_generic::<Xrgb8>(
+        src_data, dst_yiq, blit_info, width, height, field,
+    )
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn ntscrs_yiq_write_to_strided_buffer_Xrgb32f(
+    src_yiq: *mut f32,
+    dst_data: *mut f32,
+    blit_info: BlitInfo,
+    width: usize,
+    height: usize,
+    field: YiqField,
+) {
+    ntscrs_yiq_write_to_strided_buffer_generic::<Xrgb32f>(
+        src_yiq, dst_data, blit_info, width, height, field,
+    )
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn ntscrs_yiq_write_to_strided_buffer_Xrgb16s(
+    src_yiq: *mut f32,
+    dst_data: *mut i16,
+    blit_info: BlitInfo,
+    width: usize,
+    height: usize,
+    field: YiqField,
+) {
+    ntscrs_yiq_write_to_strided_buffer_generic::<Xrgb16s>(
+        src_yiq, dst_data, blit_info, width, height, field,
+    )
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn ntscrs_yiq_write_to_strided_buffer_Xrgb8(
+    src_yiq: *mut f32,
+    dst_data: *mut u8,
+    blit_info: BlitInfo,
+    width: usize,
+    height: usize,
+    field: YiqField,
+) {
+    ntscrs_yiq_write_to_strided_buffer_generic::<Xrgb8>(
+        src_yiq, dst_data, blit_info, width, height, field,
+    )
 }

@@ -65,6 +65,20 @@ PreRender(
 
 	req.preserve_rgb_of_zero_alpha = TRUE;
 
+	// I don't know anymore. I thought the way to ask for really all the pixels (yes I promise I need all of them for
+	// the effect to work!) was to set result_rect with the helpfully-provided ref_width and ref_height properties from
+	// the checkout result. Apparently, that's too *late*, and we need to tell the request itself before we check out
+	// the layer that we're planning on checking out these pixels. No thanks to the SmartFX documentation, which fails
+	// to mention which parameters have an effect on the input pixel region we're allowed to access, which ones we're
+	// even *allowed to modify* (it mixes input and output parameters in the same structs!), and half the time, what
+	// coordinate space we're even working in and whether downsampling is taken into account. I'm 70% sure this is
+	// *still* wrong somehow, but it seems to give the correct results. I hope whoever designed the SmartFX API and
+	// *especially* whoever wrote the paltry and inadequate documentation for it are cursed with wet socks for eternity.
+	req.rect.left = 0;
+	req.rect.right = in_data->width * in_data->downsample_x.num / in_data->downsample_x.den;
+	req.rect.top = 0;
+	req.rect.bottom = in_data->height * in_data->downsample_y.num / in_data->downsample_y.den;
+
 	ERR(extra->cb->checkout_layer(	in_data->effect_ref,
 									LAYER_INPUT,
 									LAYER_INPUT,
@@ -106,411 +120,6 @@ PreRender(
 static inline float clamp(float value, float min, float max) {
 	return value < min ? min : value > max ? max : value;
 }
-
-struct CopyPixelFloat_t {
-	float* out_buffer;
-	A_long num_rows;
-	A_long src_width;
-	A_long src_height;
-	A_long plane_size;
-	A_long skip_field;
-};
-
-static inline void rgb_to_yiq_pixel(
-	float r,
-	float g,
-	float b,
-	float* y,
-	float* i,
-	float* q
-) {
-	*y = 0.299 * r + 0.587 * g + 0.114 * b;
-	*i = 0.5959 * r + -0.2746 * g + -0.3213 * b;
-	*q = 0.2115 * r + -0.5227 * g + 0.3112 * b;
-}
-
-static inline void yiq_to_rgb_pixel(
-	float y,
-	float i,
-	float q,
-	float* r,
-	float* g,
-	float* b
-) {
-	*r = y + 0.956 * i + 0.619 * q;
-	*g = y + -0.272 * i + -0.647 * q;
-	*b = y + -1.106 * i + 1.703 * q;
-}
-
-// Interpolate a YIQ pixel back into the RGB plane from a frame containing only half the fields.
-static inline void interp_yiq_skip(CopyPixelFloat_t* data, A_long x, A_long y, float* in_y, float* in_i, float* in_q) {
-	if ((y & 1) == data->skip_field && y != 0 && y != data->src_height - 1) {
-		// This row of pixels was not rendered this frame. Interpolate from the ones above and below it.
-		float in_y_lower = data->out_buffer[(((y - 1) >> 1) * data->src_width) + x];
-		float in_i_lower = data->out_buffer[(((y - 1) >> 1) * data->src_width) + x + data->plane_size];
-		float in_q_lower = data->out_buffer[(((y - 1) >> 1) * data->src_width) + x + data->plane_size * 2];
-		float in_y_upper = data->out_buffer[(((y + 1) >> 1) * data->src_width) + x];
-		float in_i_upper = data->out_buffer[(((y + 1) >> 1) * data->src_width) + x + data->plane_size];
-		float in_q_upper = data->out_buffer[(((y + 1) >> 1) * data->src_width) + x + data->plane_size * 2];
-
-		*in_y = (in_y_lower + in_y_upper) * 0.5;
-		*in_i = (in_i_lower + in_i_upper) * 0.5;
-		*in_q = (in_q_lower + in_q_upper) * 0.5;
-	} else {
-		A_long row_idx = MIN((y >> 1), data->num_rows - 1) * data->src_width;
-		// This row of pixels was rendered, or we're at the very top or bottom and cannot interpolate.
-		*in_y = data->out_buffer[row_idx + x];
-		*in_i = data->out_buffer[row_idx + x + data->plane_size];
-		*in_q = data->out_buffer[row_idx + x + data->plane_size * 2];
-	}
-}
-
-// Convert a YIQ pixel back into the RGB plane from a frame with every field rendered; no interpolation necessary.
-static inline void interp_yiq_full(CopyPixelFloat_t* data, A_long x, A_long y, float* in_y, float* in_i, float* in_q) {
-	*in_y = data->out_buffer[(y * data->src_width) + x];
-	*in_i = data->out_buffer[(y * data->src_width) + x + data->plane_size];
-	*in_q = data->out_buffer[(y * data->src_width) + x + data->plane_size * 2];
-}
-
-// Convert a YIQ pixel back into the RGB plane from a frame with every field rendered, interleaving the upper and lower
-// halves of the image.
-static inline void interp_yiq_interleaved(CopyPixelFloat_t* data, A_long x, A_long y, float* in_y, float* in_i, float* in_q) {
-	A_long idx = y / 2;
-	if ((y & 1) == data->skip_field) {
-        // On an image with an odd input height, we do ceiling division if we render upper-field-first
-        // (take an image 3 pixels tall. it goes render, skip, render--that's 2 renders) but floor division if we
-        // render lower-field-first (skip, render, skip--only 1 render).
-		A_long num_logical_rows = (data->src_height + data->skip_field) / 2;
-		idx += num_logical_rows;
-	}
-
-	// Handle the edge case where there's only 1 row
-	if (idx > data->src_height - 1) {
-		idx = data->src_height - 1;
-	}
-
-	*in_y = data->out_buffer[(idx * data->src_width) + x];
-	*in_i = data->out_buffer[(idx * data->src_width) + x + data->plane_size];
-	*in_q = data->out_buffer[(idx * data->src_width) + x + data->plane_size * 2];
-}
-
-
-// Routines for copying pixels to and from the intermediate buffer, converting between YIQ and RGB at the same time.
-// Since ntsc-rs needs its own buffer to render anyways, we can make things faster by copying into that buffer and
-// converting to YIQ in one pass.
-
-// TODO: Stop using the pixel iteration suite and manually iterate over the PF_EffectWorld. Better yet, rip all this out
-// entirely and export the yiq_fielding routines via the C API.
-
-static PF_Err convert_pixel_float_full(void *refcon, A_long x, A_long y, PF_PixelFloat *in, PF_PixelFloat *out) {
-	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
-	rgb_to_yiq_pixel(
-		in->red,
-		in->green,
-		in->blue,
-		data->out_buffer + ((y * data->src_width) + x), // y plane
-		data->out_buffer + ((y * data->src_width) + x) + data->plane_size, // i plane
-		data->out_buffer + ((y * data->src_width) + x) + data->plane_size * 2 // q plane
-	);
-
-	return PF_Err_NONE;
-}
-
-static PF_Err convert_pixel_float_skip(void *refcon, A_long x, A_long y, PF_PixelFloat *in, PF_PixelFloat *out) {
-	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
-	if (data->skip_field == (y & 1)) {
-		return PF_Err_NONE;
-	}
-
-	rgb_to_yiq_pixel(
-		in->red,
-		in->green,
-		in->blue,
-		data->out_buffer + (((y >> 1) * data->src_width) + x), // y plane
-		data->out_buffer + (((y >> 1) * data->src_width) + x) + data->plane_size, // i plane
-		data->out_buffer + (((y >> 1) * data->src_width) + x) + data->plane_size * 2 // q plane
-	);
-
-	return PF_Err_NONE;
-}
-
-static PF_Err convert_pixel_float_interleaved(void *refcon, A_long x, A_long y, PF_PixelFloat *in, PF_PixelFloat *out) {
-	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
-
-	A_long idx = y / 2;
-	if ((y & 1) == data->skip_field) {
-        // On an image with an odd input height, we do ceiling division if we render upper-field-first
-        // (take an image 3 pixels tall. it goes render, skip, render--that's 2 renders) but floor division if we
-        // render lower-field-first (skip, render, skip--only 1 render).
-		A_long num_logical_rows = (data->src_height + data->skip_field) / 2;
-		idx += num_logical_rows;
-	}
-
-	// Handle the edge case where there's only 1 row
-	if (idx > data->src_height - 1) {
-		idx = data->src_height - 1;
-	}
-
-	rgb_to_yiq_pixel(
-		in->red,
-		in->green,
-		in->blue,
-		data->out_buffer + ((idx * data->src_width) + x), // y plane
-		data->out_buffer + ((idx * data->src_width) + x) + data->plane_size, // i plane
-		data->out_buffer + ((idx * data->src_width) + x) + data->plane_size * 2 // q plane
-	);
-
-	return PF_Err_NONE;
-}
-
-static PF_Err convert_back_pixel_float_full(void *refcon, A_long x, A_long y, PF_PixelFloat *in, PF_PixelFloat *out) {
-	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
-
-	float in_y, in_i, in_q;
-	interp_yiq_full(data, x, y, &in_y, &in_i, &in_q);
-	yiq_to_rgb_pixel(in_y, in_i, in_q, &out->red, &out->green, &out->blue);
-	out->alpha = 1.0;
-
-	return PF_Err_NONE;
-}
-
-static PF_Err convert_back_pixel_float_skip(void *refcon, A_long x, A_long y, PF_PixelFloat *in, PF_PixelFloat *out) {
-	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
-
-	float in_y, in_i, in_q;
-	interp_yiq_skip(data, x, y, &in_y, &in_i, &in_q);
-	yiq_to_rgb_pixel(in_y, in_i, in_q, &out->red, &out->green, &out->blue);
-	out->alpha = 1.0;
-
-	return PF_Err_NONE;
-}
-
-static PF_Err convert_back_pixel_float_interleaved(void *refcon, A_long x, A_long y, PF_PixelFloat *in, PF_PixelFloat *out) {
-	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
-
-	float in_y, in_i, in_q;
-	interp_yiq_interleaved(data, x, y, &in_y, &in_i, &in_q);
-	yiq_to_rgb_pixel(in_y, in_i, in_q, &out->red, &out->green, &out->blue);
-	out->alpha = 1.0;
-
-	return PF_Err_NONE;
-}
-
-static PF_Err convert_pixel_16_full(void *refcon, A_long x, A_long y, PF_Pixel16 *in, PF_Pixel16 *out) {
-	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
-
-	rgb_to_yiq_pixel(
-		(float)in->red / 32767.0,
-		(float)in->green / 32767.0,
-		(float)in->blue / 32767.0,
-		data->out_buffer + ((y * data->src_width) + x), // y plane
-		data->out_buffer + ((y * data->src_width) + x) + data->plane_size, // i plane
-		data->out_buffer + ((y * data->src_width) + x) + data->plane_size * 2 // q plane
-	);
-
-	return PF_Err_NONE;
-}
-
-static PF_Err convert_pixel_16_skip(void *refcon, A_long x, A_long y, PF_Pixel16 *in, PF_Pixel16 *out) {
-	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
-	if (data->skip_field == (y & 1)) {
-		return PF_Err_NONE;
-	}
-
-	rgb_to_yiq_pixel(
-		(float)in->red / 32767.0,
-		(float)in->green / 32767.0,
-		(float)in->blue / 32767.0,
-		data->out_buffer + (((y >> 1) * data->src_width) + x), // y plane
-		data->out_buffer + (((y >> 1) * data->src_width) + x) + data->plane_size, // i plane
-		data->out_buffer + (((y >> 1) * data->src_width) + x) + data->plane_size * 2 // q plane
-	);
-
-	return PF_Err_NONE;
-}
-
-static PF_Err convert_pixel_16_interleaved(void *refcon, A_long x, A_long y, PF_Pixel16 *in, PF_Pixel16 *out) {
-	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
-
-	A_long idx = y / 2;
-	if ((y & 1) == data->skip_field) {
-        // On an image with an odd input height, we do ceiling division if we render upper-field-first
-        // (take an image 3 pixels tall. it goes render, skip, render--that's 2 renders) but floor division if we
-        // render lower-field-first (skip, render, skip--only 1 render).
-		A_long num_logical_rows = (data->src_height + data->skip_field) / 2;
-		idx += num_logical_rows;
-	}
-
-	// Handle the edge case where there's only 1 row
-	if (idx > data->src_height - 1) {
-		idx = data->src_height - 1;
-	}
-
-	rgb_to_yiq_pixel(
-		(float)in->red / 32767.0,
-		(float)in->green / 32767.0,
-		(float)in->blue / 32767.0,
-		data->out_buffer + ((idx * data->src_width) + x), // y plane
-		data->out_buffer + ((idx * data->src_width) + x) + data->plane_size, // i plane
-		data->out_buffer + ((idx * data->src_width) + x) + data->plane_size * 2 // q plane
-	);
-
-	return PF_Err_NONE;
-}
-
-static PF_Err convert_back_pixel_16_full(void *refcon, A_long x, A_long y, PF_Pixel16 *in, PF_Pixel16 *out) {
-	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
-
-	float in_y, in_i, in_q;
-	interp_yiq_full(data, x, y, &in_y, &in_i, &in_q);
-	float out_r, out_g, out_b;
-	yiq_to_rgb_pixel(in_y, in_i, in_q, &out_r, &out_g, &out_b);
-	out->red = clamp(out_r * 32767.0, 0.0, 32767.0);
-	out->green = clamp(out_g * 32767.0, 0.0, 32767.0);
-	out->blue = clamp(out_b * 32767.0, 0.0, 32767.0);
-	out->alpha = 32767;
-
-	return PF_Err_NONE;
-}
-
-static PF_Err convert_back_pixel_16_skip(void *refcon, A_long x, A_long y, PF_Pixel16 *in, PF_Pixel16 *out) {
-	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
-
-	float in_y, in_i, in_q;
-	interp_yiq_skip(data, x, y, &in_y, &in_i, &in_q);
-	float out_r, out_g, out_b;
-	yiq_to_rgb_pixel(in_y, in_i, in_q, &out_r, &out_g, &out_b);
-	out->red = clamp(out_r * 32767.0, 0.0, 32767.0);
-	out->green = clamp(out_g * 32767.0, 0.0, 32767.0);
-	out->blue = clamp(out_b * 32767.0, 0.0, 32767.0);
-	out->alpha = 32767;
-
-	return PF_Err_NONE;
-}
-
-static PF_Err convert_back_pixel_16_interleaved(void *refcon, A_long x, A_long y, PF_Pixel16 *in, PF_Pixel16 *out) {
-	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
-
-	float in_y, in_i, in_q;
-	interp_yiq_interleaved(data, x, y, &in_y, &in_i, &in_q);
-	float out_r, out_g, out_b;
-	yiq_to_rgb_pixel(in_y, in_i, in_q, &out_r, &out_g, &out_b);
-	out->red = clamp(out_r * 32767.0, 0.0, 32767.0);
-	out->green = clamp(out_g * 32767.0, 0.0, 32767.0);
-	out->blue = clamp(out_b * 32767.0, 0.0, 32767.0);
-	out->alpha = 32767;
-
-	return PF_Err_NONE;
-}
-
-static PF_Err convert_pixel_8_full(void *refcon, A_long x, A_long y, PF_Pixel *in, PF_Pixel *out) {
-	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
-
-	rgb_to_yiq_pixel(
-		(float)in->red / 255.0,
-		(float)in->green / 255.0,
-		(float)in->blue / 255.0,
-		data->out_buffer + ((y * data->src_width) + x), // y plane
-		data->out_buffer + ((y * data->src_width) + x) + data->plane_size, // i plane
-		data->out_buffer + ((y * data->src_width) + x) + data->plane_size * 2 // q plane
-	);
-
-	return PF_Err_NONE;
-}
-
-static PF_Err convert_pixel_8_skip(void *refcon, A_long x, A_long y, PF_Pixel *in, PF_Pixel *out) {
-	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
-	if (data->skip_field == (y & 1)) {
-		return PF_Err_NONE;
-	}
-
-	rgb_to_yiq_pixel(
-		(float)in->red / 255.0,
-		(float)in->green / 255.0,
-		(float)in->blue / 255.0,
-		data->out_buffer + (((y >> 1) * data->src_width) + x), // y plane
-		data->out_buffer + (((y >> 1) * data->src_width) + x) + data->plane_size, // i plane
-		data->out_buffer + (((y >> 1) * data->src_width) + x) + data->plane_size * 2 // q plane
-	);
-
-	return PF_Err_NONE;
-}
-
-static PF_Err convert_pixel_8_interleaved(void *refcon, A_long x, A_long y, PF_Pixel *in, PF_Pixel *out) {
-	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
-
-	A_long idx = y / 2;
-	if ((y & 1) == data->skip_field) {
-        // On an image with an odd input height, we do ceiling division if we render upper-field-first
-        // (take an image 3 pixels tall. it goes render, skip, render--that's 2 renders) but floor division if we
-        // render lower-field-first (skip, render, skip--only 1 render).
-		A_long num_logical_rows = (data->src_height + data->skip_field) / 2;
-		idx += num_logical_rows;
-	}
-
-	// Handle the edge case where there's only 1 row
-	if (idx > data->src_height - 1) {
-		idx = data->src_height - 1;
-	}
-
-	rgb_to_yiq_pixel(
-		(float)in->red / 255.0,
-		(float)in->green / 255.0,
-		(float)in->blue / 255.0,
-		data->out_buffer + ((idx * data->src_width) + x), // y plane
-		data->out_buffer + ((idx * data->src_width) + x) + data->plane_size, // i plane
-		data->out_buffer + ((idx * data->src_width) + x) + data->plane_size * 2 // q plane
-	);
-
-	return PF_Err_NONE;
-}
-
-static PF_Err convert_back_pixel_8_full(void *refcon, A_long x, A_long y, PF_Pixel *in, PF_Pixel *out) {
-	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
-
-	float in_y, in_i, in_q;
-	interp_yiq_full(data, x, y, &in_y, &in_i, &in_q);
-	float out_r, out_g, out_b;
-	yiq_to_rgb_pixel(in_y, in_i, in_q, &out_r, &out_g, &out_b);
-	out->red = clamp(out_r * 255.0, 0.0, 255.0);
-	out->green = clamp(out_g * 255.0, 0.0, 255.0);
-	out->blue = clamp(out_b * 255.0, 0.0, 255.0);
-	out->alpha = 255;
-
-	return PF_Err_NONE;
-}
-
-static PF_Err convert_back_pixel_8_skip(void *refcon, A_long x, A_long y, PF_Pixel *in, PF_Pixel *out) {
-	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
-
-	float in_y, in_i, in_q;
-	interp_yiq_skip(data, x, y, &in_y, &in_i, &in_q);
-	float out_r, out_g, out_b;
-	yiq_to_rgb_pixel(in_y, in_i, in_q, &out_r, &out_g, &out_b);
-	out->red = clamp(out_r * 255.0, 0.0, 255.0);
-	out->green = clamp(out_g * 255.0, 0.0, 255.0);
-	out->blue = clamp(out_b * 255.0, 0.0, 255.0);
-	out->alpha = 255;
-
-	return PF_Err_NONE;
-}
-
-static PF_Err convert_back_pixel_8_interleaved(void *refcon, A_long x, A_long y, PF_Pixel *in, PF_Pixel *out) {
-	register CopyPixelFloat_t *data = reinterpret_cast<CopyPixelFloat_t*>(refcon);
-
-	float in_y, in_i, in_q;
-	interp_yiq_interleaved(data, x, y, &in_y, &in_i, &in_q);
-	float out_r, out_g, out_b;
-	yiq_to_rgb_pixel(in_y, in_i, in_q, &out_r, &out_g, &out_b);
-	out->red = clamp(out_r * 255.0, 0.0, 255.0);
-	out->green = clamp(out_g * 255.0, 0.0, 255.0);
-	out->blue = clamp(out_b * 255.0, 0.0, 255.0);
-	out->alpha = 255;
-
-	return PF_Err_NONE;
-}
-
-// -- End pixel copying/conversion routines --
 
 #define LOG_SLIDER_BASE 100.0
 
@@ -609,18 +218,10 @@ ActuallyRender(
 {
 	PF_Err				err 	= PF_Err_NONE,
 						err2 	= PF_Err_NONE;
-	PF_Point			origin;
-	PF_Rect				src_rect, areaR;
 	PF_PixelFormat		format	=	PF_PixelFormat_INVALID;
 	PF_WorldSuite2		*wsP	=	NULL;
 
 	AEGP_SuiteHandler suites(in_data->pica_basicP);
-
-	// Confine rendering to the *original* bounds
-	src_rect.left 	= -in_data->output_origin_x;
-	src_rect.top 	= -in_data->output_origin_y;
-	src_rect.bottom = src_rect.top + output->height;
-	src_rect.right 	= src_rect.left + output->width;
 
 	ERR(AEFX_AcquireSuite(	in_data,
 							out_data,
@@ -688,27 +289,6 @@ ActuallyRender(
 				return PF_Err_UNRECOGNIZED_PARAM_TYPE;
 		}
 
-		// If the row index modulo 2 equals this number, skip that row. Also used to determine which field goes second
-		// for the interleaved options.
-		A_long skip_field;
-		switch (yiq_field) {
-			case ntscrs_YiqField_Upper:
-			case ntscrs_YiqField_InterleavedUpper:
-				skip_field = 1;
-				break;
-			case ntscrs_YiqField_Lower:
-			case ntscrs_YiqField_InterleavedLower:
-				skip_field = 0;
-				break;
-			case ntscrs_YiqField_Both:
-				// When rendering both fields, don't skip any rows when copying. The row index modulo 2 will never equal
-				// 2, so setting skip_field to 2 means no rows will be skipped.
-				skip_field = 2;
-				break;
-			default:
-				return PF_Err_UNRECOGNIZED_PARAM_TYPE;
-		}
-
 		A_long output_plane_size = output->width * num_rows;
 		// Allocate an intermediate buffer which the ntscrs library will operate on.
 		size_t out_buf_size = sizeof(float) * 3 * output_plane_size;
@@ -717,79 +297,47 @@ ActuallyRender(
 		if (out_handle) {
 			float* out_buf = reinterpret_cast<float*>(suites.HandleSuite1()->host_lock_handle(out_handle));
 			if (out_buf) {
-				origin.h = input->origin_x;
-				origin.v = input->origin_y;
-
-				areaR.top		= 0;
-				areaR.left 		= 0;
-				areaR.right		= output->width;
-				areaR.bottom	= output->height;
-
 				ERR(wsP->PF_GetPixelFormat(input, &format));
 				if (format == PF_PixelFormat_ARGB32 || format == PF_PixelFormat_ARGB64 || format == PF_PixelFormat_ARGB128) {
-					CopyPixelFloat_t refcon = {out_buf, num_rows, output->width, output->height, output_plane_size, skip_field};
+					struct ntscrs_BlitInfo blit_info = {0};
+					blit_info.rect.left = 0;
+					blit_info.rect.top = 0;
+					blit_info.rect.right = input->width;
+					blit_info.rect.bottom = input->height;
+					blit_info.row_bytes = input->rowbytes;
+					blit_info.flip_y = 0;
 					switch (format) {
 						case PF_PixelFormat_ARGB128: {
-							PF_IteratePixelFloatFunc func;
-							switch (yiq_field) {
-								case ntscrs_YiqField_Both:
-									func = convert_pixel_float_full;
-									break;
-								case ntscrs_YiqField_Upper:
-								case ntscrs_YiqField_Lower:
-									func = convert_pixel_float_skip;
-									break;
-								case ntscrs_YiqField_InterleavedUpper:
-								case ntscrs_YiqField_InterleavedLower:
-									func = convert_pixel_float_interleaved;
-									break;
-								default:
-									return PF_Err_UNRECOGNIZED_PARAM_TYPE;
-							}
-							ERR(suites.IterateFloatSuite1()->
-								iterate_origin_non_clip_src(in_data, 0, output->height, input, &areaR, &origin, (void*)(&refcon), func, output));
+							ntscrs_yiq_set_from_strided_buffer_Xrgb32f(
+								(float_t*)input->data,
+								out_buf,
+								blit_info,
+								output->width,
+								output->height,
+								yiq_field
+							);
 							break;
 						}
 						case PF_PixelFormat_ARGB64: {
-							PF_IteratePixel16Func func;
-							switch (yiq_field) {
-								case ntscrs_YiqField_Both:
-									func = convert_pixel_16_full;
-									break;
-								case ntscrs_YiqField_Upper:
-								case ntscrs_YiqField_Lower:
-									func = convert_pixel_16_skip;
-									break;
-								case ntscrs_YiqField_InterleavedUpper:
-								case ntscrs_YiqField_InterleavedLower:
-									func = convert_pixel_16_interleaved;
-									break;
-								default:
-									return PF_Err_UNRECOGNIZED_PARAM_TYPE;
-							}
-							ERR(suites.Iterate16Suite1()->
-								iterate_origin_non_clip_src(in_data, 0, output->height, input, &areaR, &origin, (void*)(&refcon), func, output));
+							ntscrs_yiq_set_from_strided_buffer_Xrgb16s(
+								(int16_t*)input->data,
+								out_buf,
+								blit_info,
+								output->width,
+								output->height,
+								yiq_field
+							);
 							break;
 						}
 						case PF_PixelFormat_ARGB32: {
-							PF_IteratePixel8Func func;
-							switch (yiq_field) {
-								case ntscrs_YiqField_Both:
-									func = convert_pixel_8_full;
-									break;
-								case ntscrs_YiqField_Upper:
-								case ntscrs_YiqField_Lower:
-									func = convert_pixel_8_skip;
-									break;
-								case ntscrs_YiqField_InterleavedUpper:
-								case ntscrs_YiqField_InterleavedLower:
-									func = convert_pixel_8_interleaved;
-									break;
-								default:
-									return PF_Err_UNRECOGNIZED_PARAM_TYPE;
-							}
-							ERR(suites.Iterate8Suite1()->
-								iterate_origin_non_clip_src(in_data, 0, output->height, input, &areaR, &origin, (void*)(&refcon), func, output));
+							ntscrs_yiq_set_from_strided_buffer_Xrgb8(
+								(uint8_t*)input->data,
+								out_buf,
+								blit_info,
+								output->width,
+								output->height,
+								yiq_field
+							);
 							break;
 						}
 					}
@@ -802,66 +350,36 @@ ActuallyRender(
 
 					switch (format) {
 						case PF_PixelFormat_ARGB128: {
-							PF_IteratePixelFloatFunc func;
-							switch (yiq_field) {
-								case ntscrs_YiqField_Both:
-									func = convert_back_pixel_float_full;
-									break;
-								case ntscrs_YiqField_Upper:
-								case ntscrs_YiqField_Lower:
-									func = convert_back_pixel_float_skip;
-									break;
-								case ntscrs_YiqField_InterleavedUpper:
-								case ntscrs_YiqField_InterleavedLower:
-									func = convert_back_pixel_float_interleaved;
-									break;
-								default:
-									return PF_Err_UNRECOGNIZED_PARAM_TYPE;
-							}
-							ERR(suites.IterateFloatSuite1()->
-								iterate(in_data, 0, output->height, output, &areaR, (void*)(&refcon), func, output));
+							ntscrs_yiq_write_to_strided_buffer_Xrgb32f(
+								out_buf,
+								(float_t*)output->data,
+								blit_info,
+								output->width,
+								output->height,
+								yiq_field
+							);
 							break;
 						}
 						case PF_PixelFormat_ARGB64: {
-							PF_IteratePixel16Func func;
-							switch (yiq_field) {
-								case ntscrs_YiqField_Both:
-									func = convert_back_pixel_16_full;
-									break;
-								case ntscrs_YiqField_Upper:
-								case ntscrs_YiqField_Lower:
-									func = convert_back_pixel_16_skip;
-									break;
-								case ntscrs_YiqField_InterleavedUpper:
-								case ntscrs_YiqField_InterleavedLower:
-									func = convert_back_pixel_16_interleaved;
-									break;
-								default:
-									return PF_Err_UNRECOGNIZED_PARAM_TYPE;
-							}
-							ERR(suites.Iterate16Suite1()->
-								iterate(in_data, 0, output->height, output, &areaR, (void*)(&refcon), func, output));
+							ntscrs_yiq_write_to_strided_buffer_Xrgb16s(
+								out_buf,
+								(int16_t*)output->data,
+								blit_info,
+								output->width,
+								output->height,
+								yiq_field
+							);
 							break;
 						}
 						case PF_PixelFormat_ARGB32: {
-							PF_IteratePixel8Func func;
-							switch (yiq_field) {
-								case ntscrs_YiqField_Both:
-									func = convert_back_pixel_8_full;
-									break;
-								case ntscrs_YiqField_Upper:
-								case ntscrs_YiqField_Lower:
-									func = convert_back_pixel_8_skip;
-									break;
-								case ntscrs_YiqField_InterleavedUpper:
-								case ntscrs_YiqField_InterleavedLower:
-									func = convert_back_pixel_8_interleaved;
-									break;
-								default:
-									return PF_Err_UNRECOGNIZED_PARAM_TYPE;
-							}
-							ERR(suites.Iterate8Suite1()->
-								iterate(in_data, 0, output->height, output, &areaR, (void*)(&refcon), func, output));
+							ntscrs_yiq_write_to_strided_buffer_Xrgb8(
+								out_buf,
+								(uint8_t*)output->data,
+								blit_info,
+								output->width,
+								output->height,
+								yiq_field
+							);
 							break;
 						}
 					}
