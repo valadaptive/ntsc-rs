@@ -972,7 +972,6 @@ fn chroma_vert_blend(yiq: &mut YiqView) {
 
 impl NtscEffect {
     fn apply_effect_to_yiq_field(&self, yiq: &mut YiqView, frame_num: usize) {
-        dbg!(yiq.num_rows());
         let width = yiq.dimensions.0;
 
         let seed = self.random_seed as u32 as u64;

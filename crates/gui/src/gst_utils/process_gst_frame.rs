@@ -64,7 +64,7 @@ pub fn process_gst_frame<S: PixelFormat>(
                 out_frame,
                 BlitInfo::from_full_frame(
                     in_frame.width() as usize,
-                    out_frame.len() / out_stride,
+                    in_frame.height() as usize,
                     out_stride,
                 ),
                 DeinterlaceMode::Bob,
@@ -86,7 +86,7 @@ pub fn process_gst_frame<S: PixelFormat>(
                 out_frame,
                 BlitInfo::from_full_frame(
                     in_frame.width() as usize,
-                    out_frame.len() / out_stride,
+                    in_frame.height() as usize,
                     out_stride,
                 ),
                 DeinterlaceMode::Skip,
