@@ -67,7 +67,6 @@ pub fn make_notch_filter(freq: f32, quality: f32) -> TransferFunction {
 }
 
 pub fn make_butterworth_filter(cutoff: f32, rate: f32) -> TransferFunction {
-    dbg!(rate, cutoff);
     let coeffs = biquad::Coefficients::<f32>::from_params(
         biquad::Type::LowPass,
         biquad::Hertz::<f32>::from_hz(rate).unwrap(),
