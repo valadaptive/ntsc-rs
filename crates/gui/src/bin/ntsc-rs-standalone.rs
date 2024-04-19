@@ -386,6 +386,13 @@ impl OutputCodec {
             Self::Ffv1 => "FFV1 (Lossless)",
         }
     }
+
+    fn extension(&self) -> &'static str {
+        match self {
+            Self::H264 => "mp4",
+            Self::Ffv1 => "mkv",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1956,20 +1963,25 @@ impl NtscApp {
     fn show_render_settings(&mut self, ui: &mut egui::Ui) {
         egui::Frame::central_panel(ui.style()).show(ui, |ui| {
             Self::setup_control_rows(ui);
+            let mut codec_changed = false;
             egui::ComboBox::from_label("Codec")
                 .selected_text(self.render_settings.output_codec.label())
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(
+                    codec_changed |= ui.selectable_value(
                         &mut self.render_settings.output_codec,
                         OutputCodec::H264,
                         OutputCodec::H264.label(),
-                    );
-                    ui.selectable_value(
+                    ).changed();
+                    codec_changed |= ui.selectable_value(
                         &mut self.render_settings.output_codec,
                         OutputCodec::Ffv1,
                         OutputCodec::Ffv1.label(),
-                    );
+                    ).changed();
                 });
+
+            if codec_changed {
+                self.render_settings.output_path.set_extension(self.render_settings.output_codec.extension());
+            }
 
             match self.render_settings.output_codec {
                 OutputCodec::H264 => {
@@ -2050,14 +2062,10 @@ impl NtscApp {
                             file_dialog = file_dialog.set_directory(parent);
                         }
                         if let Some(file_name) = dialog_path.file_stem() {
-                            let extension = match self.render_settings.output_codec {
-                                OutputCodec::H264 => ".mp4",
-                                OutputCodec::Ffv1 => ".mkv",
-                            };
                             file_dialog = file_dialog.set_file_name(format!(
-                                "{}_ntsc{}",
+                                "{}_ntsc.{}",
                                 file_name.to_string_lossy(),
-                                extension
+                                self.render_settings.output_codec.extension()
                             ));
                         }
                     }
@@ -2067,7 +2075,11 @@ impl NtscApp {
                         let handle = file_dialog.await;
                         Some(Box::new(|app: &mut NtscApp| {
                             if let Some(handle) = handle {
-                                app.render_settings.output_path = handle.into();
+                                let mut output_path: PathBuf = handle.into();
+                                if output_path.extension().is_none() {
+                                    output_path.set_extension(app.render_settings.output_codec.extension());
+                                }
+                                app.render_settings.output_path = output_path;
                             }
 
                             Ok(())
