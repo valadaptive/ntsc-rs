@@ -18,6 +18,7 @@ siphasher = "1.0.0"
 num-derive = "0.4.1"
 tinyjson = "2.5.1"
 rayon = "1.8.0"
+biquad = "0.4.2"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

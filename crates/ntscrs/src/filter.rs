@@ -48,7 +48,7 @@ fn each_mut<T, const N: usize>(arr: &mut [T; N]) -> [&mut T; N] {
 }
 
 /// Rational transfer function for an IIR filter in the z-transform domain.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct TransferFunction {
     /// Coefficients for the numerator polynomial. Padded with trailing zeros to match the number of coefficients
@@ -79,6 +79,14 @@ impl TransferFunction {
         num.resize(den.len(), 0.0);
 
         TransferFunction { num, den }
+    }
+
+    pub fn cascade_self(&self, n: usize) -> Self {
+        let mut filt = self.clone();
+        for _ in 1..n {
+            filt = &filt * &self;
+        }
+        filt
     }
 
     pub fn should_use_row_chunks(&self) -> bool {

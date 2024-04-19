@@ -35,13 +35,14 @@ pub fn make_lowpass(cutoff: f32, rate: f32) -> TransferFunction {
 /// (composite-video-simulator and ntscqt) applies a lowpass filter 3 times in a row, but it's more efficient to
 /// multiply the coefficients and just apply the filter once, which is mathematically equivalent.
 pub fn make_lowpass_triple(cutoff: f32, rate: f32) -> TransferFunction {
-    let time_interval = 1.0 / rate;
-    let tau = (cutoff * 2.0 * PI).recip();
-    let alpha = time_interval / (tau + time_interval);
+    make_lowpass(cutoff, rate).cascade_self(3)
+}
 
-    let tf = TransferFunction::new(vec![alpha], vec![1.0, -(1.0 - alpha)]);
-
-    &(&tf * &tf) * &tf
+fn make_lowpass_for_type(cutoff: f32, rate: f32, filter_type: FilterType) -> TransferFunction {
+    match filter_type {
+        FilterType::ConstantK => make_lowpass_triple(cutoff, rate),
+        FilterType::Butterworth => make_butterworth_filter(cutoff, rate),
+    }
 }
 
 /// Create an IIR notch filter.
@@ -63,6 +64,21 @@ pub fn make_notch_filter(freq: f32, quality: f32) -> TransferFunction {
     let den = vec![1.0, -2.0 * freq.cos() * gain, 2.0 * gain - 1.0];
 
     TransferFunction::new(num, den)
+}
+
+pub fn make_butterworth_filter(cutoff: f32, rate: f32) -> TransferFunction {
+    dbg!(rate, cutoff);
+    let coeffs = biquad::Coefficients::<f32>::from_params(
+        biquad::Type::LowPass,
+        biquad::Hertz::<f32>::from_hz(rate).unwrap(),
+        biquad::Hertz::<f32>::from_hz(cutoff.min(rate * 0.5)).unwrap(),
+        biquad::Q_BUTTERWORTH_F32,
+    )
+    .unwrap();
+    TransferFunction::new(
+        [coeffs.b0, coeffs.b1, coeffs.b2],
+        [1.0, coeffs.a1, coeffs.a2],
+    )
 }
 
 /// Filter initial condition.
@@ -201,9 +217,9 @@ fn luma_filter(frame: &mut YiqView, filter_mode: LumaLowpass) {
 /// Apply a lowpass filter to the input chroma, emulating broadcast NTSC's bandwidth cutoffs.
 /// (Well, almost--Wikipedia (https://en.wikipedia.org/wiki/YIQ) puts the Q bandwidth at 0.4 MHz, not 0.6. Although
 /// that statement seems unsourced and I can't find any info on it...
-fn composite_chroma_lowpass(frame: &mut YiqView, info: &CommonInfo) {
-    let i_filter = make_lowpass_triple(1300000.0, NTSC_RATE * info.bandwidth_scale);
-    let q_filter = make_lowpass_triple(600000.0, NTSC_RATE * info.bandwidth_scale);
+fn composite_chroma_lowpass(frame: &mut YiqView, info: &CommonInfo, filter_type: FilterType) {
+    let i_filter = make_lowpass_for_type(1300000.0, NTSC_RATE * info.bandwidth_scale, filter_type);
+    let q_filter = make_lowpass_for_type(600000.0, NTSC_RATE * info.bandwidth_scale, filter_type);
 
     let width = frame.dimensions.0;
 
@@ -212,8 +228,8 @@ fn composite_chroma_lowpass(frame: &mut YiqView, info: &CommonInfo) {
 }
 
 /// Apply a less intense lowpass filter to the input chroma.
-fn composite_chroma_lowpass_lite(frame: &mut YiqView, info: &CommonInfo) {
-    let filter = make_lowpass_triple(2600000.0, NTSC_RATE * info.bandwidth_scale);
+fn composite_chroma_lowpass_lite(frame: &mut YiqView, info: &CommonInfo, filter_type: FilterType) {
+    let filter = make_lowpass_for_type(2600000.0, NTSC_RATE * info.bandwidth_scale, filter_type);
 
     let width = frame.dimensions.0;
 
@@ -988,10 +1004,10 @@ impl NtscEffect {
 
         match self.chroma_lowpass_in {
             ChromaLowpass::Full => {
-                composite_chroma_lowpass(yiq, &info);
+                composite_chroma_lowpass(yiq, &info, self.filter_type);
             }
             ChromaLowpass::Light => {
-                composite_chroma_lowpass_lite(yiq, &info);
+                composite_chroma_lowpass_lite(yiq, &info, self.filter_type);
             }
             ChromaLowpass::None => {}
         };
@@ -1119,9 +1135,16 @@ impl NtscEffect {
                 // TODO: add an option to control whether there should be a line on the left from the filter starting
                 // at 0. it's present in both the original C++ code and Python port but probably not an actual VHS
                 // TODO: use a better filter! this effect's output looks way more smear-y than real VHS
-                let luma_filter = make_lowpass_triple(luma_cut, NTSC_RATE * self.bandwidth_scale);
-                let chroma_filter =
-                    make_lowpass_triple(chroma_cut, NTSC_RATE * self.bandwidth_scale);
+                let luma_filter = make_lowpass_for_type(
+                    luma_cut,
+                    NTSC_RATE * self.bandwidth_scale,
+                    self.filter_type,
+                );
+                let chroma_filter = make_lowpass_for_type(
+                    chroma_cut,
+                    NTSC_RATE * self.bandwidth_scale,
+                    self.filter_type,
+                );
                 filter_plane(yiq.y, width, &luma_filter, InitialCondition::Zero, 1.0, 0);
                 filter_plane(
                     yiq.i,
@@ -1157,8 +1180,11 @@ impl NtscEffect {
             if vhs_settings.sharpen > 0.0 {
                 if let Some(tape_speed) = &vhs_settings.tape_speed {
                     let VHSTapeParams { luma_cut, .. } = tape_speed.filter_params();
-                    let luma_sharpen_filter =
-                        make_lowpass_triple(luma_cut * 4.0, NTSC_RATE * self.bandwidth_scale);
+                    let luma_sharpen_filter = make_lowpass_for_type(
+                        luma_cut * 4.0,
+                        NTSC_RATE * self.bandwidth_scale,
+                        self.filter_type,
+                    );
                     // The composite-video-simulator code sharpens the chroma plane, but ntscqt and this effect do not.
                     // I'm not sure if I'm implementing it wrong, but chroma sharpening looks awful.
                     // let chroma_sharpen_filter = make_lowpass_triple(chroma_cut * 4.0, 0.0, NTSC_RATE);
@@ -1182,10 +1208,10 @@ impl NtscEffect {
 
         match self.chroma_lowpass_out {
             ChromaLowpass::Full => {
-                composite_chroma_lowpass(yiq, &info);
+                composite_chroma_lowpass(yiq, &info, self.filter_type);
             }
             ChromaLowpass::Light => {
-                composite_chroma_lowpass_lite(yiq, &info);
+                composite_chroma_lowpass_lite(yiq, &info, self.filter_type);
             }
             ChromaLowpass::None => {}
         };

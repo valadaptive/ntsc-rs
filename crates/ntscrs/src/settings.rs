@@ -47,6 +47,12 @@ impl UseField {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+pub enum FilterType {
+    ConstantK = 0,
+    Butterworth,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
 pub enum LumaLowpass {
     None,
     Box,
@@ -283,6 +289,7 @@ impl<T: Default> Default for SettingsBlock<T> {
 pub struct NtscEffect {
     pub random_seed: i32,
     pub use_field: UseField,
+    pub filter_type: FilterType,
     pub input_luma_filter: LumaLowpass,
     pub chroma_lowpass_in: ChromaLowpass,
     pub chroma_demodulation: ChromaDemodulationFilter,
@@ -316,6 +323,7 @@ impl Default for NtscEffect {
         Self {
             random_seed: 0,
             use_field: UseField::Alternating,
+            filter_type: FilterType::ConstantK,
             input_luma_filter: LumaLowpass::Notch,
             chroma_lowpass_in: ChromaLowpass::Full,
             chroma_demodulation: ChromaDemodulationFilter::Box,
@@ -447,6 +455,8 @@ pub enum SettingID {
     CHROMA_NOISE_DETAIL,
 
     LUMA_SMEAR,
+
+    FILTER_TYPE,
 }
 
 macro_rules! impl_get_field_ref {
@@ -571,6 +581,8 @@ macro_rules! impl_get_field_ref {
             SettingID::CHROMA_NOISE_DETAIL => $settings.chroma_noise.settings.detail.$borrow_op(),
 
             SettingID::LUMA_SMEAR => $settings.luma_smear.$borrow_op(),
+
+            SettingID::FILTER_TYPE => $settings.filter_type.$borrow_op(),
         }
     };
 }
@@ -691,6 +703,9 @@ impl SettingID {
                 settings.chroma_demodulation =
                     ChromaDemodulationFilter::from_u32(value).ok_or_else(err)?;
             }
+            SettingID::FILTER_TYPE => {
+                settings.filter_type = FilterType::from_u32(value).ok_or_else(err)?;
+            }
             _ => {
                 return Err(SetFieldEnumError::not_an_enum(*self));
             }
@@ -713,6 +728,7 @@ impl SettingID {
             }),
             SettingID::USE_FIELD => Some(settings.use_field.to_u32().unwrap()),
             SettingID::CHROMA_DEMODULATION => Some(settings.chroma_demodulation.to_u32().unwrap()),
+            SettingID::FILTER_TYPE => Some(settings.filter_type.to_u32().unwrap()),
             _ => None,
         }
     }
@@ -784,6 +800,7 @@ impl SettingID {
             SettingID::CHROMA_NOISE_FREQUENCY => "chroma_noise_frequency",
             SettingID::CHROMA_NOISE_DETAIL => "chroma_noise_detail",
             SettingID::LUMA_SMEAR => "luma_smear",
+            SettingID::FILTER_TYPE => "filter_type",
         }
     }
 }
@@ -922,6 +939,26 @@ impl SettingsList {
                     default_value: default_settings.use_field.to_u32().unwrap(),
                 },
                 id: SettingID::USE_FIELD,
+            },
+            SettingDescriptor {
+                label: "Lowpass filter type",
+                description: Some("The low-pass filter to use throughout the effect."),
+                kind: SettingKind::Enumeration {
+                    options: vec![
+                        MenuItem {
+                            label: "Constant K (blurry)",
+                            description: Some("Simple constant-k filter. Produces longer, blurry results."),
+                            index: FilterType::ConstantK.to_u32().unwrap(),
+                        },
+                        MenuItem {
+                            label: "Butterworth (sharper)",
+                            description: Some("Filter with a sharper falloff. Produces sharpened, less blurry results."),
+                            index: FilterType::Butterworth.to_u32().unwrap(),
+                        },
+                    ],
+                    default_value: default_settings.filter_type.to_u32().unwrap(),
+                },
+                id: SettingID::FILTER_TYPE,
             },
             SettingDescriptor {
                 label: "Input luma filter",
@@ -1232,7 +1269,7 @@ impl SettingsList {
                 label: "Chroma delay (horizontal)",
                 description: Some("Horizontal offset of the chrominance signal."),
                 kind: SettingKind::FloatRange {
-                    range: -20.0..=20.0,
+                    range: -40.0..=40.0,
                     logarithmic: false,
                     default_value: default_settings.chroma_delay.0,
                 },
