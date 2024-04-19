@@ -1176,11 +1176,15 @@ impl NtscEffect {
                 chroma_loss(yiq, &info, vhs_settings.chroma_loss);
             }
 
-            if vhs_settings.sharpen > 0.0 {
+            if let Some(sharpen) = &vhs_settings.sharpen {
                 if let Some(tape_speed) = &vhs_settings.tape_speed {
                     let VHSTapeParams { luma_cut, .. } = tape_speed.filter_params();
+                    let frequency_extra_multiplier = match self.filter_type {
+                        FilterType::ConstantK => 4.0,
+                        FilterType::Butterworth => 1.0,
+                    };
                     let luma_sharpen_filter = make_lowpass_for_type(
-                        luma_cut * 4.0,
+                        luma_cut * frequency_extra_multiplier * sharpen.frequency,
                         NTSC_RATE * self.bandwidth_scale,
                         self.filter_type,
                     );
@@ -1192,7 +1196,7 @@ impl NtscEffect {
                         width,
                         &luma_sharpen_filter,
                         InitialCondition::Zero,
-                        -vhs_settings.sharpen * 2.0,
+                        -sharpen.intensity * 2.0 * sharpen.frequency,
                         0,
                     );
                     // filter_plane_scaled(&mut yiq.i, width, &chroma_sharpen_filter, -vhs_settings.sharpen * 0.85);

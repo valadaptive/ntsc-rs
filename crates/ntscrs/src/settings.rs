@@ -103,6 +103,21 @@ impl VHSTapeSpeed {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct VHSSharpenSettings {
+    pub intensity: f32,
+    pub frequency: f32,
+}
+
+impl Default for VHSSharpenSettings {
+    fn default() -> Self {
+        Self {
+            intensity: 1.0,
+            frequency: 1.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct VHSEdgeWaveSettings {
     pub intensity: f32,
     pub speed: f32,
@@ -125,7 +140,8 @@ impl Default for VHSEdgeWaveSettings {
 pub struct VHSSettings {
     pub tape_speed: Option<VHSTapeSpeed>,
     pub chroma_loss: f32,
-    pub sharpen: f32,
+    #[settings_block]
+    pub sharpen: Option<VHSSharpenSettings>,
     #[settings_block]
     pub edge_wave: Option<VHSEdgeWaveSettings>,
 }
@@ -135,7 +151,7 @@ impl Default for VHSSettings {
         Self {
             tape_speed: Some(VHSTapeSpeed::LP),
             chroma_loss: 0.0,
-            sharpen: 1.0,
+            sharpen: Some(VHSSharpenSettings::default()),
             edge_wave: Some(VHSEdgeWaveSettings::default()),
         }
     }
@@ -430,7 +446,7 @@ pub enum SettingID {
     CHROMA_VERT_BLEND,
 
     VHS_CHROMA_LOSS,
-    VHS_SHARPEN,
+    VHS_SHARPEN_INTENSITY,
     VHS_EDGE_WAVE_INTENSITY,
     VHS_EDGE_WAVE_SPEED,
 
@@ -457,6 +473,9 @@ pub enum SettingID {
     LUMA_SMEAR,
 
     FILTER_TYPE,
+
+    VHS_SHARPEN_ENABLED,
+    VHS_SHARPEN_FREQUENCY,
 }
 
 macro_rules! impl_get_field_ref {
@@ -532,7 +551,9 @@ macro_rules! impl_get_field_ref {
             SettingID::VHS_TAPE_SPEED => $settings.vhs_settings.settings.tape_speed.$borrow_op(),
             SettingID::CHROMA_VERT_BLEND => $settings.chroma_vert_blend.$borrow_op(),
             SettingID::VHS_CHROMA_LOSS => $settings.vhs_settings.settings.chroma_loss.$borrow_op(),
-            SettingID::VHS_SHARPEN => $settings.vhs_settings.settings.sharpen.$borrow_op(),
+            SettingID::VHS_SHARPEN_ENABLED => $settings.vhs_settings.settings.sharpen.enabled.$borrow_op(),
+            SettingID::VHS_SHARPEN_INTENSITY => $settings.vhs_settings.settings.sharpen.settings.intensity.$borrow_op(),
+            SettingID::VHS_SHARPEN_FREQUENCY => $settings.vhs_settings.settings.sharpen.settings.frequency.$borrow_op(),
             SettingID::VHS_EDGE_WAVE_ENABLED => $settings
                 .vhs_settings
                 .settings
@@ -781,7 +802,9 @@ impl SettingID {
             SettingID::VHS_TAPE_SPEED => "vhs_tape_speed",
             SettingID::CHROMA_VERT_BLEND => "vhs_chroma_vert_blend",
             SettingID::VHS_CHROMA_LOSS => "vhs_chroma_loss",
-            SettingID::VHS_SHARPEN => "vhs_sharpen",
+            SettingID::VHS_SHARPEN_ENABLED => "vhs_sharpen_enabled",
+            SettingID::VHS_SHARPEN_INTENSITY => "vhs_sharpen",
+            SettingID::VHS_SHARPEN_FREQUENCY => "vhs_sharpen_frequency",
             SettingID::VHS_EDGE_WAVE_ENABLED => "vhs_edge_wave_enabled",
             SettingID::VHS_EDGE_WAVE_INTENSITY => "vhs_edge_wave",
             SettingID::VHS_EDGE_WAVE_SPEED => "vhs_edge_wave_speed",
@@ -1328,8 +1351,21 @@ impl SettingsList {
                         SettingDescriptor {
                             label: "Sharpen",
                             description: Some("Sharpening of the image, as done by some VHS decks."),
-                            kind: SettingKind::FloatRange { range: 0.0..=5.0, logarithmic: false, default_value: default_settings.vhs_settings.settings.sharpen },
-                            id: SettingID::VHS_SHARPEN
+                            kind: SettingKind::Group { children: vec![
+                                SettingDescriptor {
+                                    label: "Intensity",
+                                    description: Some("Amount of sharpening to apply."),
+                                    kind: SettingKind::FloatRange { range: 0.0..=5.0, logarithmic: false, default_value: default_settings.vhs_settings.settings.sharpen.settings.intensity },
+                                    id: SettingID::VHS_SHARPEN_INTENSITY
+                                },
+                                SettingDescriptor {
+                                    label: "Frequency",
+                                    description: Some("Frequency / radius of the sharpening, relative to the tape speed's cutoff frequency."),
+                                    kind: SettingKind::FloatRange { range: 0.5..=4.0, logarithmic: false, default_value: default_settings.vhs_settings.settings.sharpen.settings.frequency },
+                                    id: SettingID::VHS_SHARPEN_FREQUENCY
+                                }
+                            ], default_value: true },
+                            id: SettingID::VHS_SHARPEN_ENABLED
                         },
                         SettingDescriptor {
                             label: "Edge wave",
