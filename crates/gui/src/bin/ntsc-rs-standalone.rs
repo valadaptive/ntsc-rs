@@ -609,6 +609,7 @@ struct NtscApp {
     settings_json_paste: String,
     last_error: Option<String>,
     color_theme: ColorTheme,
+    credits_dialog_open: bool,
 }
 
 impl NtscApp {
@@ -642,6 +643,7 @@ impl NtscApp {
             settings_json_paste: String::new(),
             last_error: None,
             color_theme,
+            credits_dialog_open: false,
         }
     }
 
@@ -2689,6 +2691,43 @@ impl NtscApp {
             });
     }
 
+    fn show_credits_dialog(&mut self, ctx: &egui::Context) {
+        let mut open = self.credits_dialog_open;
+        egui::Window::new("About + Credits")
+            .open(&mut open)
+            .default_width(400.0)
+            .show(ctx, |ui| {
+                const VERSION: &str = env!("CARGO_PKG_VERSION");
+                ui.heading(format!("ntsc-rs v{VERSION}"));
+
+                ui.separator();
+
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    ui.label("by ");
+                    ui.add(egui::Hyperlink::from_label_and_url("valadaptive", "https://github.com/valadaptive/"));
+                });
+
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    ui.label("...loosely based on ");
+                    ui.add(egui::Hyperlink::from_label_and_url("JargeZ/ntscqt", "https://github.com/JargeZ/ntscqt/"));
+                });
+
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    ui.label("...which is a GUI for ");
+                    ui.add(egui::Hyperlink::from_label_and_url("zhuker/ntsc", "https://github.com/zhuker/ntsc/"));
+                });
+
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    ui.label("...which is a port of ");
+                    ui.add(egui::Hyperlink::from_label_and_url("joncampbell123/composite-video-simulator", "https://github.com/joncampbell123/composite-video-simulator/"));
+                });
+            });
+    }
+
     fn show_app(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -2761,6 +2800,18 @@ impl NtscApp {
                     });
                 });
 
+                ui.menu_button("Help", |ui| {
+                    if ui.button("Online Documentation ⤴").clicked() {
+                        ui.ctx().open_url(egui::OpenUrl::new_tab("https://ntsc.rs/docs/standalone-application/"));
+                        ui.close_menu();
+                    }
+
+                    if ui.button("About + Credits").clicked() {
+                        self.credits_dialog_open = true;
+                        ui.close_menu();
+                    }
+                });
+
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     const VERSION: &str = env!("CARGO_PKG_VERSION");
                     ui.label(format!("ntsc-rs v{VERSION}"));
@@ -2826,6 +2877,10 @@ impl NtscApp {
                 ui.visuals_mut().clip_rect_margin = 0.0;
                 self.show_video_pane(ui);
             });
+
+        if self.credits_dialog_open {
+            self.show_credits_dialog(ctx);
+        }
     }
 
     fn show_loading_screen(&mut self, ctx: &egui::Context) {
