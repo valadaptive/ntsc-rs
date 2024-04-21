@@ -41,7 +41,7 @@ $ sudo dnf install gstreamer1-devel gstreamer1-plugins-base-devel atk-devel gtk3
 
 ## Updating third-party license credits
 
-After installing or updating Cargo dependencies, you'll need to regenerate the list of third-party licenses:
+After installing or updating Cargo dependencies, you'll need to regenerate the list of third-party licenses using [cargo-about](https://github.com/EmbarkStudios/cargo-about):
 
 ```bash
 $ cargo about generate --format=json > about.json
