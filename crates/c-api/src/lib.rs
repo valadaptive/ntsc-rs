@@ -9,7 +9,7 @@ use ntscrs::settings::{
     SettingKind as RsSettingKind, SettingsList as RsSettingsList,
 };
 pub use ntscrs::yiq_fielding::{BlitInfo as RsBlitInfo, Rect as RsRect};
-use ntscrs::yiq_fielding::{DeinterlaceMode, PixelFormat, Xrgb16s, Xrgb32f, Xrgb8};
+use ntscrs::yiq_fielding::{DeinterlaceMode, PixelFormat, Bgrx16, Bgrx32f, Bgrx8, Xrgb16s, Xrgb32f, Xrgb8};
 use ntscrs::{
     ntsc::NtscEffect,
     yiq_fielding::{YiqField as RsYiqField, YiqView},
@@ -52,7 +52,7 @@ pub struct BlitInfo {
     /// The rectangular area which will be read out of or written into the other buffer.
     pub rect: Rect,
     /// Number of bytes per pixel row in the other buffer. May include padding.
-    pub row_bytes: usize,
+    pub row_bytes: isize,
     /// True if the source buffer is y-up instead of y-down.
     pub flip_y: bool,
 }
@@ -64,16 +64,6 @@ impl From<&Rect> for RsRect {
             right: value.right,
             bottom: value.bottom,
             left: value.left,
-        }
-    }
-}
-
-impl From<&BlitInfo> for RsBlitInfo {
-    fn from(value: &BlitInfo) -> Self {
-        RsBlitInfo {
-            rect: (&value.rect).into(),
-            row_bytes: value.row_bytes,
-            flip_y: value.flip_y,
         }
     }
 }
@@ -466,7 +456,7 @@ pub unsafe extern "C" fn ntscrs_process_yiq(
 unsafe fn yiq_set_from_strided_buffer_generic<S: PixelFormat>(
     src_data: *mut S::DataFormat,
     dst_yiq: *mut f32,
-    blit_info: BlitInfo,
+    mut blit_info: BlitInfo,
     width: usize,
     height: usize,
     field: YiqField,
@@ -482,12 +472,35 @@ unsafe fn yiq_set_from_strided_buffer_generic<S: PixelFormat>(
         dimensions: (width, height),
         field: (&field).into(),
     };
+
+    // Premiere uses negative rowbytes because its coordinate space is flipped vertically from After Effects. Great for
+    // C pointer arithmetic, not so great for Rust.
+    let (start_ptr, stride, flip_y) = if blit_info.row_bytes > 0 {
+        (src_data, blit_info.row_bytes as usize, false)
+    } else {
+        (
+            src_data.sub(
+                -blit_info.row_bytes as usize / mem::size_of::<S::DataFormat>() * (height - 1),
+            ),
+            -blit_info.row_bytes as usize,
+            true,
+        )
+    };
+
+    if flip_y {
+        blit_info.flip_y = !blit_info.flip_y;
+    }
+
     yiq.set_from_strided_buffer_maybe_uninit::<S, _>(
         slice::from_raw_parts_mut(
-            src_data as *mut MaybeUninit<S::DataFormat>,
-            blit_info.row_bytes / mem::size_of::<S::DataFormat>() * height,
+            start_ptr as *mut MaybeUninit<S::DataFormat>,
+            stride / mem::size_of::<S::DataFormat>() * height,
         ),
-        (&blit_info).into(),
+        RsBlitInfo {
+            rect: (&blit_info.rect).into(),
+            row_bytes: stride,
+            flip_y,
+        },
         identity,
     )
 }
@@ -495,7 +508,7 @@ unsafe fn yiq_set_from_strided_buffer_generic<S: PixelFormat>(
 unsafe fn ntscrs_yiq_write_to_strided_buffer_generic<S: PixelFormat>(
     src_yiq: *mut f32,
     dst_data: *mut S::DataFormat,
-    blit_info: BlitInfo,
+    mut blit_info: BlitInfo,
     width: usize,
     height: usize,
     field: YiqField,
@@ -511,12 +524,33 @@ unsafe fn ntscrs_yiq_write_to_strided_buffer_generic<S: PixelFormat>(
         dimensions: (width, height),
         field: (&field).into(),
     };
+
+    let (start_ptr, stride, flip_y) = if blit_info.row_bytes > 0 {
+        (dst_data, blit_info.row_bytes as usize, false)
+    } else {
+        (
+            dst_data.sub(
+                -blit_info.row_bytes as usize / mem::size_of::<S::DataFormat>() * (height - 1),
+            ),
+            -blit_info.row_bytes as usize,
+            true,
+        )
+    };
+
+    if flip_y {
+        blit_info.flip_y = !blit_info.flip_y;
+    }
+
     yiq.write_to_strided_buffer_maybe_uninit::<S, _>(
         slice::from_raw_parts_mut(
-            dst_data as *mut MaybeUninit<S::DataFormat>,
-            blit_info.row_bytes / mem::size_of::<S::DataFormat>() * height,
+            start_ptr as *mut MaybeUninit<S::DataFormat>,
+            stride / mem::size_of::<S::DataFormat>() * height,
         ),
-        (&blit_info).into(),
+        RsBlitInfo {
+            rect: (&blit_info.rect).into(),
+            row_bytes: stride,
+            flip_y,
+        },
         DeinterlaceMode::Bob,
         true,
         identity,
@@ -564,6 +598,46 @@ pub unsafe extern "C" fn ntscrs_yiq_set_from_strided_buffer_Xrgb8(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn ntscrs_yiq_set_from_strided_buffer_Bgrx32f(
+    src_data: *mut f32,
+    dst_yiq: *mut f32,
+    blit_info: BlitInfo,
+    width: usize,
+    height: usize,
+    field: YiqField,
+) {
+    yiq_set_from_strided_buffer_generic::<Bgrx32f>(
+        src_data, dst_yiq, blit_info, width, height, field,
+    )
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn ntscrs_yiq_set_from_strided_buffer_Bgrx16(
+    src_data: *mut u16,
+    dst_yiq: *mut f32,
+    blit_info: BlitInfo,
+    width: usize,
+    height: usize,
+    field: YiqField,
+) {
+    yiq_set_from_strided_buffer_generic::<Bgrx16>(
+        src_data, dst_yiq, blit_info, width, height, field,
+    )
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn ntscrs_yiq_set_from_strided_buffer_Bgrx8(
+    src_data: *mut u8,
+    dst_yiq: *mut f32,
+    blit_info: BlitInfo,
+    width: usize,
+    height: usize,
+    field: YiqField,
+) {
+    yiq_set_from_strided_buffer_generic::<Bgrx8>(src_data, dst_yiq, blit_info, width, height, field)
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn ntscrs_yiq_write_to_strided_buffer_Xrgb32f(
     src_yiq: *mut f32,
     dst_data: *mut f32,
@@ -601,6 +675,48 @@ pub unsafe extern "C" fn ntscrs_yiq_write_to_strided_buffer_Xrgb8(
     field: YiqField,
 ) {
     ntscrs_yiq_write_to_strided_buffer_generic::<Xrgb8>(
+        src_yiq, dst_data, blit_info, width, height, field,
+    )
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn ntscrs_yiq_write_to_strided_buffer_Bgrx32f(
+    src_yiq: *mut f32,
+    dst_data: *mut f32,
+    blit_info: BlitInfo,
+    width: usize,
+    height: usize,
+    field: YiqField,
+) {
+    ntscrs_yiq_write_to_strided_buffer_generic::<Bgrx32f>(
+        src_yiq, dst_data, blit_info, width, height, field,
+    )
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn ntscrs_yiq_write_to_strided_buffer_Bgrx16(
+    src_yiq: *mut f32,
+    dst_data: *mut u16,
+    blit_info: BlitInfo,
+    width: usize,
+    height: usize,
+    field: YiqField,
+) {
+    ntscrs_yiq_write_to_strided_buffer_generic::<Bgrx16>(
+        src_yiq, dst_data, blit_info, width, height, field,
+    )
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn ntscrs_yiq_write_to_strided_buffer_Bgrx8(
+    src_yiq: *mut f32,
+    dst_data: *mut u8,
+    blit_info: BlitInfo,
+    width: usize,
+    height: usize,
+    field: YiqField,
+) {
+    ntscrs_yiq_write_to_strided_buffer_generic::<Bgrx8>(
         src_yiq, dst_data, blit_info, width, height, field,
     )
 }

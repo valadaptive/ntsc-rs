@@ -39,6 +39,7 @@
 #include "AE_GeneralPlug.h"
 #include "AEGP_SuiteHandler.h"
 #include "AEFX_SuiteHelper.h"
+#include "PrSDKAESupport.h"
 
 #include <ntscrs.h>
 
@@ -113,5 +114,15 @@ typedef enum {
 	NTSCRS_USE_FIELD_INTERLEAVED_UPPER = 4,
 	NTSCRS_USE_FIELD_INTERLEAVED_LOWER = 5
 } ntscrs_use_field;
+
+typedef enum {
+	NTSCRS_XRGB8 = 0,
+	NTSCRS_XRGB16S,
+	NTSCRS_XRGB32F,
+	NTSCRS_BGRX8,
+	NTSCRS_BGRX16,
+	NTSCRS_BGRX32F,
+	NTSCRS_INVALID_PIXEL_FORMAT = -1
+} ntscrs_pixel_format;
 
 #endif // NtscRS_AE_H

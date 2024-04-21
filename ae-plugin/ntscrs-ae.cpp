@@ -2,6 +2,25 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+static ntscrs_pixel_format ntscrs_world_pixel_format_to_pixel_format (PF_PixelFormat in_pix_fmt) {
+	switch (in_pix_fmt) {
+		case PF_PixelFormat_ARGB32: return NTSCRS_XRGB8;
+		case PF_PixelFormat_ARGB64: return NTSCRS_XRGB16S;
+		case PF_PixelFormat_ARGB128: return NTSCRS_XRGB32F;
+		default: return NTSCRS_INVALID_PIXEL_FORMAT;
+	}
+}
+
+
+static ntscrs_pixel_format ntscrs_premiere_pixel_format_to_pixel_format (PF_PixelFormat in_pix_fmt) {
+	switch (in_pix_fmt) {
+		case PrPixelFormat_BGRA_4444_8u: return NTSCRS_BGRX8;
+		case PrPixelFormat_BGRA_4444_16u: return NTSCRS_BGRX16;
+		case PrPixelFormat_BGRA_4444_32f: return NTSCRS_BGRX32F;
+		default: return NTSCRS_INVALID_PIXEL_FORMAT;
+	}
+}
+
 static PF_Err
 About (
 	PF_InData		*in_data,
@@ -48,6 +67,22 @@ GlobalSetup (
 		return PF_Err_OUT_OF_MEMORY;
 	}
 	out_data->global_data = data_handle;
+
+	if (in_data->appl_id == 'PrMr') {
+		AEFX_SuiteScoper<PF_PixelFormatSuite1> pixelFormatSuite =
+			AEFX_SuiteScoper<PF_PixelFormatSuite1>(	in_data,
+													kPFPixelFormatSuite,
+													kPFPixelFormatSuiteVersion1,
+													out_data);
+		(*pixelFormatSuite->ClearSupportedPixelFormats)(in_data->effect_ref);
+		// I *could* add support for BGRX, RGBA, RGBX, etc but I have no way to test those code paths
+		(*pixelFormatSuite->AddSupportedPixelFormat)(in_data->effect_ref,
+													 PrPixelFormat_BGRA_4444_32f);
+		(*pixelFormatSuite->AddSupportedPixelFormat)(in_data->effect_ref,
+													 PrPixelFormat_BGRA_4444_16u);
+		(*pixelFormatSuite->AddSupportedPixelFormat)(in_data->effect_ref,
+													 PrPixelFormat_BGRA_4444_8u);
+	}
 
 	return PF_Err_NONE;
 }
@@ -214,14 +249,18 @@ ActuallyRender(
 	PF_EffectWorld 	*input,
 	PF_OutData		*out_data,
 	PF_EffectWorld	*output,
-	PF_SmartRenderExtra	*extra)
+	ntscrs_pixel_format input_pixel_format,
+	ntscrs_pixel_format output_pixel_format)
 {
 	PF_Err				err 	= PF_Err_NONE,
 						err2 	= PF_Err_NONE;
-	PF_PixelFormat		format	=	PF_PixelFormat_INVALID;
 	PF_WorldSuite2		*wsP	=	NULL;
 
 	AEGP_SuiteHandler suites(in_data->pica_basicP);
+
+	if (input_pixel_format == NTSCRS_INVALID_PIXEL_FORMAT || output_pixel_format == NTSCRS_INVALID_PIXEL_FORMAT) {
+		return PF_Err_BAD_CALLBACK_PARAM;
+	}
 
 	ERR(AEFX_AcquireSuite(	in_data,
 							out_data,
@@ -235,11 +274,6 @@ ActuallyRender(
 	apply_ntsc_settings(in_data, out_data, &use_field, configurator);
 
 	if (!input) return err;
-
-	NtscAE_GlobalData* global_data = reinterpret_cast<NtscAE_GlobalData*>(suites.HandleSuite1()->host_lock_handle(out_data->global_data));
-	if (!global_data) {
-		return PF_Err_BAD_CALLBACK_PARAM;
-	}
 
 	if (!err) {
 		// Number of YIQ rows/fields for ntsc-rs to operate on.
@@ -297,94 +331,155 @@ ActuallyRender(
 		if (out_handle) {
 			float* out_buf = reinterpret_cast<float*>(suites.HandleSuite1()->host_lock_handle(out_handle));
 			if (out_buf) {
-				ERR(wsP->PF_GetPixelFormat(input, &format));
-				if (format == PF_PixelFormat_ARGB32 || format == PF_PixelFormat_ARGB64 || format == PF_PixelFormat_ARGB128) {
-					struct ntscrs_BlitInfo blit_info = {0};
-					blit_info.rect.left = 0;
-					blit_info.rect.top = 0;
-					blit_info.rect.right = input->width;
-					blit_info.rect.bottom = input->height;
-					blit_info.row_bytes = input->rowbytes;
-					blit_info.flip_y = 0;
-					switch (format) {
-						case PF_PixelFormat_ARGB128: {
-							ntscrs_yiq_set_from_strided_buffer_Xrgb32f(
-								(float_t*)input->data,
-								out_buf,
-								blit_info,
-								output->width,
-								output->height,
-								yiq_field
-							);
-							break;
-						}
-						case PF_PixelFormat_ARGB64: {
-							ntscrs_yiq_set_from_strided_buffer_Xrgb16s(
-								(int16_t*)input->data,
-								out_buf,
-								blit_info,
-								output->width,
-								output->height,
-								yiq_field
-							);
-							break;
-						}
-						case PF_PixelFormat_ARGB32: {
-							ntscrs_yiq_set_from_strided_buffer_Xrgb8(
-								(uint8_t*)input->data,
-								out_buf,
-								blit_info,
-								output->width,
-								output->height,
-								yiq_field
-							);
-							break;
-						}
+				struct ntscrs_BlitInfo blit_info = {0};
+				blit_info.rect.left = 0;
+				blit_info.rect.top = 0;
+				blit_info.rect.right = input->width;
+				blit_info.rect.bottom = input->height;
+				blit_info.row_bytes = input->rowbytes;
+				blit_info.flip_y = 0;
+				switch (input_pixel_format) {
+					case NTSCRS_XRGB32F: {
+						ntscrs_yiq_set_from_strided_buffer_Xrgb32f(
+							(float_t*)input->data,
+							out_buf,
+							blit_info,
+							output->width,
+							output->height,
+							yiq_field
+						);
+						break;
 					}
-
-					ntscrs_process_yiq(
-						out_buf, // y plane
-						&out_buf[output_plane_size], // i plane
-						&out_buf[output_plane_size * 2], // q plane
-						num_rows, output->width, output->height, configurator, frame_num, yiq_field);
-
-					switch (format) {
-						case PF_PixelFormat_ARGB128: {
-							ntscrs_yiq_write_to_strided_buffer_Xrgb32f(
-								out_buf,
-								(float_t*)output->data,
-								blit_info,
-								output->width,
-								output->height,
-								yiq_field
-							);
-							break;
-						}
-						case PF_PixelFormat_ARGB64: {
-							ntscrs_yiq_write_to_strided_buffer_Xrgb16s(
-								out_buf,
-								(int16_t*)output->data,
-								blit_info,
-								output->width,
-								output->height,
-								yiq_field
-							);
-							break;
-						}
-						case PF_PixelFormat_ARGB32: {
-							ntscrs_yiq_write_to_strided_buffer_Xrgb8(
-								out_buf,
-								(uint8_t*)output->data,
-								blit_info,
-								output->width,
-								output->height,
-								yiq_field
-							);
-							break;
-						}
+					case NTSCRS_XRGB16S: {
+						ntscrs_yiq_set_from_strided_buffer_Xrgb16s(
+							(int16_t*)input->data,
+							out_buf,
+							blit_info,
+							output->width,
+							output->height,
+							yiq_field
+						);
+						break;
 					}
-				} else {
-					err = PF_Err_BAD_CALLBACK_PARAM;
+					case NTSCRS_XRGB8: {
+						ntscrs_yiq_set_from_strided_buffer_Xrgb8(
+							(uint8_t*)input->data,
+							out_buf,
+							blit_info,
+							output->width,
+							output->height,
+							yiq_field
+						);
+						break;
+					}
+					case NTSCRS_BGRX32F: {
+						ntscrs_yiq_set_from_strided_buffer_Bgrx32f(
+							(float_t*)input->data,
+							out_buf,
+							blit_info,
+							output->width,
+							output->height,
+							yiq_field
+						);
+						break;
+					}
+					case NTSCRS_BGRX16: {
+						ntscrs_yiq_set_from_strided_buffer_Bgrx16(
+							(uint16_t*)input->data,
+							out_buf,
+							blit_info,
+							output->width,
+							output->height,
+							yiq_field
+						);
+						break;
+					}
+					case NTSCRS_BGRX8: {
+						ntscrs_yiq_set_from_strided_buffer_Bgrx8(
+							(uint8_t*)input->data,
+							out_buf,
+							blit_info,
+							output->width,
+							output->height,
+							yiq_field
+						);
+						break;
+					}
+				}
+
+				ntscrs_process_yiq(
+					out_buf, // y plane
+					&out_buf[output_plane_size], // i plane
+					&out_buf[output_plane_size * 2], // q plane
+					num_rows, output->width, output->height, configurator, frame_num, yiq_field);
+
+				switch (output_pixel_format) {
+					case NTSCRS_XRGB32F: {
+						ntscrs_yiq_write_to_strided_buffer_Xrgb32f(
+							out_buf,
+							(float_t*)output->data,
+							blit_info,
+							output->width,
+							output->height,
+							yiq_field
+						);
+						break;
+					}
+					case NTSCRS_XRGB16S: {
+						ntscrs_yiq_write_to_strided_buffer_Xrgb16s(
+							out_buf,
+							(int16_t*)output->data,
+							blit_info,
+							output->width,
+							output->height,
+							yiq_field
+						);
+						break;
+					}
+					case NTSCRS_XRGB8: {
+						ntscrs_yiq_write_to_strided_buffer_Xrgb8(
+							out_buf,
+							(uint8_t*)output->data,
+							blit_info,
+							output->width,
+							output->height,
+							yiq_field
+						);
+						break;
+					}
+					case NTSCRS_BGRX32F: {
+						ntscrs_yiq_write_to_strided_buffer_Bgrx32f(
+							out_buf,
+							(float_t*)output->data,
+							blit_info,
+							output->width,
+							output->height,
+							yiq_field
+						);
+						break;
+					}
+					case NTSCRS_BGRX16: {
+						ntscrs_yiq_write_to_strided_buffer_Bgrx16(
+							out_buf,
+							(uint16_t*)output->data,
+							blit_info,
+							output->width,
+							output->height,
+							yiq_field
+						);
+						break;
+					}
+					case NTSCRS_BGRX8: {
+						ntscrs_yiq_write_to_strided_buffer_Bgrx8(
+							out_buf,
+							(uint8_t*)output->data,
+							blit_info,
+							output->width,
+							output->height,
+							yiq_field
+						);
+						break;
+					}
 				}
 				suites.HandleSuite1()->host_unlock_handle(out_handle);
 			} else {
@@ -402,8 +497,44 @@ ActuallyRender(
 							kPFWorldSuiteVersion2,
 							StrID_Err_FreeSuite));
 
-	suites.HandleSuite1()->host_unlock_handle(out_data->global_data);
 	return err;
+}
+
+static PF_Err
+Render (
+	PF_InData		*in_data,
+	PF_OutData		*out_data,
+	PF_ParamDef		*params[],
+	PF_LayerDef		*output)
+{
+	if (in_data->appl_id == 'PrMr') {
+		PF_LayerDef* input = &params[LAYER_INPUT]->u.ld;
+
+		if (input->width != output->width || input->height != output->height) {
+			return PF_Err_BAD_CALLBACK_PARAM;
+		}
+
+		AEFX_SuiteScoper<PF_PixelFormatSuite1> pixelFormatSuite = AEFX_SuiteScoper<PF_PixelFormatSuite1>(in_data,
+			kPFPixelFormatSuite,
+			kPFPixelFormatSuiteVersion1,
+			out_data);
+
+		PrPixelFormat srcPixelFormat = PrPixelFormat_BGRA_4444_8u;
+		PrPixelFormat dstPixelFormat = PrPixelFormat_BGRA_4444_8u;
+
+		pixelFormatSuite->GetPixelFormat(input, &srcPixelFormat);
+		pixelFormatSuite->GetPixelFormat(output, &dstPixelFormat);
+
+		return ActuallyRender(
+			in_data,
+			input,
+			out_data,
+			output,
+			ntscrs_premiere_pixel_format_to_pixel_format(srcPixelFormat),
+			ntscrs_premiere_pixel_format_to_pixel_format(dstPixelFormat));
+	} else {
+		return PF_Err_INVALID_CALLBACK; // we don't support non-SmartFX unless it's Premiere
+	}
 }
 
 static PF_Err
@@ -421,15 +552,27 @@ SmartRender(
 					*output_worldP  = NULL;
 
 	// checkout input & output buffers.
-	ERR((extra->cb->checkout_layer_pixels(	in_data->effect_ref, LAYER_INPUT, &input_worldP)));
+	ERR((extra->cb->checkout_layer_pixels(in_data->effect_ref, LAYER_INPUT, &input_worldP)));
 
-	ERR(extra->cb->checkout_output(	in_data->effect_ref, &output_worldP));
+	ERR(extra->cb->checkout_output(in_data->effect_ref, &output_worldP));
+
+	AEFX_SuiteScoper<PF_WorldSuite2> worldSuite = AEFX_SuiteScoper<PF_WorldSuite2>(in_data,
+		kPFWorldSuite,
+		kPFWorldSuiteVersion2,
+		out_data);
+
+	PF_PixelFormat srcPixelFormat = PrPixelFormat_BGRA_4444_8u;
+	PF_PixelFormat dstPixelFormat = PrPixelFormat_BGRA_4444_8u;
+
+	worldSuite->PF_GetPixelFormat(input_worldP, &srcPixelFormat);
+	worldSuite->PF_GetPixelFormat(output_worldP, &dstPixelFormat);
 
 	ERR(ActuallyRender(	in_data,
 						input_worldP,
 						out_data,
 						output_worldP,
-						extra));
+						ntscrs_world_pixel_format_to_pixel_format(srcPixelFormat),
+						ntscrs_world_pixel_format_to_pixel_format(dstPixelFormat)));
 
 	return err;
 
@@ -760,6 +903,9 @@ EffectMain(
 				break;
 			case PF_Cmd_PARAMS_SETUP:
 				err = ParamsSetup(in_data,out_data,params,output);
+				break;
+			case PF_Cmd_RENDER:
+				err = Render(in_data, out_data, params, output);
 				break;
 			case PF_Cmd_SMART_PRE_RENDER:
 				err = PreRender(in_data, out_data, (PF_PreRenderExtra*)extra);

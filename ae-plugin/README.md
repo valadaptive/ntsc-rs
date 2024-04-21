@@ -1,6 +1,6 @@
 # ntsc-rs After Effects plugin
 
-ntsc-rs can be used from After Effects! When built, the plugin can be found under the "Stylize" category.
+ntsc-rs can be used from After Effects and Premiere! When built, the plugin can be found under the "Stylize" category.
 
 ## Prerequisites to building
 
@@ -49,7 +49,7 @@ to set up the Meson build directory.
 If you want to be able to build directly into your After Effects plugin folder using `meson install`, you may instead
 want to do:
 ```powershell
-meson setup --prefix="C:\Program Files\[path to After Effects]\Support Files\Plug-ins\" build
+meson setup --prefix="C:\Program Files\Adobe\Common\Plug-ins\7.0\MediaCore" build
 cd build
 ```
 
