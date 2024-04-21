@@ -2145,6 +2145,7 @@ dependencies = [
  "rand",
  "rfd",
  "snafu",
+ "tinyjson",
  "waker-fn",
 ]
 

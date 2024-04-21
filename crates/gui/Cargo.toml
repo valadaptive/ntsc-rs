@@ -25,6 +25,7 @@ waker-fn = "1.1.0"
 log = "0.4.20"
 rfd = "0.12.1"
 rand = "0.8.5"
+tinyjson = "2.5.1"
 
 [build-dependencies]
 embed-resource = "2.4"

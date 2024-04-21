@@ -38,3 +38,15 @@ $ sudo dnf install gstreamer1-devel gstreamer1-plugins-base-devel atk-devel gtk3
 ```
 
 </details>
+
+## Updating third-party license credits
+
+After installing or updating Cargo dependencies, you'll need to regenerate the list of third-party licenses:
+
+```bash
+$ cargo about generate --format=json > about.json
+```
+
+when inside the `gui` crate folder.
+
+If you get a "failed to satisfy license requirements" error, you'll need to add the failing third-party crate's license identifier to [`about.toml`](../../about.toml).

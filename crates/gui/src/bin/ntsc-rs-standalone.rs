@@ -37,6 +37,7 @@ use gui::{
         scale_from_caps,
     },
     splitscreen::SplitScreen,
+    third_party_licenses::get_third_party_licenses,
     timeline::Timeline,
 };
 
@@ -126,7 +127,7 @@ fn parse_decimal_or_percentage(input: &str, threshold: f64) -> Option<f64> {
     Some(expr)
 }
 
-const ICON: &[u8] = include_bytes!("../../../../assets/icon.png");
+static ICON: &[u8] = include_bytes!("../../../../assets/icon.png");
 
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
@@ -610,6 +611,7 @@ struct NtscApp {
     last_error: Option<String>,
     color_theme: ColorTheme,
     credits_dialog_open: bool,
+    licenses_dialog_open: bool,
 }
 
 impl NtscApp {
@@ -644,6 +646,7 @@ impl NtscApp {
             last_error: None,
             color_theme,
             credits_dialog_open: false,
+            licenses_dialog_open: false,
         }
     }
 
@@ -2692,9 +2695,8 @@ impl NtscApp {
     }
 
     fn show_credits_dialog(&mut self, ctx: &egui::Context) {
-        let mut open = self.credits_dialog_open;
         egui::Window::new("About + Credits")
-            .open(&mut open)
+            .open(&mut self.credits_dialog_open)
             .default_width(400.0)
             .show(ctx, |ui| {
                 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -2705,26 +2707,70 @@ impl NtscApp {
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     ui.label("by ");
-                    ui.add(egui::Hyperlink::from_label_and_url("valadaptive", "https://github.com/valadaptive/"));
+                    ui.add(egui::Hyperlink::from_label_and_url(
+                        "valadaptive",
+                        "https://github.com/valadaptive/",
+                    ));
                 });
 
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     ui.label("...loosely based on ");
-                    ui.add(egui::Hyperlink::from_label_and_url("JargeZ/ntscqt", "https://github.com/JargeZ/ntscqt/"));
+                    ui.add(egui::Hyperlink::from_label_and_url(
+                        "JargeZ/ntscqt",
+                        "https://github.com/JargeZ/ntscqt/",
+                    ));
                 });
 
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     ui.label("...which is a GUI for ");
-                    ui.add(egui::Hyperlink::from_label_and_url("zhuker/ntsc", "https://github.com/zhuker/ntsc/"));
+                    ui.add(egui::Hyperlink::from_label_and_url(
+                        "zhuker/ntsc",
+                        "https://github.com/zhuker/ntsc/",
+                    ));
                 });
 
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     ui.label("...which is a port of ");
-                    ui.add(egui::Hyperlink::from_label_and_url("joncampbell123/composite-video-simulator", "https://github.com/joncampbell123/composite-video-simulator/"));
+                    ui.add(egui::Hyperlink::from_label_and_url(
+                        "joncampbell123/composite-video-simulator",
+                        "https://github.com/joncampbell123/composite-video-simulator/",
+                    ));
                 });
+            });
+    }
+
+    fn show_licenses_dialog(&mut self, ctx: &egui::Context) {
+        egui::Window::new("Licenses")
+            .open(&mut self.licenses_dialog_open)
+            .default_width(400.0)
+            .default_height(400.0)
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        for (i, license) in get_third_party_licenses().iter().enumerate() {
+                            if i != 0 {
+                                ui.separator();
+                            }
+                            egui::CollapsingHeader::new(&license.name)
+                                .id_source(i)
+                                .show(ui, |ui| {
+                                    ui.label(&license.text);
+                                });
+                            ui.indent(i, |ui| {
+                                ui.label("Used by:");
+                                for used_by in license.used_by.iter() {
+                                    ui.add(egui::Hyperlink::from_label_and_url(
+                                        format!("{} {}", used_by.name, used_by.version),
+                                        &used_by.url,
+                                    ));
+                                }
+                            });
+                        }
+                    });
             });
     }
 
@@ -2802,7 +2848,14 @@ impl NtscApp {
 
                 ui.menu_button("Help", |ui| {
                     if ui.button("Online Documentation ⤴").clicked() {
-                        ui.ctx().open_url(egui::OpenUrl::new_tab("https://ntsc.rs/docs/standalone-application/"));
+                        ui.ctx().open_url(egui::OpenUrl::new_tab(
+                            "https://ntsc.rs/docs/standalone-application/",
+                        ));
+                        ui.close_menu();
+                    }
+
+                    if ui.button("Third-Party Licenses").clicked() {
+                        self.licenses_dialog_open = true;
                         ui.close_menu();
                     }
 
@@ -2880,6 +2933,10 @@ impl NtscApp {
 
         if self.credits_dialog_open {
             self.show_credits_dialog(ctx);
+        }
+
+        if self.licenses_dialog_open {
+            self.show_licenses_dialog(ctx);
         }
     }
 
