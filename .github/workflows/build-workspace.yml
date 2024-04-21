@@ -111,6 +111,7 @@ jobs:
         mkdir ntsc-rs-windows-standalone
         cd ntsc-rs-windows-standalone
         robocopy $Env:GSTREAMER_1_0_ROOT_MSVC_X86_64 .\ *.dll /s /copy:DT; if ($lastexitcode -lt 8) { $global:LASTEXITCODE = $null }
+        robocopy $Env:GSTREAMER_1_0_ROOT_MSVC_X86_64\share\licenses .\licenses /s /copy:DT; if ($lastexitcode -lt 8) { $global:LASTEXITCODE = $null }
         cp ..\target\release\ntsc-rs-standalone.exe .\bin\
         cp ..\target\release\ntsc-rs-launcher.exe .\
 
