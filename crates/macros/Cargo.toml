@@ -3,6 +3,7 @@ name = "macros"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR ISC OR Apache-2.0"
+repository = "https://github.com/valadaptive/ntsc-rs/tree/main/crates/macros"
 
 [lib]
 proc-macro = true
