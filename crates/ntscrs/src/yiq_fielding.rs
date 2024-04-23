@@ -695,7 +695,7 @@ impl YiqOwned {
 
         view.set_from_strided_buffer::<Rgb8, _>(
             image.as_raw(),
-            BlitInfo::from_full_frame(width, height, width * height * 3),
+            BlitInfo::from_full_frame(width, height, width * 3),
             identity,
         );
 
