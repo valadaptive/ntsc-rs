@@ -10,6 +10,7 @@ repository = "https://github.com/valadaptive/ntsc-rs/tree/main/crates/gui"
 
 [dependencies]
 ntscrs = { path = "../ntscrs" }
+arboard = "3.3.2"
 eframe = { version = "0.27", features=["persistence"] }
 env_logger = "0.10.0"
 image = "0.24.7"

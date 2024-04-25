@@ -97,6 +97,17 @@ impl EguiSink {
         Ok(())
     }
 
+    pub fn get_image(&self) -> Result<ColorImage, gstreamer::FlowError> {
+        let vframe = self.last_frame.lock().unwrap();
+        let (vframe, ..) = vframe.as_ref().ok_or(gstreamer::FlowError::Error)?;
+
+        let width = vframe.width() as usize;
+        let height = vframe.height() as usize;
+        let mut image = ColorImage::new([width, height], Color32::BLACK);
+        self.apply_effect(vframe, &mut image, None)?;
+        Ok(image)
+    }
+
     pub fn update_texture(&self) -> Result<(), gstreamer::FlowError> {
         let mut tex = self.texture.lock().unwrap();
         let vframe = self.last_frame.lock().unwrap();

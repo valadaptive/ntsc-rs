@@ -18,18 +18,22 @@ use std::{
     thread,
 };
 
-use eframe::egui::{self, pos2, vec2, Rect, util::undoer::Undoer, Response};
+use eframe::egui::{self, pos2, util::undoer::Undoer, vec2, ColorImage, Rect, Response};
 use futures_lite::{Future, FutureExt};
 use glib::clone::Downgrade;
-use gstreamer::{glib, prelude::*, ClockTime};
+use gstreamer::{
+    glib::{self, subclass::types::ObjectSubclassExt},
+    prelude::*,
+    ClockTime,
+};
 use gstreamer_video::{VideoCapsBuilder, VideoFormat, VideoInterlaceMode};
 
 use gui::{
     expression_parser::eval_expression_string,
     gst_utils::{
         clock_format::{clock_time_format, clock_time_parser},
-        egui_sink::{EffectPreviewSetting, EguiCtx, SinkTexture},
-        elements::{EguiSink, NtscFilter, VideoPadFilter},
+        egui_sink::{EffectPreviewSetting, EguiCtx, EguiSink, SinkTexture},
+        elements,
         gstreamer_error::GstreamerError,
         ntscrs_filter::NtscFilterSettings,
         pipeline_utils::{create_pipeline, PipelineError},
@@ -44,7 +48,7 @@ use ntscrs::settings::{
     NtscEffect, NtscEffectFullSettings, ParseSettingsError, SettingDescriptor, SettingID,
     SettingKind, SettingsList, UseField,
 };
-use snafu::prelude::*;
+use snafu::{prelude::*, ResultExt};
 
 use log::debug;
 
@@ -76,21 +80,21 @@ fn initialize_gstreamer() -> Result<(), GstreamerError> {
         None,
         "eguisink",
         gstreamer::Rank::None,
-        EguiSink::static_type(),
+        elements::EguiSink::static_type(),
     )?;
 
     gstreamer::Element::register(
         None,
         "ntscfilter",
         gstreamer::Rank::None,
-        NtscFilter::static_type(),
+        elements::NtscFilter::static_type(),
     )?;
 
     gstreamer::Element::register(
         None,
         "videopadfilter",
         gstreamer::Rank::None,
-        VideoPadFilter::static_type(),
+        elements::VideoPadFilter::static_type(),
     )?;
 
     // PulseAudio has a severe bug that will greatly delay initial playback to the point of unusability:
@@ -2218,8 +2222,9 @@ impl NtscApp {
         egui::TopBottomPanel::top("video_info").show_inside(ui, |ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let mut remove_pipeline = false;
-                let mut res = None;
+                let mut change_framerate_res = None;
                 let mut save_image_to: Option<(PathBuf, PathBuf)> = None;
+                let mut copy_image_res: Option<Result<ColorImage, GstreamerError>> = None;
                 if let Some(info) = &mut self.pipeline {
                     let mut metadata = info.metadata.lock().unwrap();
                     if ui.button("🗙").clicked() {
@@ -2228,11 +2233,19 @@ impl NtscApp {
 
                     ui.separator();
 
-                    if ui.button("Save image").clicked() {
+                    if ui.button("Save frame").clicked() {
                         let src_path = info.path.clone();
 
                         let dst_path = src_path.with_extension("");
                         save_image_to = Some((src_path, dst_path));
+                    }
+
+                    if ui.button("Copy frame").clicked() {
+                        let egui_sink =
+                            info.egui_sink.downcast_ref::<elements::EguiSink>().unwrap();
+
+                        let egui_sink = EguiSink::from_obj(egui_sink);
+                        copy_image_res = Some(egui_sink.get_image().map_err(|e| e.into()));
                     }
 
                     if let Some(current_framerate) = metadata.framerate {
@@ -2258,7 +2271,7 @@ impl NtscApp {
                                             metadata.framerate = Some(new_framerate);
                                         }
 
-                                        res = Some(changed_framerate);
+                                        change_framerate_res = Some(changed_framerate);
                                     }
                                 }
                             }
@@ -2292,8 +2305,28 @@ impl NtscApp {
                     });
                 }
 
-                if let Some(res) = res {
+                if let Some(res) = change_framerate_res {
                     self.handle_result(res);
+                }
+
+                if let Some(res) = copy_image_res {
+                    match res {
+                        Ok(image) => {
+                            let res = arboard::Clipboard::new().and_then(|mut cb| {
+                                let data = arboard::ImageData {
+                                    width: image.width(),
+                                    height: image.height(),
+                                    bytes: Cow::from(image.as_raw()),
+                                };
+                                cb.set_image(data)?;
+                                Ok(())
+                            });
+                            self.handle_result(res);
+                        }
+                        Err(e) => {
+                            self.handle_error(&e);
+                        }
+                    }
                 }
 
                 if remove_pipeline {

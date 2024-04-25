@@ -8,6 +8,7 @@ pub enum GstreamerError {
     BoolError(glib::BoolError),
     PadLinkError(gstreamer::PadLinkError),
     StateChangeError(gstreamer::StateChangeError),
+    FlowError(gstreamer::FlowError),
 }
 
 impl From<glib::Error> for GstreamerError {
@@ -34,6 +35,12 @@ impl From<gstreamer::StateChangeError> for GstreamerError {
     }
 }
 
+impl From<gstreamer::FlowError> for GstreamerError {
+    fn from(value: gstreamer::FlowError) -> Self {
+        GstreamerError::FlowError(value)
+    }
+}
+
 impl Display for GstreamerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -41,6 +48,7 @@ impl Display for GstreamerError {
             GstreamerError::BoolError(e) => e.fmt(f),
             GstreamerError::PadLinkError(e) => e.fmt(f),
             GstreamerError::StateChangeError(e) => e.fmt(f),
+            GstreamerError::FlowError(e) => e.fmt(f),
         }
     }
 }
@@ -52,6 +60,7 @@ impl Error for GstreamerError {
             GstreamerError::BoolError(e) => Some(e),
             GstreamerError::PadLinkError(e) => Some(e),
             GstreamerError::StateChangeError(e) => Some(e),
+            GstreamerError::FlowError(e) => Some(e),
         }
     }
 }
