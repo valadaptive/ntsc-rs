@@ -457,6 +457,7 @@ impl<'a> YiqView<'a> {
         match (deinterlace_mode, self.field) {
             (DeinterlaceMode::Bob, YiqField::Upper | YiqField::Lower) => {
                 chunks.for_each(|(mut row_idx, dst_row)| {
+                    row_idx += blit_info.rect.top;
                     // Limit to the actual width of the output (rowbytes may include trailing padding)
                     let dst_row = &mut dst_row[blit_info.rect.left * num_components
                         ..blit_info.rect.right * num_components];
@@ -466,8 +467,10 @@ impl<'a> YiqView<'a> {
                     // Inner fields with lines above and below them. Interpolate between those fields
                     if (row_idx & 1) == skip_field && row_idx != 0 && row_idx != output_height - 1 {
                         for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
-                            let src_idx_lower = ((row_idx - 1) >> 1) * width + pix_idx;
-                            let src_idx_upper = ((row_idx + 1) >> 1) * width + pix_idx;
+                            let src_idx_lower =
+                                ((row_idx - 1) >> 1) * width + pix_idx + blit_info.rect.left;
+                            let src_idx_upper =
+                                ((row_idx + 1) >> 1) * width + pix_idx + blit_info.rect.left;
 
                             let interp_pixel = [
                                 (self.y[src_idx_lower] + self.y[src_idx_upper]) * 0.5,
@@ -486,7 +489,9 @@ impl<'a> YiqView<'a> {
                     } else {
                         // Copy the field directly
                         for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
-                            let src_idx = (row_idx >> 1).min(num_rows - 1) * width + pix_idx;
+                            let src_idx = (row_idx >> 1).min(num_rows - 1) * width
+                                + pix_idx
+                                + blit_info.rect.left;
                             let rgb = pixel_transform(yiq_to_rgb([
                                 self.y[src_idx],
                                 self.i[src_idx],
@@ -504,6 +509,7 @@ impl<'a> YiqView<'a> {
             }
             (DeinterlaceMode::Skip, YiqField::Upper | YiqField::Lower) => {
                 chunks.for_each(|(mut row_idx, dst_row)| {
+                    row_idx += blit_info.rect.top;
                     // Limit to the actual width of the output (rowbytes may include trailing padding)
                     let dst_row = &mut dst_row[blit_info.rect.left * num_components
                         ..blit_info.rect.right * num_components];
@@ -514,7 +520,9 @@ impl<'a> YiqView<'a> {
                         return;
                     }
                     for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
-                        let src_idx = (row_idx >> 1).min(num_rows - 1) * width + pix_idx;
+                        let src_idx = (row_idx >> 1).min(num_rows - 1) * width
+                            + pix_idx
+                            + blit_info.rect.left;
                         let rgb = pixel_transform(yiq_to_rgb([
                             self.y[src_idx],
                             self.i[src_idx],
@@ -531,6 +539,7 @@ impl<'a> YiqView<'a> {
             }
             (_, YiqField::InterleavedUpper | YiqField::InterleavedLower) => {
                 chunks.for_each(|(mut row_idx, dst_row)| {
+                    row_idx += blit_info.rect.top;
                     // Limit to the actual width of the output (rowbytes may include trailing padding)
                     let dst_row = &mut dst_row[blit_info.rect.left * num_components
                         ..blit_info.rect.right * num_components];
@@ -552,9 +561,9 @@ impl<'a> YiqView<'a> {
                     let src_idx = interleaved_row_idx * width;
                     for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
                         let rgb = pixel_transform(yiq_to_rgb([
-                            self.y[src_idx + pix_idx],
-                            self.i[src_idx + pix_idx],
-                            self.q[src_idx + pix_idx],
+                            self.y[src_idx + pix_idx + blit_info.rect.left],
+                            self.i[src_idx + pix_idx + blit_info.rect.left],
+                            self.q[src_idx + pix_idx + blit_info.rect.left],
                         ]));
                         pixel[r_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[0]));
                         pixel[g_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[1]));
@@ -567,6 +576,7 @@ impl<'a> YiqView<'a> {
             }
             _ => {
                 chunks.for_each(|(mut row_idx, dst_row)| {
+                    row_idx += blit_info.rect.top;
                     // Limit to the actual width of the output (rowbytes may include trailing padding)
                     let dst_row = &mut dst_row[blit_info.rect.left * num_components
                         ..blit_info.rect.right * num_components];
@@ -574,7 +584,8 @@ impl<'a> YiqView<'a> {
                         row_idx = output_height - row_idx - 1;
                     }
                     for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
-                        let src_idx = row_idx.min(num_rows - 1) * width + pix_idx;
+                        let src_idx =
+                            row_idx.min(num_rows - 1) * width + pix_idx + blit_info.rect.left;
                         let rgb = pixel_transform(yiq_to_rgb([
                             self.y[src_idx],
                             self.i[src_idx],

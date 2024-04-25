@@ -161,20 +161,20 @@ impl VideoFilterImpl for NtscFilter {
 
         match out_format {
             VideoFormat::Rgbx | VideoFormat::Rgba => {
-                process_gst_frame::<Rgbx8>(in_frame, out_data, out_stride, &settings)?;
+                process_gst_frame::<Rgbx8>(in_frame, out_data, out_stride, None, &settings)?;
             }
             VideoFormat::Bgrx | VideoFormat::Bgra => {
-                process_gst_frame::<Bgrx8>(in_frame, out_data, out_stride, &settings)?;
+                process_gst_frame::<Bgrx8>(in_frame, out_data, out_stride, None, &settings)?;
             }
             VideoFormat::Xrgb | VideoFormat::Argb => {
-                process_gst_frame::<Xrgb8>(in_frame, out_data, out_stride, &settings)?;
+                process_gst_frame::<Xrgb8>(in_frame, out_data, out_stride, None, &settings)?;
             }
             VideoFormat::Xbgr | VideoFormat::Abgr => {
-                process_gst_frame::<Xbgr8>(in_frame, out_data, out_stride, &settings)?;
+                process_gst_frame::<Xbgr8>(in_frame, out_data, out_stride, None, &settings)?;
             }
             VideoFormat::Argb64 => {
                 let data_16 = unsafe { out_data.align_to_mut::<u16>() }.1;
-                process_gst_frame::<Xrgb16>(in_frame, data_16, out_stride, &settings)?;
+                process_gst_frame::<Xrgb16>(in_frame, data_16, out_stride, None, &settings)?;
             }
             _ => Err(gstreamer::FlowError::NotSupported)?,
         };

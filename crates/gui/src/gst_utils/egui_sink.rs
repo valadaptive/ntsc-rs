@@ -1,5 +1,4 @@
-use eframe::egui::Context;
-use eframe::egui::{TextureFilter, TextureOptions};
+use eframe::egui::{Context, Rect, TextureFilter, TextureOptions};
 use eframe::epaint::{Color32, ColorImage, TextureHandle};
 use gstreamer::glib::once_cell::sync::Lazy;
 use gstreamer::prelude::*;
@@ -7,7 +6,7 @@ use gstreamer::{glib, PadTemplate};
 use gstreamer_video::subclass::prelude::*;
 use gstreamer_video::video_frame::Readable;
 use gstreamer_video::VideoFrame;
-use ntscrs::yiq_fielding::Rgbx8;
+use ntscrs::yiq_fielding::{self, Rgbx8};
 use std::fmt::Debug;
 use std::sync::Mutex;
 
@@ -24,7 +23,7 @@ pub enum EffectPreviewSetting {
     #[default]
     Enabled,
     Disabled,
-    SplitScreen(f64),
+    SplitScreen(Rect),
 }
 
 impl Debug for SinkTexture {
@@ -84,12 +83,14 @@ impl EguiSink {
         &self,
         vframe: &VideoFrame<Readable>,
         image: &mut ColorImage,
+        rect: Option<yiq_fielding::Rect>,
     ) -> Result<(), gstreamer::FlowError> {
         let out_stride = image.width() * 4;
         process_gst_frame::<Rgbx8>(
             &vframe.as_video_frame_ref(),
             image.as_raw_mut(),
             out_stride,
+            rect,
             &self.settings.lock().unwrap().0,
         )?;
 
@@ -107,28 +108,29 @@ impl EguiSink {
 
         match *self.preview_mode.lock().unwrap() {
             EffectPreviewSetting::Enabled => {
-                self.apply_effect(vframe, &mut image)?;
+                self.apply_effect(vframe, &mut image, None)?;
             }
-            #[allow(illegal_floating_point_literal_pattern)]
-            EffectPreviewSetting::Disabled | EffectPreviewSetting::SplitScreen(0f64) => {
+            EffectPreviewSetting::Disabled => {
                 // Copy directly to egui image when effect is disabled
                 let src_buf = vframe.plane_data(0).or(Err(gstreamer::FlowError::Error))?;
                 image.as_raw_mut().copy_from_slice(src_buf);
             }
             EffectPreviewSetting::SplitScreen(split) => {
-                let buf = vframe.plane_data(0).or(Err(gstreamer::FlowError::Error))?;
-                self.apply_effect(vframe, &mut image)?;
+                let src_buf = vframe.plane_data(0).or(Err(gstreamer::FlowError::Error))?;
+                image.as_raw_mut().copy_from_slice(src_buf);
 
-                let split_boundary =
-                    (split * width as f64).round().clamp(0.0, width as f64) as usize;
-                let image_data = image.as_raw_mut();
-                image_data
-                    .chunks_exact_mut(width * 4)
-                    .zip(buf.chunks_exact(width * 4))
-                    .for_each(|(img_row, vid_row)| {
-                        img_row[split_boundary * 4..]
-                            .copy_from_slice(&vid_row[split_boundary * 4..]);
-                    });
+                let rect_to_blit_coord = |coord: f32, dim: usize| {
+                    (coord * dim as f32).round().clamp(0.0, dim as f32) as usize
+                };
+
+                let rect = yiq_fielding::Rect::new(
+                    rect_to_blit_coord(split.top(), height),
+                    rect_to_blit_coord(split.left(), width),
+                    rect_to_blit_coord(split.bottom(), height),
+                    rect_to_blit_coord(split.right(), width),
+                );
+
+                self.apply_effect(vframe, &mut image, Some(rect))?;
             }
         }
 

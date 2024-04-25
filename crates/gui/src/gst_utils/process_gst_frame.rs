@@ -5,7 +5,7 @@ use gstreamer_video::{VideoFormat, VideoFrameRef, VideoInterlaceMode};
 use ntscrs::{
     settings::NtscEffect,
     yiq_fielding::{
-        Bgrx8, BlitInfo, DeinterlaceMode, PixelFormat, Rgbx8, Xbgr8, Xrgb16, Xrgb8, YiqField,
+        Bgrx8, BlitInfo, DeinterlaceMode, PixelFormat, Rect, Rgbx8, Xbgr8, Xrgb16, Xrgb8, YiqField,
         YiqOwned, YiqView,
     },
 };
@@ -45,6 +45,7 @@ pub fn process_gst_frame<S: PixelFormat>(
     in_frame: &VideoFrameRef<&BufferRef>,
     out_frame: &mut [S::DataFormat],
     out_stride: usize,
+    out_rect: Option<Rect>,
     settings: &NtscEffect,
 ) -> Result<(), FlowError> {
     let info = in_frame.info();
@@ -54,6 +55,16 @@ pub fn process_gst_frame<S: PixelFormat>(
         / info.fps().denom() as u128) as u64
         / ClockTime::SECOND.nseconds();
 
+    let blit_info = out_rect
+        .map(|rect| BlitInfo::new(rect, out_stride, false))
+        .unwrap_or_else(|| {
+            BlitInfo::from_full_frame(
+                in_frame.width() as usize,
+                in_frame.height() as usize,
+                out_stride,
+            )
+        });
+
     match in_frame.info().interlace_mode() {
         VideoInterlaceMode::Progressive => {
             let field = settings.use_field.to_yiq_field(frame as usize);
@@ -62,11 +73,7 @@ pub fn process_gst_frame<S: PixelFormat>(
             settings.apply_effect_to_yiq(&mut view, frame as usize);
             view.write_to_strided_buffer::<S, _>(
                 out_frame,
-                BlitInfo::from_full_frame(
-                    in_frame.width() as usize,
-                    in_frame.height() as usize,
-                    out_stride,
-                ),
+                blit_info,
                 DeinterlaceMode::Bob,
                 identity,
             );
@@ -84,11 +91,7 @@ pub fn process_gst_frame<S: PixelFormat>(
             settings.apply_effect_to_yiq(&mut view, frame as usize * 2);
             view.write_to_strided_buffer::<S, _>(
                 out_frame,
-                BlitInfo::from_full_frame(
-                    in_frame.width() as usize,
-                    in_frame.height() as usize,
-                    out_stride,
-                ),
+                blit_info,
                 DeinterlaceMode::Skip,
                 identity,
             );

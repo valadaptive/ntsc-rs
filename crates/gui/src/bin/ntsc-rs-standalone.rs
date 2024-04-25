@@ -18,8 +18,7 @@ use std::{
     thread,
 };
 
-use eframe::egui::{self, util::undoer::Undoer, Response};
-use eframe::epaint::vec2;
+use eframe::egui::{self, pos2, vec2, Rect, util::undoer::Undoer, Response};
 use futures_lite::{Future, FutureExt};
 use glib::clone::Downgrade;
 use gstreamer::{glib, prelude::*, ClockTime};
@@ -273,14 +272,14 @@ enum EffectPreviewMode {
 #[derive(Debug)]
 struct EffectPreviewSettings {
     mode: EffectPreviewMode,
-    split_location: f64,
+    preview_rect: Rect,
 }
 
 impl Default for EffectPreviewSettings {
     fn default() -> Self {
         Self {
             mode: Default::default(),
-            split_location: 0.5,
+            preview_rect: Rect::from_min_max(pos2(0.0, 0.0), pos2(0.5, 1.0)),
         }
     }
 }
@@ -778,7 +777,7 @@ impl NtscApp {
             EffectPreviewMode::Enabled => EffectPreviewSetting::Enabled,
             EffectPreviewMode::Disabled => EffectPreviewSetting::Disabled,
             EffectPreviewMode::SplitScreen => {
-                EffectPreviewSetting::SplitScreen(preview_settings.split_location)
+                EffectPreviewSetting::SplitScreen(preview_settings.preview_rect)
             }
         }
     }
@@ -2677,7 +2676,7 @@ impl NtscApp {
                                             .put(
                                                 rect,
                                                 SplitScreen::new(
-                                                    &mut self.effect_preview.split_location,
+                                                    &mut self.effect_preview.preview_rect,
                                                 ),
                                             )
                                             .changed()
