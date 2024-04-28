@@ -5,24 +5,22 @@ use std::{
     collections::VecDeque,
     error::Error,
     ffi::OsStr,
+    future::Future,
     fs::File,
     io::Read,
     ops::RangeInclusive,
     path::{Path, PathBuf},
-    pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex, OnceLock,
     },
-    task::{Context, Poll, Waker},
+    task::Poll,
     thread,
 };
 
 use eframe::egui::{self, pos2, util::undoer::Undoer, vec2, ColorImage, Rect, Response};
-use futures_lite::{Future, FutureExt};
-use glib::clone::Downgrade;
 use gstreamer::{
-    glib::{self, subclass::types::ObjectSubclassExt},
+    glib::subclass::types::ObjectSubclassExt,
     prelude::*,
     ClockTime,
 };
@@ -49,6 +47,7 @@ use ntscrs::settings::{
     SettingKind, SettingsList, UseField,
 };
 use snafu::{prelude::*, ResultExt};
+use poll_promise::Promise;
 
 use log::debug;
 
@@ -533,66 +532,48 @@ impl LayoutHelper for egui::Ui {
 type AppFn = Box<dyn FnOnce(&mut NtscApp) -> Result<(), ApplicationError> + Send>;
 
 struct AppExecutor {
-    waker: Waker,
     ctx: egui::Context,
-    run_tasks: Vec<Pin<Box<dyn Future<Output = Option<AppFn>> + Send>>>,
-    queued: Vec<AppFn>,
+    promises: Vec<Promise<Option<AppFn>>>,
 }
 
 impl AppExecutor {
     fn new(ctx: egui::Context) -> Self {
-        let waker_ctx = ctx.clone();
         AppExecutor {
-            waker: waker_fn::waker_fn(move || waker_ctx.request_repaint()),
             ctx,
-            run_tasks: Vec::new(),
-            queued: Vec::new(),
+            promises: Vec::new(),
         }
     }
 
     #[must_use]
     fn tick(&mut self) -> Vec<AppFn> {
-        let mut i = 0usize;
-        let mut queued = std::mem::take(&mut self.queued);
-        while i < self.run_tasks.len() {
-            let task = &mut self.run_tasks[i];
-            match task.poll(&mut Context::from_waker(&self.waker)) {
-                Poll::Pending => {
-                    i += 1;
+        poll_promise::tick();
+        let mut resolved = Vec::new();
+        let mut i = 0;
+        while i < self.promises.len() {
+            if let Poll::Ready(_) = self.promises[i].poll() {
+                let promise = self.promises.swap_remove(i);
+                if let Some(f) = promise
+                    .try_take()
+                    .unwrap_or_else(|_| panic!("Promise was ready but try_take failed"))
+                {
+                    resolved.push(f);
                 }
-                Poll::Ready(f) => {
-                    if let Some(f) = f {
-                        queued.push(f);
-                    }
-                    let _ = self.run_tasks.swap_remove(i);
-                }
+                continue;
             }
+            i += 1;
         }
 
-        queued
+        if !self.promises.is_empty() {
+            self.ctx.request_repaint();
+        }
+
+        resolved
     }
 
-    fn spawn(
-        &mut self,
-        future: impl Future<Output = Option<AppFn>> + 'static + Send,
-        next_frame: bool,
-    ) {
-        let mut boxed = Box::pin(future);
-        if next_frame {
-            self.run_tasks.push(boxed);
-            self.ctx.request_repaint();
-        } else {
-            match boxed.poll(&mut Context::from_waker(&self.waker)) {
-                Poll::Ready(f) => {
-                    if let Some(f) = f {
-                        self.queued.push(f);
-                    }
-                }
-                Poll::Pending => {
-                    self.run_tasks.push(boxed);
-                }
-            }
-        }
+    fn spawn(&mut self, future: impl Future<Output = Option<AppFn>> + 'static + Send) {
+        let promise = Promise::spawn_async(future);
+        self.promises.push(promise);
+        self.ctx.request_repaint();
     }
 }
 
@@ -654,19 +635,7 @@ impl NtscApp {
     }
 
     fn spawn(&mut self, future: impl Future<Output = Option<AppFn>> + 'static + Send) {
-        self.executor.lock().unwrap().spawn(future, false);
-    }
-
-    fn execute_fn_next_frame<T: Future<Output = Option<AppFn>> + 'static + Send>(
-        &self,
-    ) -> impl Fn(T) + Send {
-        let weak_exec = self.executor.downgrade();
-
-        move |future: T| {
-            if let Some(exec) = weak_exec.upgrade() {
-                exec.lock().unwrap().spawn(future, true);
-            }
-        }
+        self.executor.lock().unwrap().spawn(future);
     }
 
     fn tick(&mut self) {
@@ -1043,8 +1012,8 @@ impl NtscApp {
 
         let job_state = Arc::new(Mutex::new(RenderJobState::Waiting));
         let job_state_for_handler = Arc::clone(&job_state);
-        let exec = self.execute_fn_next_frame();
-        let exec2 = self.execute_fn_next_frame();
+        let exec = Arc::clone(&self.executor);
+        let exec2 = Arc::clone(&self.executor);
         let ctx_for_handler = ctx.clone();
 
         //let still_image_duration = settings.duration;
@@ -1251,7 +1220,7 @@ impl NtscApp {
                         if let gstreamer::MessageView::Eos(_) = msg.view() {
                             let job_state_inner = Arc::clone(job_state);
                             let end_time = ctx.input(|input| input.time);
-                            exec(async move {
+                            exec.lock().unwrap().spawn(async move {
                                 let _ = pipeline_for_handler.set_state(gstreamer::State::Null);
                                 *job_state_inner.lock().unwrap() =
                                     RenderJobState::Complete { end_time };
@@ -1304,7 +1273,7 @@ impl NtscApp {
                 .and_then(|metadata| metadata.framerate)
                 .unwrap_or(gstreamer::Fraction::from(30)),
             Some(move |p: Result<gstreamer::Pipeline, _>| {
-                exec2(async move {
+                exec2.lock().unwrap().spawn(async move {
                     Some(
                         Box::new(move |_: &mut NtscApp| -> Result<(), ApplicationError> {
                             let pipeline = p.context(CreatePipelineSnafu)?;

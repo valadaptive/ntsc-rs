@@ -20,14 +20,12 @@ gstreamer = "0.21"
 gstreamer-base = "0.21"
 gstreamer-video = "0.21"
 gstreamer-controller = "0.21"
-futures-lite = "2.2.0"
-async-executor = "1.5.1"
-async-task = "4.7.0"
-waker-fn = "1.1.0"
 log = "0.4.20"
 rfd = "0.12.1"
 rand = "0.8.5"
 tinyjson = "2.5.1"
+poll-promise = { version = "0.3.0", features=["smol"] }
+async-executor = "1.11"
 
 [build-dependencies]
 embed-resource = "2.4"
