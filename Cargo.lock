@@ -3420,7 +3420,7 @@ checksum = "216080ab382b992234dda86873c18d4c48358f5cfcb70fd693d7f6f2131b628b"
 [[package]]
 name = "rfd"
 version = "0.14.1"
-source = "git+https://github.com/valadaptive/rfd?rev=db335fc#db335fc8b58288558904c9658dc6d100968f153e"
+source = "git+https://github.com/valadaptive/rfd?rev=fe3d331#fe3d331d5f52a5da8f2e73bac45a954a0cd9a047"
 dependencies = [
  "ashpd",
  "block",
