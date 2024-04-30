@@ -127,20 +127,20 @@ jobs:
     permissions:
       contents: write
     needs:
-        build-windows
-        build-linux
+       - build-windows
+       - build-linux
     if: ${{ github.ref_type == 'tag' }}
 
     steps:
-     - name: Checkout
+    - name: Checkout
       uses: actions/checkout@v4
 
-     - name: Download artifacts
+    - name: Download artifacts
       uses: actions/download-artifact@v4
       with:
         path: ./artifacts
 
-     - name: Zip artifacts
+    - name: Zip artifacts
       run: for dir in */; do zip -r "${dir%/}.zip" "${dir%/}"; done
       working-directory: ./artifacts
 
