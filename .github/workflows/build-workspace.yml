@@ -132,23 +132,23 @@ jobs:
     if: ${{ github.ref_type == 'tag' }}
 
     steps:
-      name: Checkout
+     - name: Checkout
       uses: actions/checkout@v4
 
-      name: Download artifacts
+     - name: Download artifacts
       uses: actions/download-artifact@v4
       with:
         path: ./artifacts
 
-      name: Zip artifacts
+     - name: Zip artifacts
       run: for dir in */; do zip -r "${dir%/}.zip" "${dir%/}"; done
       working-directory: ./artifacts
 
-      name: Display structure of downloaded files
+     - name: Display structure of downloaded files
       run: ls -l
       working-directory: ./artifacts
 
-      name: Create release
+     - name: Create release
       uses: ncipollo/release-action@v1
       with:
         artifacts: "./artifacts/ntsc-rs-*-standalone.zip"
