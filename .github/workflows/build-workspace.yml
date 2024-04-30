@@ -92,7 +92,7 @@ jobs:
 
     - uses: Swatinem/rust-cache@v2
 
-    - name: Build
+      name: Build
       run: cargo build --release --workspace
 
     - name: Build OpenFX plugin
@@ -105,7 +105,7 @@ jobs:
         name: ntsc-rs-windows-openfx
         path: crates/openfx-plugin/build/
 
-    - name: Package Windows binary
+      name: Package Windows binary
       if: ${{ github.ref_type == 'tag' }}
       run: |
         mkdir ntsc-rs-windows-standalone
@@ -115,7 +115,7 @@ jobs:
         cp ..\target\release\ntsc-rs-standalone.exe .\bin\
         cp ..\target\release\ntsc-rs-launcher.exe .\
 
-    - name: Archive Windows binary
+      name: Archive Windows binary
       uses: actions/upload-artifact@v4
       if: ${{ github.ref_type == 'tag' }}
       with:
@@ -127,29 +127,29 @@ jobs:
     permissions:
       contents: write
     needs:
-      - build-windows
-      - build-linux
+        build-windows
+        build-linux
     if: ${{ github.ref_type == 'tag' }}
 
     steps:
-    - name: Checkout
+      name: Checkout
       uses: actions/checkout@v4
 
-    - name: Download artifacts
+      name: Download artifacts
       uses: actions/download-artifact@v4
       with:
         path: ./artifacts
 
-    - name: Zip artifacts
+      name: Zip artifacts
       run: for dir in */; do zip -r "${dir%/}.zip" "${dir%/}"; done
       working-directory: ./artifacts
 
-    - name: Display structure of downloaded files
+      name: Display structure of downloaded files
       run: ls -l
       working-directory: ./artifacts
 
-    - name: Create release
+      name: Create release
       uses: ncipollo/release-action@v1
       with:
-        artifacts: "./artifacts/ntsc-rs-*-standalone.zip,./artifacts/ntsc-rs-*-openfx.zip,./artifacts/ntsc-rs-*-afterfx.zip"
+        artifacts: "./artifacts/ntsc-rs-*-standalone.zip"
         draft: true
