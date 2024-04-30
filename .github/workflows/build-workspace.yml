@@ -65,7 +65,6 @@ jobs:
       run: |
         choco config set cacheLocation --value "$Env:GITHUB_WORKSPACE\chocolatey_cache"
         echo "CHOCO_TEMP=$Env:GITHUB_WORKSPACE\chocolatey_cache" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
-
     - name: Restore Chocolatey cache
       id: choco-cache-restore
       uses: actions/cache/restore@v4
@@ -82,7 +81,6 @@ jobs:
         echo "$($Env:GSTREAMER_1_0_ROOT_MSVC_X86_64)bin"
         echo "$($Env:GSTREAMER_1_0_ROOT_MSVC_X86_64)bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         echo "GSTREAMER_1_0_ROOT_MSVC_X86_64=$Env:GSTREAMER_1_0_ROOT_MSVC_X86_64" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
     - name: Save Chocolatey cache
       id: choco-cache-save
       uses: actions/cache/save@v4
@@ -114,7 +112,6 @@ jobs:
         robocopy $Env:GSTREAMER_1_0_ROOT_MSVC_X86_64\share\licenses .\licenses /s /copy:DT; if ($lastexitcode -lt 8) { $global:LASTEXITCODE = $null }
         cp ..\target\release\ntsc-rs-standalone.exe .\bin\
         cp ..\target\release\ntsc-rs-launcher.exe .\
-
     - name: Archive Windows binary
       uses: actions/upload-artifact@v4
       if: ${{ github.ref_type == 'tag' }}
@@ -127,8 +124,8 @@ jobs:
     permissions:
       contents: write
     needs:
-       - build-windows
-       - build-linux
+      - build-windows
+      - build-linux
     if: ${{ github.ref_type == 'tag' }}
 
     steps:
@@ -148,8 +145,8 @@ jobs:
       run: ls -l
       working-directory: ./artifacts
 
-   - name: Create release
+    - name: Create release
       uses: ncipollo/release-action@v1
       with:
-        artifacts: "./artifacts/ntsc-rs-*-standalone.zip"
+        artifacts: "./artifacts/ntsc-rs-*-standalone.zip,./artifacts/ntsc-rs-*-openfx.zip,./artifacts/ntsc-rs-*-afterfx.zip"
         draft: true
