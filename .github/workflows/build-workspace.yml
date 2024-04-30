@@ -92,7 +92,7 @@ jobs:
 
     - uses: Swatinem/rust-cache@v2
 
-      name: Build
+    - name: Build
       run: cargo build --release --workspace
 
     - name: Build OpenFX plugin
@@ -105,7 +105,7 @@ jobs:
         name: ntsc-rs-windows-openfx
         path: crates/openfx-plugin/build/
 
-      name: Package Windows binary
+    - name: Package Windows binary
       if: ${{ github.ref_type == 'tag' }}
       run: |
         mkdir ntsc-rs-windows-standalone
@@ -115,7 +115,7 @@ jobs:
         cp ..\target\release\ntsc-rs-standalone.exe .\bin\
         cp ..\target\release\ntsc-rs-launcher.exe .\
 
-      name: Archive Windows binary
+    - name: Archive Windows binary
       uses: actions/upload-artifact@v4
       if: ${{ github.ref_type == 'tag' }}
       with:
