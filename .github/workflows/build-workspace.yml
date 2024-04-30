@@ -121,83 +121,7 @@ jobs:
       with:
         name: ntsc-rs-windows-standalone
         path: ntsc-rs-windows-standalone
-
-  build-ae-plugin:
-    runs-on: windows-2019
-
-    steps:
-    - name: Disable Defender
-      run: Set-MpPreference -DisableRealtimeMonitoring $true
-
-    - name: Checkout
-      uses: actions/checkout@v4
-
-    - name: Install Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-
-    - name: Set chocolatey temp directory
-      run: |
-        choco config set cacheLocation --value "$Env:GITHUB_WORKSPACE\chocolatey_cache"
-        echo "CHOCO_TEMP=$Env:GITHUB_WORKSPACE\chocolatey_cache" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
-
-    - name: Restore Chocolatey cache
-      id: choco-cache-restore
-      uses: actions/cache/restore@v4
-      with:
-        path: ${{ env.CHOCO_TEMP }}
-        key: 'this should never hit'
-        restore-keys: choco-${{ github.job }}-
-
-    - name: Setup
-      run: |
-        python -m pip install meson ninja
-        meson --version
-        $env:PATH = "C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\ProgramData\chocolatey\bin"
-        [Environment]::SetEnvironmentVariable("Path", $env:PATH, "Machine")
-        choco install gpg4win
-        echo "C:\Program Files (x86)\Gpg4win\..\GnuPG\bin" >> $env:GITHUB_PATH
-
-    - name: Save Chocolatey cache
-      id: choco-cache-save
-      uses: actions/cache/save@v4
-      with:
-        path: ${{ env.CHOCO_TEMP }}
-        key: choco-${{ github.job }}-${{ hashFiles(format('{0}\**\*', env.CHOCO_TEMP)) }}
-
-    - name: Get SDK
-      env:
-        WIN_SDK_KEY: ${{ secrets.WIN_SDK_KEY }}
-      run: |
-        git fetch origin blobs
-        git checkout origin/blobs -- sdkwin.zip.gpg
-        gpg --quiet --batch --yes --decrypt --passphrase="$Env:WIN_SDK_KEY" --output=sdkwin.zip sdkwin.zip.gpg
-        Expand-Archive sdkwin.zip .\ae-plugin\sdk\
-        mv '.\ae-plugin\sdk\Adobe After Effects CC 15.0 Win SDK\*' .\ae-plugin\sdk\
-
-    - name: Prepare MSVC
-      uses: bus1/cabuild/action/msdevshell@v1
-      with:
-        architecture: x64
-
-    - uses: Swatinem/rust-cache@v2
-
-    - name: Build
-      run: |
-        cd .\ae-plugin
-        meson setup build
-        cd build
-        meson configure --buildtype=release
-        meson compile
-
-    - name: Archive Windows AE plugin
-      uses: actions/upload-artifact@v4
-      if: ${{ github.ref_type == 'tag' }}
-      with:
-        name: ntsc-rs-windows-afterfx
-        path: ae-plugin/build/ntsc-rs-ae.aex
-
+        
   release:
     runs-on: ubuntu-latest
     permissions:
@@ -205,7 +129,6 @@ jobs:
     needs:
       - build-windows
       - build-linux
-      - build-ae-plugin
     if: ${{ github.ref_type == 'tag' }}
 
     steps:
