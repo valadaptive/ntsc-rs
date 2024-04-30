@@ -98,13 +98,11 @@ jobs:
 
     - name: Archive Windows OpenFX plugin
       uses: actions/upload-artifact@v4
-      if: ${{ github.ref_type == 'tag' }}
       with:
         name: ntsc-rs-windows-openfx
         path: crates/openfx-plugin/build/
 
     - name: Package Windows binary
-      if: ${{ github.ref_type == 'tag' }}
       run: |
         mkdir ntsc-rs-windows-standalone
         cd ntsc-rs-windows-standalone
@@ -114,7 +112,6 @@ jobs:
         cp ..\target\release\ntsc-rs-launcher.exe .\
     - name: Archive Windows binary
       uses: actions/upload-artifact@v4
-      if: ${{ github.ref_type == 'tag' }}
       with:
         name: ntsc-rs-windows-standalone
         path: ntsc-rs-windows-standalone
@@ -126,7 +123,6 @@ jobs:
     needs:
       - build-windows
       - build-linux
-    if: ${{ github.ref_type == 'tag' }}
 
     steps:
     - name: Checkout
