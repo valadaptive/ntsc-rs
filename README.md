@@ -7,13 +7,13 @@
 
 ---
 
-**ntsc-rs** is a video effect which emulates NTSC and VHS video artifacts. It can be used as an After Effects, Premiere, or OpenFX plugin, or as a standalone application.
+**pal-rs** is a video effect which emulates PAL and VHS video artifacts. Based on NTSC-RS, It can be used as an After Effects, Premiere, or OpenFX plugin, or as a standalone application.
 
 ![Screenshot of the ntsc-rs standalone application](./docs/img/appdemo.png)
 
 ## Download
 
-The latest version of ntsc-rs can be downloaded from [the releases page](https://github.com/valadaptive/ntsc-rs/releases).
+The latest version of pal-rs can be downloaded from [the releases page]([https://github.com/valadaptive/ntsc-rs/](https://github.com/LucianoTheWindowsFan/pal-rs/)releases).
 
 ### Windows
 
@@ -47,6 +47,6 @@ On Linux, you'll probably also need to give it execute permissions. This can be 
 
 ## More information
 
-ntsc-rs is a rough Rust port of [ntscqt](https://github.com/JargeZ/ntscqt), a PyQt-based GUI for [ntsc](https://github.com/zhuker/ntsc), itself a Python port of [composite-video-simulator](https://github.com/joncampbell123/composite-video-simulator). Reimplementing the image processing in multithreaded Rust allows it to run at (mostly) real-time speeds.
+pal-rs is a fork of [ntsc-rs](https://github.com/valadaptive/ntsc-rs), rough Rust port of [ntscqt](https://github.com/JargeZ/ntscqt), itself a PyQt-based GUI for [ntsc](https://github.com/zhuker/ntsc), also in itself a Python port of [composite-video-simulator](https://github.com/joncampbell123/composite-video-simulator). Reimplementing the image processing in multithreaded Rust allows it to run at (mostly) real-time speeds.
 
 It's not an exact port--some processing passes have visibly different results, and some new ones have been added.
