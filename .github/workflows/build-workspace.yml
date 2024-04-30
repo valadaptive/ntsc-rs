@@ -144,11 +144,11 @@ jobs:
       run: for dir in */; do zip -r "${dir%/}.zip" "${dir%/}"; done
       working-directory: ./artifacts
 
-     - name: Display structure of downloaded files
+    - name: Display structure of downloaded files
       run: ls -l
       working-directory: ./artifacts
 
-     - name: Create release
+   - name: Create release
       uses: ncipollo/release-action@v1
       with:
         artifacts: "./artifacts/ntsc-rs-*-standalone.zip"
