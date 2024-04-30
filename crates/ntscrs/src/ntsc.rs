@@ -218,7 +218,7 @@ fn luma_filter(frame: &mut YiqView, filter_mode: LumaLowpass) {
 /// that statement seems unsourced and I can't find any info on it...
 fn composite_chroma_lowpass(frame: &mut YiqView, info: &CommonInfo, filter_type: FilterType) {
     let i_filter = make_lowpass_for_type(1300000.0, NTSC_RATE * info.bandwidth_scale, filter_type);
-    let q_filter = make_lowpass_for_type(600000.0, NTSC_RATE * info.bandwidth_scale, filter_type);
+    let q_filter = make_lowpass_for_type(1300000.0, NTSC_RATE * info.bandwidth_scale, filter_type);
 
     let width = frame.dimensions.0;
 
