@@ -19,7 +19,7 @@ https://rust-lang.github.io/rust-bindgen/requirements.html). A custom build scri
 an OpenFX bundle. To build, run:
 
 ```sh
-cargo run --bin build-plugin -- --release
+cargo xtask build-plugin --release
 ```
 
 That'll build a release build--for a debug build, just leave off the `--release` part.
