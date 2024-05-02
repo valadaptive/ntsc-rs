@@ -66,6 +66,8 @@ pub fn main() -> std::io::Result<()> {
         .find(|candidate_target| candidate_target.target_triple == CURRENT_TARGET)
         .unwrap_or_else(|| panic!("Your target \"{}\" is not supported", CURRENT_TARGET));
 
+    println!("Building OpenFX plugin for target {}", target.target_triple);
+
     let mut cargo_args: Vec<_> = vec![
         String::from("build"),
         String::from("--package=openfx-plugin"),

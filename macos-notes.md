@@ -1,0 +1,19 @@
+- Resolve seems to load my unsigned OFX plugin fine, but the Mac App Store version notes it may not support all third-party OFX plugins. Is code signing required for that?
+- Need to upgrade to the latest version of the AE SDK; hopefully it's backwards compatible with older AEs
+
+- OFX plugin (done?)
+  - OFX says Info.plist is necessary on macOS and "needs to be filled in appropriately" (???)
+    - seems to work fine though
+- Build universal binary for OFX plugin (done)
+  - `cargo xtask build-plugin --macos-universal --release`
+- Auto code signing and notarization for everything
+- Standalone application
+  - `PKG_CONFIG_ALLOW_CROSS=1 cargo build --target=[...]` seems to work fine when cross compiling w/ gstreamer
+  - App bundle for standalone application
+  - Probably signing also :(
+- Build AE plugin
+  - Get rez working to generate .rsrc from PiPL (done)
+  - Cargo xtask to build x86 and ARM versions of AE plugin, combine, bundle, and sign
+  - AE plugins are actually bundles
+  - Needs code signing to run AFAIK
+- Do it on CI
