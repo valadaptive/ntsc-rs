@@ -28,6 +28,11 @@
 
 #define PF_DEEP_COLOR_AWARE 1
 
+#include <stdint.h>
+#include <math.h>
+#include <stddef.h>
+#include <string.h>
+
 #include "AEConfig.h"
 #include "entry.h"
 #include "AE_Effect.h"

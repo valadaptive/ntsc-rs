@@ -7,10 +7,13 @@ ntsc-rs can be used from After Effects and Premiere! When built, the plugin can 
 I've set up a workflow to build the plugin on Windows. If you use macOS, you're on your own--I don't have a Mac, so I
 can't set up a build environment for it myself, but contributions are welcome. Here's what you'll need:
 
-### Visual Studio w/ Windows SDK
+### Visual Studio w/ Windows SDK (for Windows)
 You'll need Visual Studio and probably the Windows SDK installed in order to build the plugin. In particular, errors
 regarding a missing "ws2_32", "userenv", "ntdll", or "bcrypt" library are probably an indication that you're missing the
 Windows SDK.
+
+### Xcode (for Mac)
+You'll need Xcode installed because AE plugins use some of its build tools, specifically `rez`.
 
 ### Meson
 This project is built using [Meson](https://mesonbuild.com/Getting-meson.html). It's the worst C/C++ build system,
@@ -32,6 +35,14 @@ folder which bafflingly contains the actual headers. The final path should be so
 ### Cargo and Rust
 Of course, ntsc-rs itself is written in Rust, so you'll need [the Rust toolchain](https://rustup.rs/). The stable
 version will work just fine.
+
+### cbindgen
+This project uses the cbindgen tool to generate C bindings for ntsc-rs. Once Cargo is installed (see above), you can
+install it with:
+
+```powershell
+cargo install cbindgen
+```
 
 ## Building the plugin
 In this directory, run:

@@ -1,0 +1,2 @@
+[properties]
+macos-cross = 'intel-to-arm'

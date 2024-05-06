@@ -26,6 +26,7 @@ resource 'PiPL' (16000) {
 #else
 	#ifdef AE_OS_MAC
 		CodeMacIntel64 {"EffectMain"},
+		CodeMacARM64 {"EffectMain"},
 	#endif
 #endif
 		/* [6] */
