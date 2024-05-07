@@ -116,17 +116,27 @@ fn parse_decimal_or_percentage(input: &str, threshold: f64) -> Option<f64> {
     Some(expr)
 }
 
+#[cfg(not(target_os = "macos"))]
 static ICON: &[u8] = include_bytes!("../../../../assets/icon.png");
 
 pub fn run() -> Result<(), Box<dyn Error>> {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+
+    let viewport = egui::ViewportBuilder::default().with_inner_size([1300.0, 720.0]);
+
+    // Use the bundle icon for macOS
+    #[cfg(not(target_os = "macos"))]
+    let viewport = viewport.with_icon(eframe::icon_data::from_png_bytes(ICON)?);
+    #[cfg(target_os = "macos")]
+    let viewport = viewport.with_icon(egui::IconData::default());
+
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
+        viewport: viewport
             .with_inner_size([1300.0, 720.0])
-            .with_icon(eframe::icon_data::from_png_bytes(ICON)?)
             .with_app_id(NtscApp::APP_ID),
         ..Default::default()
     };
+
     Ok(eframe::run_native(
         NtscApp::APP_ID,
         options,

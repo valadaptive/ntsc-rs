@@ -7,6 +7,6 @@
   effects and multiplexing them, as seen in e.g. [this video](https://www.youtube.com/watch?v=eQHocOLTxnw).
 - Blender plugin
 - Wave digital filters to more accurately model analog circuitry?
-- Look into replacing Meson with build.rs and https://crates.io/crates/cc
+- Look into replacing Meson with a `cargo xtask` and https://crates.io/crates/cc
 - Handle downsampling properly
 - Luma smear
