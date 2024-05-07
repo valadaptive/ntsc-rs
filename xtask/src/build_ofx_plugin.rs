@@ -60,7 +60,7 @@ const TARGETS: &[Target] = &[
 ];
 
 pub fn command() -> clap::Command {
-    clap::Command::new("build-plugin")
+    clap::Command::new("build-ofx-plugin")
         .arg(
             clap::Arg::new("release")
                 .long("release")
@@ -113,11 +113,8 @@ fn build_plugin_for_target(target: &Target, release_mode: bool) -> std::io::Resu
             "release"
         } else {
             "debug"
-        }
+        },
     ]);
-
-    let mut output_dir = workspace_dir().to_path_buf();
-    output_dir.extend(&["crates", "openfx-plugin", "build"]);
 
     let mut built_library_path = target_dir_path.clone();
     built_library_path.push(target.library_prefix.to_owned() + "openfx_plugin");
