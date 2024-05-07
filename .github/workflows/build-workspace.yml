@@ -34,7 +34,7 @@ jobs:
       run: cargo build --release --workspace
 
     - name: Build OpenFX plugin
-      run: cargo run --bin build-plugin -- --release
+      run: cargo xtask build-ofx-plugin --release
 
     - name: Archive Linux OpenFX plugin
       uses: actions/upload-artifact@v4
@@ -97,7 +97,7 @@ jobs:
       run: cargo build --release -p gui
 
     - name: Build OpenFX plugin
-      run: cargo run --bin build-plugin -- --release
+      run: cargo xtask build-ofx-plugin --release
 
     - name: Build After Effects plugin
       run: |

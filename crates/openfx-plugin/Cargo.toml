@@ -14,6 +14,3 @@ bindgen = "0.69.1"
 
 [lib]
 crate-type = ["cdylib"]
-
-[[bin]]
-name = "build-plugin"
