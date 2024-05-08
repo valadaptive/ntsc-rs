@@ -1408,14 +1408,23 @@ pub extern "C" fn OfxGetPlugin(nth: c_int) -> *const OfxPlugin {
         return ptr::null();
     }
 
+    // Use the minor and patch versions for the OFX major and minor versions respectively so this can still be a
+    // 0.x crate (may contain breaking changes)
+    const VERSION_MINOR: &str = env!("CARGO_PKG_VERSION_MINOR");
+    const VERSION_PATCH: &str = env!("CARGO_PKG_VERSION_PATCH");
+
     let plugin_info: &'static OfxPlugin = PLUGIN_INFO.get_or_init(|| {
         OfxPlugin {
             // I think this cast is OK?
             pluginApi: kOfxImageEffectPluginApi.as_ptr(),
             apiVersion: 1,
             pluginIdentifier: static_cstr!("wtf.vala:NtscRs").as_ptr(),
-            pluginVersionMajor: 1,
-            pluginVersionMinor: 4,
+            pluginVersionMajor: VERSION_MINOR
+                .parse()
+                .expect("could not parse minor version"),
+            pluginVersionMinor: VERSION_PATCH
+                .parse()
+                .expect("could not parse patch version"),
             setHost: Some(set_host_info),
             mainEntry: Some(main_entry),
         }
