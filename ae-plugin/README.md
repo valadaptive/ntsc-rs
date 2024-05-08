@@ -23,11 +23,11 @@ left unresolved since 2017](https://github.com/mesonbuild/meson/issues/2320) and
 2018](https://github.com/rust-lang/cargo/issues/6790).
 
 ### The After Effects SDK
-You'll need the [After Effects SDK](https://developer.adobe.com/after-effects/). Version 15.0 is what I developed
-against (I'd love to use a newer version of After Effects, but anything past CC 2018 keeps freezing), but you should be
-able to use a newer version. Unzip the SDK into a subfolder named "sdk" inside this folder. You'll want to unzip the
-*contents* of the .zip's root folder, which at this time is just a PDF of the SDK guide and an "Examples" folder which
-bafflingly contains the actual headers. The final path should be something like `ntsc-rs/ae-plugin/sdk/Examples`.
+You'll need the [After Effects SDK](https://developer.adobe.com/after-effects/). I use the May 2023 version, but
+anything 2015 or newer *should* work. Unzip the SDK into a subfolder named "sdk" inside this folder. You'll want to
+unzip the *contents* of the .zip's root folder, which at this time is just a PDF of the SDK guide and an "Examples"
+folder which bafflingly contains the actual headers. The final path should be something like
+`ntsc-rs/ae-plugin/sdk/Examples`.
 
 ### Cargo and Rust
 Of course, ntsc-rs itself is written in Rust, so you'll need [the Rust toolchain](https://rustup.rs/). The stable
