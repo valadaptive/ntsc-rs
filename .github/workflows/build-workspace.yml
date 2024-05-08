@@ -172,10 +172,10 @@ jobs:
       env:
         BLOB_KEY: ${{ secrets.BLOB_KEY }}
       run: |
-        git fetch origin blobs
+        git fetch --depth=1 origin blobs
         git checkout origin/blobs -- ae_sdk_win.zip.age
         $Env:BLOB_KEY | Out-File -Encoding UTF8 ./blob_key.txt
-        age --decrypt -i ./identity.txt -o ./sdkwin.zip ./ae_sdk_win.zip.age
+        age --decrypt -i ./blob_key.txt -o ./sdkwin.zip ./ae_sdk_win.zip.age
         Expand-Archive sdkwin.zip .\ae-plugin\sdk\
         mv '.\ae-plugin\sdk\AfterEffectsSDK\*' .\ae-plugin\sdk\
 
