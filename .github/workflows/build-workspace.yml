@@ -15,6 +15,7 @@ env:
 jobs:
   build-linux:
     runs-on: ubuntu-20.04
+    if: ${{ github.ref_name != 'macos' }}
 
     steps:
     - name: Checkout
@@ -52,6 +53,7 @@ jobs:
 
   build-windows:
     runs-on: windows-2019
+    if: ${{ github.ref_name != 'macos' }}
 
     steps:
     - name: Disable Defender
@@ -143,6 +145,12 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
+    - name: Install packages
+      run: |
+        brew install age meson
+        brew install --cask gstreamer-runtime
+        brew install --cask gstreamer-development
+
     - uses: Swatinem/rust-cache@v2
 
     - name: Build standalone app
@@ -150,9 +158,6 @@ jobs:
 
     - name: Build OpenFX plugin
       run: cargo xtask build-ofx-plugin --macos-universal --release
-
-    - name: Install packages
-      run: brew install age meson
 
     - name: Get SDK
       env:
