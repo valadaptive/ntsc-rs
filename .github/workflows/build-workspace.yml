@@ -183,6 +183,9 @@ jobs:
         cp -r /Volumes/sdk/AfterEffectsSDK ./ae-plugin/sdk
         hdiutil detach /Volumes/sdk
 
+    - name: Setup for AE plugin build
+      run: cargo install cbindgen
+
     - name: Build AE plugin binary (arm64)
       run: |
         cd ae-plugin
