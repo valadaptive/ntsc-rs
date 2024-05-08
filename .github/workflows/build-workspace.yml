@@ -145,11 +145,20 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
+    - name: Add x86_64 target
+      run: |
+        rustup target add x86_64-apple-darwin
+
     - name: Install packages
       run: |
         brew install age meson
         brew install --cask gstreamer-runtime
         brew install --cask gstreamer-development
+
+    - name: Setup GStreamer devel
+      run: |
+        echo "/Library/Frameworks/GStreamer.framework/Versions/1.0/bin" >> $GITHUB_PATH
+        echo 'PKG_CONFIG_PATH="/Library/Frameworks/GStreamer.framework/Versions/1.0/lib/pkgconfig"' >> $GITHUB_ENV
 
     - uses: Swatinem/rust-cache@v2
 
