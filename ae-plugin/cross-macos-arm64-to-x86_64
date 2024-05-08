@@ -1,2 +1,5 @@
+[binaries]
+strip = '/usr/bin/strip'
+
 [properties]
 macos-cross = 'arm-to-intel'

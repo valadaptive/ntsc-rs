@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - age-test
+      - macos
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
@@ -134,6 +134,54 @@ jobs:
       with:
         name: ntsc-rs-windows-afterfx
         path: .\ntsc-rs-ae.aex
+
+  build-macos:
+    runs-on: macos-14
+    if: ${{ github.ref_name == 'macos' }} # TODO: remove once macos branch is merged
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Build standalone app
+      run: cargo xtask macos-bundle --release
+
+    - name: Build OpenFX plugin
+      run: cargo xtask build-ofx-plugin --macos-universal --release
+
+    - name: Install packages
+      run: brew install age meson
+
+    - name: Get SDK
+      env:
+        BLOB_KEY: ${{ secrets.BLOB_KEY }}
+      run: |
+        git fetch --depth=1 origin blobs
+        git checkout origin/blobs -- ae_sdk_mac.zip.age
+        echo $Env:BLOB_KEY > ./blob_key.txt
+        age --decrypt -i ./blob_key.txt -o ./ae_sdk_mac.zip ./ae_sdk_mac.zip.age
+        unzip ae_sdk_mac.zip
+        hdiutil attach May2023_AfterEffectsSDK_MacOS.dmg -mountpoint /Volumes/sdk -noverify
+        cp -r /Volumes/sdk/AfterEffectsSDK ./ae-plugin/sdk
+        hdiutil detach /Volumes/sdk
+
+    - name: Build AE plugin binary (arm64)
+      run: |
+        cd ae-plugin
+        meson setup --buildtype=release build_arm64
+        cd build_arm64
+        meson build
+
+    - name: Build AE plugin binary (x86_64)
+      run: |
+        cd ae-plugin
+        meson setup --buildtype=release --cross-file cross-macos-arm64-to-x86_64 build_x86_64
+        cd build_x86_64
+        meson build
+
+    # TODO: combine AE plugin binaries and create and sign bundle
 
   release:
     runs-on: ubuntu-latest
