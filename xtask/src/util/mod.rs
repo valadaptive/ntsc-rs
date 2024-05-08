@@ -1,5 +1,4 @@
 use std::{
-    fs,
     path::{Path, PathBuf},
     sync::OnceLock,
 };
@@ -18,14 +17,6 @@ pub fn workspace_dir() -> &'static Path {
         let cargo_path = Path::new(std::str::from_utf8(&output).unwrap().trim());
         cargo_path.parent().unwrap().to_path_buf()
     });
-}
-
-pub fn copy_dir_recursive<T: AsRef<Path>>(
-    src: impl AsRef<Path>,
-    dst: impl AsRef<Path>,
-    filter: impl Fn(T) -> bool,
-) -> std::io::Result<()> {
-    unimplemented!()
 }
 
 pub trait PathBufExt {

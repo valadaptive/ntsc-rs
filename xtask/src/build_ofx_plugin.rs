@@ -1,4 +1,4 @@
-use crate::util::workspace_dir;
+use crate::util::{workspace_dir, PathBufExt};
 
 use std::ffi::OsString;
 use std::fs;
@@ -90,6 +90,39 @@ pub fn command() -> clap::Command {
         )
 }
 
+fn get_info_plist() -> String {
+    let cargo_toml_path = workspace_dir().plus_iter(["crates", "openfx-plugin", "Cargo.toml"]);
+    let manifest = cargo_toml::Manifest::from_path(cargo_toml_path).unwrap();
+    let version = manifest.package().version();
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>CFBundleInfoDictionaryVersion</key>
+            <string>6.0</string>
+            <key>CFBundleDevelopmentRegion</key>
+            <string>en</string>
+            <key>CFBundlePackageType</key>
+            <string>BNDL</string>
+            <key>CFBundleIdentifier</key>
+            <string>rs.ntsc.openfx</string>
+            <key>CFBundleExecutable</key>
+            <string>ntsc-rs-standalone</string>
+            <key>CFBundleVersion</key>
+            <string>{version}</string>
+            <key>CFBundleShortVersionString</key>
+            <string>{version}</string>
+            <key>NSHumanReadableCopyright</key>
+            <string>© 2023-2024 valadaptive</string>
+            <key>CFBundleSignature</key>
+            <string>????</string>
+        </dict>
+        </plist>
+        "#
+    )
+}
+
 fn build_plugin_for_target(target: &Target, release_mode: bool) -> std::io::Result<PathBuf> {
     println!("Building OpenFX plugin for target {}", target.target_triple);
 
@@ -178,13 +211,14 @@ pub fn main(args: &clap::ArgMatches) -> std::io::Result<()> {
     let mut output_dir = workspace_dir().to_path_buf();
     output_dir.extend(&["crates", "openfx-plugin", "build"]);
 
-    let mut plugin_bin_path = output_dir.clone();
-    plugin_bin_path.push("NtscRs.ofx.bundle/Contents");
-    plugin_bin_path.push(ofx_architecture);
-    plugin_bin_path.push("NtscRs.ofx");
+    let plugin_bundle_path = output_dir.plus_iter(["NtscRs.ofx.bundle", "Contents"]);
+    let plugin_bin_path = plugin_bundle_path.plus_iter([ofx_architecture, "NtscRs.ofx"]);
 
     fs::create_dir_all(plugin_bin_path.parent().unwrap())?;
     fs::copy(built_library_path, plugin_bin_path)?;
+    if ofx_architecture == "MacOS" {
+        fs::write(plugin_bundle_path.plus("Info.plist"), get_info_plist())?;
+    }
 
     Ok(())
 }

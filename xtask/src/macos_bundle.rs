@@ -28,7 +28,7 @@ pub fn command() -> clap::Command {
 }
 
 fn build_for_target(target: &str, release_mode: bool) -> std::io::Result<PathBuf> {
-    println!("Building application plugin for target {}", target);
+    println!("Building application for target {}", target);
 
     let mut cargo_args: Vec<_> = vec![
         String::from("build"),
