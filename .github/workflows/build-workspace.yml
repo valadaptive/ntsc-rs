@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - age-test
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
@@ -14,6 +15,7 @@ env:
 jobs:
   build-linux:
     runs-on: ubuntu-20.04
+    if: ${{ false }}
 
     steps:
     - name: Checkout
@@ -51,6 +53,7 @@ jobs:
 
   build-windows:
     runs-on: windows-2019
+    if: ${{ false }}
 
     steps:
     - name: Disable Defender
@@ -156,8 +159,7 @@ jobs:
         meson --version
         $env:PATH = "C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\ProgramData\chocolatey\bin"
         [Environment]::SetEnvironmentVariable("Path", $env:PATH, "Machine")
-        choco install gpg4win
-        echo "C:\Program Files (x86)\Gpg4win\..\GnuPG\bin" >> $env:GITHUB_PATH
+        choco install age.portable
 
     - name: Save Chocolatey cache
       id: choco-cache-save
@@ -168,13 +170,14 @@ jobs:
 
     - name: Get SDK
       env:
-        WIN_SDK_KEY: ${{ secrets.WIN_SDK_KEY }}
+        BLOB_KEY: ${{ secrets.BLOB_KEY }}
       run: |
         git fetch origin blobs
-        git checkout origin/blobs -- sdkwin.zip.gpg
-        gpg --quiet --batch --yes --decrypt --passphrase="$Env:WIN_SDK_KEY" --output=sdkwin.zip sdkwin.zip.gpg
+        git checkout origin/blobs -- ae_sdk_win.zip.age
+        $Env:BLOB_KEY | Out-File -Encoding UTF8 ./blob_key.txt
+        age --decrypt -i ./identity.txt -o ./sdkwin.zip ./ae_sdk_win.zip.age
         Expand-Archive sdkwin.zip .\ae-plugin\sdk\
-        mv '.\ae-plugin\sdk\Adobe After Effects CC 15.0 Win SDK\*' .\ae-plugin\sdk\
+        mv '.\ae-plugin\sdk\AfterEffectsSDK\*' .\ae-plugin\sdk\
 
     - name: Prepare MSVC
       uses: bus1/cabuild/action/msdevshell@v1
@@ -200,6 +203,7 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
+    if: ${{ false }}
     permissions:
       contents: write
     needs:
