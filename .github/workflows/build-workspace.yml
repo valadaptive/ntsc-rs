@@ -15,7 +15,6 @@ env:
 jobs:
   build-linux:
     runs-on: ubuntu-20.04
-    if: ${{ false }}
 
     steps:
     - name: Checkout
@@ -53,7 +52,6 @@ jobs:
 
   build-windows:
     runs-on: windows-2019
-    if: ${{ false }}
 
     steps:
     - name: Disable Defender
