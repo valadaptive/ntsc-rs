@@ -1595,6 +1595,11 @@ pub extern "C" fn OfxGetPlugin(nth: c_int) -> *const OfxPlugin {
         return ptr::null();
     }
 
+    // Use the minor and patch versions for the OFX major and minor versions respectively so this can still be a
+    // 0.x crate (may contain breaking changes)
+    const VERSION_MINOR: &str = env!("CARGO_PKG_VERSION_MINOR");
+    const VERSION_PATCH: &str = env!("CARGO_PKG_VERSION_PATCH");
+
     // Safety: We're synchronizing access to the OfxPlugin using a OnceLock, and I *think* the reason it has to be
     // `static mut` is that some fields in it are raw pointers, which could theoretically be messed with in an
     // unsynchronized manner, which OFX hosts probably shouldn't do?
@@ -1606,8 +1611,12 @@ pub extern "C" fn OfxGetPlugin(nth: c_int) -> *const OfxPlugin {
                 pluginApi: ofx_str!(kOfxImageEffectPluginApi),
                 apiVersion: 1,
                 pluginIdentifier: static_cstr!("wtf.vala:NtscRs").as_ptr(),
-                pluginVersionMajor: 1,
-                pluginVersionMinor: 4,
+                pluginVersionMajor: VERSION_MINOR
+                    .parse()
+                    .expect("could not parse minor version"),
+                pluginVersionMinor: VERSION_PATCH
+                    .parse()
+                    .expect("could not parse patch version"),
                 setHost: Some(set_host_info),
                 mainEntry: Some(main_entry),
             }

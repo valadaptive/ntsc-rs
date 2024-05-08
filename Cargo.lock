@@ -3241,7 +3241,7 @@ dependencies = [
 
 [[package]]
 name = "openfx-plugin"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "allocator-api2",
  "bindgen",
