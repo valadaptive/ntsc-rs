@@ -191,14 +191,14 @@ jobs:
         cd ae-plugin
         meson setup --buildtype=release build_arm64
         cd build_arm64
-        meson build
+        meson compile
 
     - name: Build AE plugin binary (x86_64)
       run: |
         cd ae-plugin
         meson setup --buildtype=release --cross-file cross-macos-arm64-to-x86_64 build_x86_64
         cd build_x86_64
-        meson build
+        meson compile
 
     # TODO: combine AE plugin binaries and create and sign bundle
 
