@@ -203,7 +203,6 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
-    if: ${{ false }}
     permissions:
       contents: write
     needs:
