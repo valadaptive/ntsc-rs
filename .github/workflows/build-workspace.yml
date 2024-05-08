@@ -170,13 +170,13 @@ jobs:
     - name: Build OpenFX plugin
       run: cargo xtask build-ofx-plugin --macos-universal --release
 
-    - name: Get SDK
+    - name: Get After Effects SDK
       env:
         BLOB_KEY: ${{ secrets.BLOB_KEY }}
       run: |
         git fetch --depth=1 origin blobs
         git checkout origin/blobs -- ae_sdk_mac.zip.age
-        echo $Env:BLOB_KEY > ./blob_key.txt
+        echo "$BLOB_KEY" > ./blob_key.txt
         age --decrypt -i ./blob_key.txt -o ./ae_sdk_mac.zip ./ae_sdk_mac.zip.age
         unzip ae_sdk_mac.zip
         hdiutil attach May2023_AfterEffectsSDK_MacOS.dmg -mountpoint /Volumes/sdk -noverify
