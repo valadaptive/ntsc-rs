@@ -394,17 +394,23 @@ fn luma_into_chroma(
                 });
         }
         ChromaDemodulationFilter::OneLineComb => {
-            let mut delay = Vec::from(&yiq.y[width..width * 2]);
-            let y_lines = yiq.y.chunks_mut(width);
-            let i_lines = yiq.i.chunks_mut(width);
-            let q_lines = yiq.q.chunks_mut(width);
+            let delay = scratch_buffer.get();
+            // "Reflect" line 2 to line 0, so that the chroma is properly demodulated.
+            // A comb filter requires the phase of the chroma carrier to alternate per line, so simply repeating line 1
+            // wouldn't work.
+            delay[0..width].copy_from_slice(&yiq.y[width..width * 2]);
+            delay[width..].copy_from_slice(&yiq.y[0..yiq.y.len() - width]);
+
+            let y_lines = yiq.y.par_chunks_mut(width);
+            let i_lines = yiq.i.par_chunks_mut(width);
+            let q_lines = yiq.q.par_chunks_mut(width);
+            let delay_lines = delay.par_chunks_mut(width);
             y_lines
-                .zip(i_lines.zip(q_lines))
+                .zip(i_lines.zip(q_lines.zip(delay_lines)))
                 .enumerate()
-                .for_each(|(line_index, (y, (i, q)))| {
+                .for_each(|(line_index, (y, (i, (q, delay))))| {
                     for index in 0..width {
                         let blended = (y[index] + delay[index]) * 0.5;
-                        delay[index] = y[index];
                         let chroma = blended - y[index];
                         y[index] = blended;
                         let xi = chroma_phase_shift(
@@ -418,43 +424,49 @@ fn luma_into_chroma(
                 });
         }
         ChromaDemodulationFilter::TwoLineComb => {
-            // This holds the "previous" line--we overwrite in place so we need to cache the previous line's
-            // non-filtered value. It starts out as the second line in order to maintain the checkerboard pattern
-            // and essentially make the first line a 1-line comb filter.
-            let mut delay = Vec::from(&yiq.y[width..width * 2]);
+            let modulated = scratch_buffer.get();
+            modulated.copy_from_slice(yiq.y);
+            let height = yiq.num_rows();
 
-            for line_index in 0..yiq.num_rows() {
-                for sample_index in 0..width {
-                    let prev_line = delay[sample_index];
-                    let next_line = yiq
-                        .y
-                        .get((line_index + 1) * width + sample_index)
-                        .cloned()
-                        // On the last line, blend with the above line twice (making it an average of the 2) since
-                        // there's no line after it to average with
-                        .unwrap_or(prev_line);
-                    let cur_line = &mut yiq.y[line_index * width + sample_index];
+            let y_lines = yiq.y.par_chunks_mut(width);
+            let i_lines = yiq.i.par_chunks_mut(width);
+            let q_lines = yiq.q.par_chunks_mut(width);
+            y_lines
+                .zip(i_lines.zip(q_lines))
+                .enumerate()
+                .for_each(|(line_index, (y, (i, q)))| {
+                    // For the first line, both prev_line and next_line point to the second line. This effecively makes it a
+                    // one-line comb filter for that line.
+                    let prev_index = if line_index == 0 { 1 } else { line_index - 1 };
 
-                    let blended = (*cur_line * 0.5) + (prev_line * 0.25) + (next_line * 0.25);
-                    let chroma = blended - *cur_line;
-                    delay[sample_index] = *cur_line;
-                    *cur_line = blended;
+                    // Similar for the last line.
+                    let next_index = if line_index == height - 1 {
+                        height - 2
+                    } else {
+                        line_index + 1
+                    };
 
-                    let xi = chroma_phase_shift(
-                        phase_shift,
-                        phase_offset,
-                        info.frame_num,
-                        line_index * 2,
-                    );
-                    demodulate_chroma(
-                        chroma,
-                        sample_index,
-                        xi,
-                        &mut yiq.i[line_index * width..(line_index + 1) * width],
-                        &mut yiq.q[line_index * width..(line_index + 1) * width],
-                    );
-                }
-            }
+                    let prev_line = &modulated[prev_index * width..(prev_index + 1) * width];
+                    let cur_line = &modulated[line_index * width..(line_index + 1) * width];
+                    let next_line = &modulated[next_index * width..(next_index + 1) * width];
+
+                    for sample_index in 0..width {
+                        let cur_sample = cur_line[sample_index];
+                        let blended = (cur_sample * 0.5)
+                            + (prev_line[sample_index] * 0.25)
+                            + (next_line[sample_index] * 0.25);
+                        let chroma = blended - cur_sample;
+                        y[sample_index] = blended;
+
+                        let xi = chroma_phase_shift(
+                            phase_shift,
+                            phase_offset,
+                            info.frame_num,
+                            line_index * 2,
+                        );
+                        demodulate_chroma(chroma, sample_index, xi, i, q);
+                    }
+                });
         }
     };
 }
