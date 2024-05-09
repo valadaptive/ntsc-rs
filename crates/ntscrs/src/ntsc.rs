@@ -315,26 +315,29 @@ fn demodulate_chroma(chroma: f32, index: usize, xi: usize, i: &mut [f32], q: &mu
 }
 
 /// Demodulate the chrominance signal using a box filter to separate it out.
-fn luma_into_chroma_line_box(y: &mut [f32], i: &mut [f32], q: &mut [f32], xi: usize) {
-    let mut delay = VecDeque::<f32>::with_capacity(4);
-    delay.push_back(16.0 / 255.0);
-    delay.push_back(16.0 / 255.0);
-    delay.push_back(y[0]);
-    delay.push_back(y[1]);
-    let mut sum: f32 = delay.iter().sum();
+fn luma_into_chroma_line_box(
+    y: &mut [f32],
+    i: &mut [f32],
+    q: &mut [f32],
+    scratch: &mut [f32],
+    xi: usize,
+) {
     let width = y.len();
-
     for index in 0..width {
-        // Box-blur the signal to get the luminance.
         let c = y[usize::min(index + 2, width - 1)];
-        sum -= delay.pop_front().unwrap();
-        delay.push_back(c);
-        sum += c;
-        y[index] = sum * 0.25;
-
-        let chroma = c - y[index];
+        let area = [
+            y.get(index.wrapping_sub(1))
+                .cloned()
+                .unwrap_or(16.0 / 255.0),
+            y[index],
+            y[(index + 1).min(width - 1)],
+            y[(index + 2).min(width - 1)],
+        ];
+        scratch[index] = area.iter().sum::<f32>() * 0.25;
+        let chroma = c - scratch[index];
         demodulate_chroma(chroma, index, xi, i, q);
     }
+    y.copy_from_slice(scratch);
 }
 
 fn luma_into_chroma_line_iir(
@@ -373,11 +376,14 @@ fn luma_into_chroma(
             let y_lines = yiq.y.par_chunks_mut(width);
             let i_lines = yiq.i.par_chunks_mut(width);
             let q_lines = yiq.q.par_chunks_mut(width);
+            let scratch_lines = scratch_buffer.get().par_chunks_mut(width);
 
             match filter_mode {
                 ChromaDemodulationFilter::Box => {
-                    y_lines.zip(i_lines.zip(q_lines)).enumerate().for_each(
-                        |(index, (y, (i, q)))| {
+                    y_lines
+                        .zip(i_lines.zip(q_lines.zip(scratch_lines)))
+                        .enumerate()
+                        .for_each(|(index, (y, (i, (q, scratch))))| {
                             let xi = chroma_phase_shift(
                                 phase_shift,
                                 phase_offset,
@@ -385,9 +391,8 @@ fn luma_into_chroma(
                                 index * 2,
                             );
 
-                            luma_into_chroma_line_box(y, i, q, xi);
-                        },
-                    );
+                            luma_into_chroma_line_box(y, i, q, scratch, xi);
+                        });
                 }
                 ChromaDemodulationFilter::Notch => {
                     let scratch = scratch_buffer.get();
