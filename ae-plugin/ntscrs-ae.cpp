@@ -5,7 +5,7 @@
 static ntscrs_pixel_format ntscrs_world_pixel_format_to_pixel_format (PF_PixelFormat in_pix_fmt) {
 	switch (in_pix_fmt) {
 		case PF_PixelFormat_ARGB32: return NTSCRS_XRGB8;
-		case PF_PixelFormat_ARGB64: return NTSCRS_XRGB16S;
+		case PF_PixelFormat_ARGB64: return NTSCRS_XRGB16AE;
 		case PF_PixelFormat_ARGB128: return NTSCRS_XRGB32F;
 		default: return NTSCRS_INVALID_PIXEL_FORMAT;
 	}
@@ -350,8 +350,8 @@ ActuallyRender(
 						);
 						break;
 					}
-					case NTSCRS_XRGB16S: {
-						ntscrs_yiq_set_from_strided_buffer_Xrgb16s(
+					case NTSCRS_XRGB16AE: {
+						ntscrs_yiq_set_from_strided_buffer_Xrgb16AE(
 							(int16_t*)input->data,
 							out_buf,
 							blit_info,
@@ -425,8 +425,8 @@ ActuallyRender(
 						);
 						break;
 					}
-					case NTSCRS_XRGB16S: {
-						ntscrs_yiq_write_to_strided_buffer_Xrgb16s(
+					case NTSCRS_XRGB16AE: {
+						ntscrs_yiq_write_to_strided_buffer_Xrgb16AE(
 							out_buf,
 							(int16_t*)output->data,
 							blit_info,

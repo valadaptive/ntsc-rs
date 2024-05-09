@@ -8,8 +8,10 @@ use ntscrs::settings::{
     NtscEffectFullSettings, SettingDescriptor as RsSettingDescriptor, SettingID as RsSettingID,
     SettingKind as RsSettingKind, SettingsList as RsSettingsList,
 };
+use ntscrs::yiq_fielding::{
+    AfterEffectsU16, Bgrx16, Bgrx32f, Bgrx8, DeinterlaceMode, PixelFormat, Xrgb16AE, Xrgb32f, Xrgb8,
+};
 pub use ntscrs::yiq_fielding::{BlitInfo as RsBlitInfo, Rect as RsRect};
-use ntscrs::yiq_fielding::{DeinterlaceMode, PixelFormat, Bgrx16, Bgrx32f, Bgrx8, Xrgb16s, Xrgb32f, Xrgb8};
 use ntscrs::{
     ntsc::NtscEffect,
     yiq_fielding::{YiqField as RsYiqField, YiqView},
@@ -572,7 +574,7 @@ pub unsafe extern "C" fn ntscrs_yiq_set_from_strided_buffer_Xrgb32f(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn ntscrs_yiq_set_from_strided_buffer_Xrgb16s(
+pub unsafe extern "C" fn ntscrs_yiq_set_from_strided_buffer_Xrgb16AE(
     src_data: *mut i16,
     dst_yiq: *mut f32,
     blit_info: BlitInfo,
@@ -580,8 +582,13 @@ pub unsafe extern "C" fn ntscrs_yiq_set_from_strided_buffer_Xrgb16s(
     height: usize,
     field: YiqField,
 ) {
-    yiq_set_from_strided_buffer_generic::<Xrgb16s>(
-        src_data, dst_yiq, blit_info, width, height, field,
+    yiq_set_from_strided_buffer_generic::<Xrgb16AE>(
+        mem::transmute::<_, *mut AfterEffectsU16>(src_data),
+        dst_yiq,
+        blit_info,
+        width,
+        height,
+        field,
     )
 }
 
@@ -652,7 +659,7 @@ pub unsafe extern "C" fn ntscrs_yiq_write_to_strided_buffer_Xrgb32f(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn ntscrs_yiq_write_to_strided_buffer_Xrgb16s(
+pub unsafe extern "C" fn ntscrs_yiq_write_to_strided_buffer_Xrgb16AE(
     src_yiq: *mut f32,
     dst_data: *mut i16,
     blit_info: BlitInfo,
@@ -660,8 +667,13 @@ pub unsafe extern "C" fn ntscrs_yiq_write_to_strided_buffer_Xrgb16s(
     height: usize,
     field: YiqField,
 ) {
-    ntscrs_yiq_write_to_strided_buffer_generic::<Xrgb16s>(
-        src_yiq, dst_data, blit_info, width, height, field,
+    ntscrs_yiq_write_to_strided_buffer_generic::<Xrgb16AE>(
+        src_yiq,
+        mem::transmute::<_, *mut AfterEffectsU16>(dst_data),
+        blit_info,
+        width,
+        height,
+        field,
     )
 }
 

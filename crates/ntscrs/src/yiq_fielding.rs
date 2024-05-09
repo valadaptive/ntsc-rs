@@ -77,10 +77,31 @@ impl Normalize for u16 {
     }
 }
 
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+/// Special u16 pixel format for After Effects.
+/// Ranges from 0 to 32768--anything outside of that will be wrapped.
+/// That's right! *Not* 0 to 32767, the maximum for an i16, but one *above* that.
+/// As far as I can tell, the values 32769-65535 are entirely unused and wasted. Why, Adobe, why?
+pub struct AfterEffectsU16(u16);
+
+impl Normalize for AfterEffectsU16 {
+    #[inline(always)]
+    fn from_norm(value: f32) -> Self {
+        Self((value.clamp(0.0, 1.0) * 32768.0) as u16)
+    }
+
+    #[inline(always)]
+    fn to_norm(self) -> f32 {
+        (self.0 as f32) / 32768.0 as f32
+    }
+}
+
 impl Normalize for i16 {
     #[inline(always)]
     fn from_norm(value: f32) -> Self {
-        (value * Self::MAX as f32).clamp(Self::MIN as f32, Self::MAX as f32) as Self
+        // Don't allow negative values; even though it's allowed, it causes problems with AE
+        (value * Self::MAX as f32).clamp(0.0, Self::MAX as f32) as Self
     }
 
     #[inline(always)]
@@ -174,6 +195,8 @@ impl_pix_fmt!(Bgrx32f, SwizzleOrder::Bgrx, f32);
 impl_pix_fmt!(Xbgr32f, SwizzleOrder::Xbgr, f32);
 impl_pix_fmt!(Rgb32f, SwizzleOrder::Rgb, f32);
 impl_pix_fmt!(Bgr32f, SwizzleOrder::Bgr, f32);
+
+impl_pix_fmt!(Xrgb16AE, SwizzleOrder::Xrgb, AfterEffectsU16);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeinterlaceMode {
