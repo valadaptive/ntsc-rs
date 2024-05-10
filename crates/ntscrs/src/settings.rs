@@ -551,9 +551,23 @@ macro_rules! impl_get_field_ref {
             SettingID::VHS_TAPE_SPEED => $settings.vhs_settings.settings.tape_speed.$borrow_op(),
             SettingID::CHROMA_VERT_BLEND => $settings.chroma_vert_blend.$borrow_op(),
             SettingID::VHS_CHROMA_LOSS => $settings.vhs_settings.settings.chroma_loss.$borrow_op(),
-            SettingID::VHS_SHARPEN_ENABLED => $settings.vhs_settings.settings.sharpen.enabled.$borrow_op(),
-            SettingID::VHS_SHARPEN_INTENSITY => $settings.vhs_settings.settings.sharpen.settings.intensity.$borrow_op(),
-            SettingID::VHS_SHARPEN_FREQUENCY => $settings.vhs_settings.settings.sharpen.settings.frequency.$borrow_op(),
+            SettingID::VHS_SHARPEN_ENABLED => {
+                $settings.vhs_settings.settings.sharpen.enabled.$borrow_op()
+            }
+            SettingID::VHS_SHARPEN_INTENSITY => $settings
+                .vhs_settings
+                .settings
+                .sharpen
+                .settings
+                .intensity
+                .$borrow_op(),
+            SettingID::VHS_SHARPEN_FREQUENCY => $settings
+                .vhs_settings
+                .settings
+                .sharpen
+                .settings
+                .frequency
+                .$borrow_op(),
             SettingID::VHS_EDGE_WAVE_ENABLED => $settings
                 .vhs_settings
                 .settings
