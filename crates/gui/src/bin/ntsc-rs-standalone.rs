@@ -1123,7 +1123,20 @@ impl NtscApp {
                         (video_enc, pixel_formats)
                     }
                     RenderPipelineCodec::Ffv1(ffv1_settings) => {
-                        let video_enc = gstreamer::ElementFactory::make("avenc_ffv1").build()?;
+                        // Load the plugin so the avcodeccontext-threads enum class exists
+                        let _ = gstreamer::ElementFactory::make("avenc_ffv1")
+                            .build()
+                            .unwrap();
+                        #[allow(non_snake_case)]
+                        let avcodeccontext_threads = gstreamer::glib::EnumClass::with_type(
+                            gstreamer::glib::Type::from_name("avcodeccontext-threads").unwrap(),
+                        )
+                        .unwrap();
+
+                        let video_enc = gstreamer::ElementFactory::make("avenc_ffv1")
+                            // Enable multithreaded encoding (0 means "auto-detect number of threads")
+                            .property("threads", avcodeccontext_threads.to_value(0).unwrap())
+                            .build()?;
 
                         let pixel_formats = Self::pixel_formats_for(
                             match ffv1_settings.bit_depth {
