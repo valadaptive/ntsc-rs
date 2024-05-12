@@ -177,7 +177,7 @@ pub mod x86_64 {
         #[inline(always)]
         fn store(self, dst: &mut [f32]) {
             // SAFETY: the range operator ensures that the slice is at least 4 elements long
-            unsafe { _mm_storeu_ps(dst.as_mut_ptr(), self.into()) }
+            unsafe { _mm_storeu_ps(dst[0..4].as_mut_ptr(), self.into()) }
         }
 
         #[inline(always)]
@@ -390,7 +390,7 @@ pub mod aarch64 {
         #[inline(always)]
         fn store(self, dst: &mut [f32]) {
             // SAFETY: the range operator ensures that the slice is at least 4 elements long
-            unsafe { vst1q_f32(dst.as_mut_ptr(), self.into()) }
+            unsafe { vst1q_f32(dst[0..4].as_mut_ptr(), self.into()) }
         }
 
         #[inline(always)]
