@@ -1127,7 +1127,6 @@ impl NtscApp {
                         let _ = gstreamer::ElementFactory::make("avenc_ffv1")
                             .build()
                             .unwrap();
-                        #[allow(non_snake_case)]
                         let avcodeccontext_threads = gstreamer::glib::EnumClass::with_type(
                             gstreamer::glib::Type::from_name("avcodeccontext-threads").unwrap(),
                         )
@@ -1136,6 +1135,8 @@ impl NtscApp {
                         let video_enc = gstreamer::ElementFactory::make("avenc_ffv1")
                             // Enable multithreaded encoding (0 means "auto-detect number of threads")
                             .property("threads", avcodeccontext_threads.to_value(0).unwrap())
+                            // 16 slices (improves multithreading capability)
+                            .property("slices", 16i32)
                             .build()?;
 
                         let pixel_formats = Self::pixel_formats_for(
