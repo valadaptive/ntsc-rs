@@ -2,7 +2,6 @@
 
 use std::{
     borrow::Cow,
-    collections::VecDeque,
     error::Error,
     ffi::OsStr,
     fs::File,
@@ -52,9 +51,12 @@ use snafu::{prelude::*, ResultExt};
 
 use log::debug;
 
-use super::render_settings::{
-    Ffv1BitDepth, H264Settings, OutputCodec, RenderInterlaceMode, RenderPipelineCodec,
-    RenderPipelineSettings, RenderSettings,
+use super::{
+    render_job::{RenderJob, RenderJobState},
+    render_settings::{
+        Ffv1BitDepth, H264Settings, OutputCodec, RenderInterlaceMode, RenderPipelineCodec,
+        RenderPipelineSettings, RenderSettings,
+    },
 };
 
 #[derive(Debug, Snafu)]
@@ -300,36 +302,6 @@ impl Default for AudioVolume {
             gain_pre_mute: 1.0,
             mute: false,
         }
-    }
-}
-
-#[derive(Debug)]
-enum RenderJobState {
-    Waiting,
-    Rendering,
-    Paused,
-    Complete { end_time: f64 },
-    Error(GstreamerError),
-}
-
-#[derive(Debug)]
-struct RenderJob {
-    settings: RenderPipelineSettings,
-    pipeline: gstreamer::Pipeline,
-    state: Arc<Mutex<RenderJobState>>,
-    last_progress: f64,
-    /// Used for estimating time remaining. A queue that holds (progress, timestamp) pairs.
-    progress_samples: VecDeque<(f64, f64)>,
-    start_time: Option<f64>,
-    estimated_completion_time: Option<f64>,
-}
-
-const NUM_PROGRESS_SAMPLES: usize = 5;
-const PROGRESS_SAMPLE_TIME_DELTA: f64 = 1.0;
-
-impl Drop for RenderJob {
-    fn drop(&mut self) {
-        let _ = self.pipeline.set_state(gstreamer::State::Null);
     }
 }
 
@@ -1144,7 +1116,7 @@ impl NtscApp {
                     if let gstreamer::MessageView::Error(err) = msg.view() {
                         let mut job_state = job_state.lock().unwrap();
                         if !matches!(*job_state, RenderJobState::Error(_)) {
-                            *job_state = RenderJobState::Error(err.error().into());
+                            *job_state = RenderJobState::Error(Arc::new(err.error().into()));
                             ctx.request_repaint();
                         }
                     }
@@ -1236,15 +1208,11 @@ impl NtscApp {
 
         pipeline.set_state(gstreamer::State::Paused)?;
 
-        Ok(RenderJob {
-            settings: settings.as_ref().clone(),
+        Ok(RenderJob::new(
+            settings.as_ref().clone(),
             pipeline,
-            state: job_state,
-            last_progress: 0.0,
-            progress_samples: VecDeque::new(),
-            start_time: None,
-            estimated_completion_time: None,
-        })
+            job_state,
+        ))
     }
 
     fn remove_pipeline(&mut self) -> Result<(), GstreamerError> {
@@ -1714,7 +1682,7 @@ impl NtscApp {
                 .rounding(ui.style().noninteractive().rounding)
                 .inner_margin(ui.style().spacing.window_margin)
                 .show(ui, |ui| {
-                    let job_state = &*job.state.lock().unwrap();
+                    let job_state = job.state.lock().unwrap().clone();
 
                     let (progress, job_position, job_duration) = match job_state {
                         RenderJobState::Waiting => (0.0, None, None),
@@ -1744,34 +1712,7 @@ impl NtscApp {
                         RenderJobState::Rendering | RenderJobState::Waiting
                     ) {
                         let current_time = ui.ctx().input(|input| input.time);
-                        let most_recent_sample = job.progress_samples.back().copied();
-                        let should_update_estimate =
-                            if let Some((_, sample_time)) = most_recent_sample {
-                                current_time - sample_time > PROGRESS_SAMPLE_TIME_DELTA
-                            } else {
-                                true
-                            };
-                        if should_update_estimate {
-                            if job.start_time.is_none() {
-                                job.start_time = Some(current_time);
-                            }
-                            let new_sample = (progress, current_time);
-                            let oldest_sample =
-                                if job.progress_samples.len() >= NUM_PROGRESS_SAMPLES {
-                                    job.progress_samples.pop_front()
-                                } else {
-                                    job.progress_samples.front().copied()
-                                };
-                            job.progress_samples.push_back(new_sample);
-                            if let Some((old_progress, old_sample_time)) = oldest_sample {
-                                let time_estimate = (current_time - old_sample_time)
-                                    / (progress - old_progress)
-                                    + job.start_time.unwrap();
-                                if time_estimate.is_finite() {
-                                    job.estimated_completion_time = Some(time_estimate);
-                                }
-                            }
-                        }
+                        job.update_estimated_completion_time(progress, current_time);
                     }
 
                     ui.horizontal(|ui| {
@@ -1793,7 +1734,7 @@ impl NtscApp {
                         ui.ctx().request_repaint();
                     }
 
-                    ui.label(match job_state {
+                    ui.label(match &job_state {
                         RenderJobState::Waiting => Cow::Borrowed("Waiting..."),
                         RenderJobState::Rendering => {
                             if let (Some(position), Some(duration)) = (job_position, job_duration) {
