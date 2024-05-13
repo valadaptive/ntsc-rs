@@ -240,6 +240,12 @@ impl PipelineInfo {
     }
 }
 
+impl Drop for PipelineInfo {
+    fn drop(&mut self) {
+        let _ = self.pipeline.set_state(gstreamer::State::Null);
+    }
+}
+
 #[derive(Debug, Default)]
 struct PipelineMetadata {
     is_still_image: Option<bool>,
@@ -554,7 +560,6 @@ impl NtscApp {
     }
 
     fn load_video(&mut self, ctx: &egui::Context, path: PathBuf) -> Result<(), ApplicationError> {
-        self.remove_pipeline().context(LoadVideoSnafu)?;
         self.pipeline = Some(
             self.create_preview_pipeline(ctx, path)
                 .context(LoadVideoSnafu)?,
@@ -1213,15 +1218,6 @@ impl NtscApp {
             pipeline,
             job_state,
         ))
-    }
-
-    fn remove_pipeline(&mut self) -> Result<(), GstreamerError> {
-        if let Some(PipelineInfo { pipeline, .. }) = &mut self.pipeline {
-            pipeline.set_state(gstreamer::State::Null)?;
-            self.pipeline = None;
-        }
-
-        Ok(())
     }
 
     fn update_effect(&self) {
@@ -2138,7 +2134,7 @@ impl NtscApp {
                 }
 
                 if remove_pipeline {
-                    self.handle_result_with(|app| app.remove_pipeline());
+                    self.pipeline = None;
                 }
 
                 if let Some((src_path, dst_path)) = save_image_to {
@@ -2840,7 +2836,7 @@ impl eframe::App for NtscApp {
         }
 
         if let Some(err) = pipeline_error {
-            let _ = self.remove_pipeline();
+            self.pipeline = None;
             self.handle_error(&err);
         }
 
@@ -2865,11 +2861,5 @@ impl eframe::App for NtscApp {
             "color_theme",
             <&ColorTheme as Into<&str>>::into(&self.color_theme).to_owned(),
         );
-    }
-}
-
-impl Drop for NtscApp {
-    fn drop(&mut self) {
-        let _ = self.remove_pipeline();
     }
 }
