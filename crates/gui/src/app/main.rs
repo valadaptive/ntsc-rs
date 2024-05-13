@@ -45,12 +45,17 @@ use crate::{
 };
 
 use ntscrs::settings::{
-    NtscEffect, NtscEffectFullSettings, ParseSettingsError, SettingDescriptor, SettingID,
-    SettingKind, SettingsList, UseField,
+    NtscEffectFullSettings, ParseSettingsError, SettingDescriptor, SettingID, SettingKind,
+    SettingsList, UseField,
 };
 use snafu::{prelude::*, ResultExt};
 
 use log::debug;
+
+use super::render_settings::{
+    Ffv1BitDepth, H264Settings, OutputCodec, RenderInterlaceMode, RenderPipelineCodec,
+    RenderPipelineSettings, RenderSettings,
+};
 
 #[derive(Debug, Snafu)]
 enum ApplicationError {
@@ -325,121 +330,6 @@ const PROGRESS_SAMPLE_TIME_DELTA: f64 = 1.0;
 impl Drop for RenderJob {
     fn drop(&mut self) {
         let _ = self.pipeline.set_state(gstreamer::State::Null);
-    }
-}
-
-#[derive(Debug, Clone)]
-struct H264Settings {
-    // Quality / constant rate factor (0-51)
-    crf: u8,
-    // 0-8 for libx264 presets veryslow-ultrafast
-    encode_speed: u8,
-    // Enable 10-bit color
-    ten_bit: bool,
-    // Subsample chroma to 4:2:0
-    chroma_subsampling: bool,
-}
-
-impl Default for H264Settings {
-    fn default() -> Self {
-        Self {
-            crf: 23,
-            encode_speed: 5,
-            ten_bit: false,
-            chroma_subsampling: true,
-        }
-    }
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
-enum Ffv1BitDepth {
-    #[default]
-    Bits8,
-    Bits10,
-    Bits12,
-}
-
-impl Ffv1BitDepth {
-    fn label(&self) -> &'static str {
-        match self {
-            Ffv1BitDepth::Bits8 => "8-bit",
-            Ffv1BitDepth::Bits10 => "10-bit",
-            Ffv1BitDepth::Bits12 => "12-bit",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-struct Ffv1Settings {
-    bit_depth: Ffv1BitDepth,
-    // Subsample chroma to 4:2:0
-    chroma_subsampling: bool,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
-enum OutputCodec {
-    #[default]
-    H264,
-    Ffv1,
-}
-
-impl OutputCodec {
-    fn label(&self) -> &'static str {
-        match self {
-            Self::H264 => "H.264",
-            Self::Ffv1 => "FFV1 (Lossless)",
-        }
-    }
-
-    fn extension(&self) -> &'static str {
-        match self {
-            Self::H264 => "mp4",
-            Self::Ffv1 => "mkv",
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-enum RenderPipelineCodec {
-    H264(H264Settings),
-    Ffv1(Ffv1Settings),
-    Png,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RenderInterlaceMode {
-    Progressive,
-    TopFieldFirst,
-    BottomFieldFirst,
-}
-
-#[derive(Debug, Clone)]
-struct RenderPipelineSettings {
-    codec_settings: RenderPipelineCodec,
-    output_path: PathBuf,
-    duration: ClockTime,
-    interlacing: RenderInterlaceMode,
-    effect_settings: NtscEffect,
-}
-
-#[derive(Default, Debug, Clone)]
-struct RenderSettings {
-    output_codec: OutputCodec,
-    // we want to keep these around even if the user changes their mind and selects ffv1, so they don't lose the
-    // settings if they change back
-    h264_settings: H264Settings,
-    ffv1_settings: Ffv1Settings,
-    output_path: PathBuf,
-    duration: ClockTime,
-    interlaced: bool,
-}
-
-impl From<&RenderSettings> for RenderPipelineCodec {
-    fn from(value: &RenderSettings) -> Self {
-        match value.output_codec {
-            OutputCodec::H264 => RenderPipelineCodec::H264(value.h264_settings.clone()),
-            OutputCodec::Ffv1 => RenderPipelineCodec::Ffv1(value.ffv1_settings.clone()),
-        }
     }
 }
 
