@@ -173,10 +173,27 @@ pub enum ChromaDemodulationFilter {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct HeadSwitchingMidLineSettings {
+    pub position: f32,
+    pub jitter: f32,
+}
+
+impl Default for HeadSwitchingMidLineSettings {
+    fn default() -> Self {
+        Self {
+            position: 0.95,
+            jitter: 0.03,
+        }
+    }
+}
+
+#[derive(FullSettings, Debug, Clone, PartialEq)]
 pub struct HeadSwitchingSettings {
     pub height: u32,
     pub offset: u32,
     pub horiz_shift: f32,
+    #[settings_block]
+    pub mid_line: Option<HeadSwitchingMidLineSettings>,
 }
 
 impl Default for HeadSwitchingSettings {
@@ -185,6 +202,7 @@ impl Default for HeadSwitchingSettings {
             height: 8,
             offset: 3,
             horiz_shift: 72.0,
+            mid_line: Some(HeadSwitchingMidLineSettings::default()),
         }
     }
 }
@@ -313,7 +331,7 @@ pub struct NtscEffect {
     pub composite_preemphasis: f32,
     pub video_scanline_phase_shift: PhaseShift,
     pub video_scanline_phase_shift_offset: i32,
-    #[settings_block]
+    #[settings_block(nested)]
     pub head_switching: Option<HeadSwitchingSettings>,
     #[settings_block]
     pub tracking_noise: Option<TrackingNoiseSettings>,
@@ -476,6 +494,10 @@ pub enum SettingID {
 
     VHS_SHARPEN_ENABLED,
     VHS_SHARPEN_FREQUENCY,
+
+    HEAD_SWITCHING_START_MID_LINE,
+    HEAD_SWITCHING_MID_LINE_POSITION,
+    HEAD_SWITCHING_MID_LINE_JITTER,
 }
 
 macro_rules! impl_get_field_ref {
@@ -618,6 +640,27 @@ macro_rules! impl_get_field_ref {
             SettingID::LUMA_SMEAR => $settings.luma_smear.$borrow_op(),
 
             SettingID::FILTER_TYPE => $settings.filter_type.$borrow_op(),
+
+            SettingID::HEAD_SWITCHING_START_MID_LINE => $settings
+                .head_switching
+                .settings
+                .mid_line
+                .enabled
+                .$borrow_op(),
+            SettingID::HEAD_SWITCHING_MID_LINE_POSITION => $settings
+                .head_switching
+                .settings
+                .mid_line
+                .settings
+                .position
+                .$borrow_op(),
+            SettingID::HEAD_SWITCHING_MID_LINE_JITTER => $settings
+                .head_switching
+                .settings
+                .mid_line
+                .settings
+                .jitter
+                .$borrow_op(),
         }
     };
 }
@@ -838,6 +881,9 @@ impl SettingID {
             SettingID::CHROMA_NOISE_DETAIL => "chroma_noise_detail",
             SettingID::LUMA_SMEAR => "luma_smear",
             SettingID::FILTER_TYPE => "filter_type",
+            SettingID::HEAD_SWITCHING_START_MID_LINE => "head_switching_start_mid_line",
+            SettingID::HEAD_SWITCHING_MID_LINE_POSITION => "head_switching_mid_line_position",
+            SettingID::HEAD_SWITCHING_MID_LINE_JITTER => "head_switching_mid_line_jitter",
         }
     }
 }
@@ -1183,6 +1229,25 @@ impl SettingsList {
                             kind: SettingKind::FloatRange { range: -100.0..=100.0, logarithmic: false, default_value: default_settings.head_switching.settings.horiz_shift },
                             id: SettingID::HEAD_SWITCHING_HORIZONTAL_SHIFT
                         },
+                        SettingDescriptor {
+                            label: "Start mid-line",
+                            description: Some("Start the head-switching artifact mid-scanline, with some static where it begins."),
+                            kind: SettingKind::Group { children: vec![
+                                SettingDescriptor {
+                                    label: "Position",
+                                    description: Some("Horizontal position at which the head-switching starts."),
+                                    kind: SettingKind::Percentage { logarithmic: false, default_value: default_settings.head_switching.settings.mid_line.settings.position },
+                                    id: SettingID::HEAD_SWITCHING_MID_LINE_POSITION
+                                },
+                                SettingDescriptor {
+                                    label: "Jitter",
+                                    description: Some("How much the head-switching artifact \"jitters\" horizontally."),
+                                    kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.head_switching.settings.mid_line.settings.jitter },
+                                    id: SettingID::HEAD_SWITCHING_MID_LINE_JITTER
+                                }
+                            ], default_value: true },
+                            id: SettingID::HEAD_SWITCHING_START_MID_LINE
+                        }
                     ],
                     default_value: true,
                 },

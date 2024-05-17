@@ -494,6 +494,7 @@ mod noise_seeds {
     pub const EDGE_WAVE: u64 = 5;
     pub const SNOW: u64 = 6;
     pub const CHROMA_LOSS: u64 = 7;
+    pub const HEAD_SWITCHING_MID_LINE_JITTER: u64 = 8;
 }
 
 /// Helper function to apply gradient noise to a single row of a single plane.
@@ -632,6 +633,7 @@ fn head_switching(
     num_rows: usize,
     offset: usize,
     shift: f32,
+    mid_line: Option<&HeadSwitchingMidLineSettings>,
 ) {
     if offset > num_rows {
         return;
@@ -659,12 +661,48 @@ fn head_switching(
         .for_each(|(index, row)| {
             let index = num_affected_rows - (index + cut_off_rows);
             let row_shift = shift * ((index + offset) as f32 / num_rows as f32).powf(1.5);
-            shift_row(
-                row,
-                (row_shift + (seeder.clone().mix(index).finalize::<f32>() - 0.5))
-                    * info.bandwidth_scale,
-                BoundaryHandling::Constant(0.0),
-            );
+            let noisy_shift = (row_shift + (seeder.clone().mix(index).finalize::<f32>() - 0.5))
+                * info.bandwidth_scale;
+
+            // because if-let chains are unstable :(
+            if index == num_affected_rows && mid_line.is_some() {
+                let mid_line = mid_line.unwrap();
+                // Shift the entire row, but only copy back a portion of it.
+                let mut tmp_row = vec![0.0; width];
+                shift_row_to(
+                    row,
+                    &mut tmp_row,
+                    noisy_shift,
+                    BoundaryHandling::Constant(0.0),
+                );
+
+                let seeder = Seeder::new(info.seed)
+                    .mix(noise_seeds::HEAD_SWITCHING_MID_LINE_JITTER)
+                    .mix(info.frame_num);
+
+                // Average two random numbers to bias the result towards the middle
+                let jitter_rand = (seeder.clone().mix(0).finalize::<f32>()
+                    + seeder.clone().mix(1).finalize::<f32>())
+                    * 0.5;
+                let jitter = (jitter_rand - 0.5) * mid_line.jitter;
+
+                let copy_start = (width as f32 * (mid_line.position + jitter)) as usize;
+                if copy_start > width {
+                    return;
+                }
+                row[copy_start..].copy_from_slice(&tmp_row[copy_start..]);
+
+                // Add a transient where the head switch is supposed to start
+                let transient_intensity = (seeder.clone().mix(0).finalize::<f32>() + 0.5) * 0.5;
+                let transient_len = 16.0 * info.bandwidth_scale;
+
+                for i in copy_start..(copy_start + transient_len.ceil() as usize).min(width) {
+                    let x = (i - copy_start) as f32;
+                    row[i] += (1.0 - (x / transient_len as f32)).powi(3) * transient_intensity;
+                }
+            } else {
+                shift_row(row, noisy_shift, BoundaryHandling::Constant(0.0));
+            }
         });
 }
 
@@ -1041,9 +1079,17 @@ impl NtscEffect {
             height,
             offset,
             horiz_shift,
-        }) = self.head_switching
+            mid_line,
+        }) = &self.head_switching
         {
-            head_switching(yiq, &info, height as usize, offset as usize, horiz_shift);
+            head_switching(
+                yiq,
+                &info,
+                *height as usize,
+                *offset as usize,
+                *horiz_shift,
+                mid_line.as_ref(),
+            );
         }
 
         if let Some(TrackingNoiseSettings {
