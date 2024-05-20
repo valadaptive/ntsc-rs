@@ -979,7 +979,7 @@ impl SettingsList {
             },
             SettingDescriptor {
                 label: "Bandwidth scale",
-                description: Some("Horizontally scale the effect by this amount."),
+                description: Some("Horizontally scale the effect by this amount. For 480p video, leave this at 1.0 for the most physically-accurate result."),
                 kind: SettingKind::FloatRange { range: 0.125..=8.0, logarithmic: false, default_value: default_settings.bandwidth_scale },
                 id: SettingID::BANDWIDTH_SCALE,
             },
