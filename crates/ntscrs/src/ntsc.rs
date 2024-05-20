@@ -496,8 +496,8 @@ mod noise_seeds {
     pub const HEAD_SWITCHING_MID_LINE_JITTER: u64 = 8;
 
     pub const VIDEO_CHROMA_I: u64 = 1;
-    pub const VIDEO_CHROMA_Q: u64 = 2;
-    pub const VIDEO_LUMA: u64 = 9;
+    pub const VIDEO_CHROMA_Q: u64 = 9;
+    pub const VIDEO_LUMA: u64 = 10;
 }
 
 /// Helper function to apply gradient noise to a single row of a single plane.
