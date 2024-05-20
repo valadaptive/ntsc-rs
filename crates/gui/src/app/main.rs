@@ -1410,33 +1410,70 @@ impl NtscApp {
             }
             SettingDescriptor {
                 kind: SettingKind::Group { children, .. },
+                id,
                 ..
             } => {
                 ui.add_space(2.0);
                 let resp = ui
                     .group(|ui| {
                         ui.set_width(ui.max_rect().width());
-                        let checkbox = ui.checkbox(
-                            descriptor
-                                .id
-                                .get_field_mut::<bool>(effect_settings)
-                                .unwrap(),
-                            descriptor.label,
-                        );
+                        let checked = descriptor
+                            .id
+                            .get_field_mut::<bool>(effect_settings)
+                            .unwrap();
+                        let was_checked = *checked;
 
-                        ui.set_enabled(
-                            *descriptor
-                                .id
-                                .get_field_mut::<bool>(effect_settings)
-                                .unwrap(),
-                        );
+                        let id = ui.make_persistent_id(id);
+                        let mut state =
+                            egui::collapsing_header::CollapsingState::load_with_default_open(
+                                ui.ctx(),
+                                id,
+                                *checked,
+                            );
 
-                        changed |= Self::settings_from_descriptors(
-                            effect_settings,
-                            ui,
-                            children,
-                            interlace_mode,
-                        );
+                        let checkbox = ui
+                            .horizontal(|ui| {
+                                let checkbox = ui.checkbox(checked, descriptor.label);
+
+                                // Show twirly arrow at the rightmost position
+                                let rect = ui.max_rect();
+                                let rect = rect.with_min_x(rect.max.x - rect.height());
+                                let response = ui.allocate_rect(rect, egui::Sense::click());
+                                egui::collapsing_header::paint_default_icon(
+                                    ui,
+                                    state.openness(ui.ctx()),
+                                    // The default arrow size is big and distracting, but we want to keep the large
+                                    // hitbox, so only shrink the response for painting.
+                                    &response.clone().with_new_rect(response.rect.shrink(2.0)),
+                                );
+
+                                if response.clicked() {
+                                    state.toggle(ui);
+                                }
+
+                                checkbox
+                            })
+                            .response;
+
+                        ui.set_enabled(*checked);
+
+                        // When a settings group is re-enabled, expand it automatically.
+                        if *checked && !was_checked {
+                            state.set_open(true);
+                        }
+
+                        let child_response = state.show_body_unindented(ui, |ui| {
+                            Self::settings_from_descriptors(
+                                effect_settings,
+                                ui,
+                                children,
+                                interlace_mode,
+                            )
+                        });
+
+                        if let Some(egui::InnerResponse { inner, .. }) = child_response {
+                            changed |= inner;
+                        }
 
                         checkbox
                     })
