@@ -245,21 +245,11 @@ impl Default for RingingSettings {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ChromaNoiseSettings {
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct FbmNoiseSettings {
     pub frequency: f32,
     pub intensity: f32,
     pub detail: u32,
-}
-
-impl Default for ChromaNoiseSettings {
-    fn default() -> Self {
-        Self {
-            frequency: 0.05,
-            intensity: 0.1,
-            detail: 1,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -335,11 +325,12 @@ pub struct NtscEffect {
     pub head_switching: Option<HeadSwitchingSettings>,
     #[settings_block]
     pub tracking_noise: Option<TrackingNoiseSettings>,
-    pub composite_noise_intensity: f32,
+    #[settings_block]
+    pub composite_noise: Option<FbmNoiseSettings>,
     #[settings_block]
     pub ringing: Option<RingingSettings>,
     #[settings_block]
-    pub chroma_noise: Option<ChromaNoiseSettings>,
+    pub chroma_noise: Option<FbmNoiseSettings>,
     pub snow_intensity: f32,
     pub snow_anisotropy: f32,
     pub chroma_phase_noise_intensity: f32,
@@ -371,8 +362,16 @@ impl Default for NtscEffect {
             ringing: Some(RingingSettings::default()),
             snow_intensity: 0.003,
             snow_anisotropy: 0.5,
-            composite_noise_intensity: 0.01,
-            chroma_noise: Some(ChromaNoiseSettings::default()),
+            composite_noise: Some(FbmNoiseSettings {
+                frequency: 0.5,
+                intensity: 0.01,
+                detail: 1,
+            }),
+            chroma_noise: Some(FbmNoiseSettings {
+                frequency: 0.05,
+                intensity: 0.1,
+                detail: 1,
+            }),
             chroma_phase_noise_intensity: 0.001,
             chroma_phase_error: 0.0,
             chroma_delay: (0.0, 0),
@@ -498,6 +497,10 @@ pub enum SettingID {
     HEAD_SWITCHING_START_MID_LINE,
     HEAD_SWITCHING_MID_LINE_POSITION,
     HEAD_SWITCHING_MID_LINE_JITTER,
+
+    COMPOSITE_NOISE,
+    COMPOSITE_NOISE_FREQUENCY,
+    COMPOSITE_NOISE_DETAIL,
 }
 
 macro_rules! impl_get_field_ref {
@@ -513,7 +516,7 @@ macro_rules! impl_get_field_ref {
                 $settings.video_scanline_phase_shift_offset.$borrow_op()
             }
             SettingID::COMPOSITE_NOISE_INTENSITY => {
-                $settings.composite_noise_intensity.$borrow_op()
+                $settings.composite_noise.settings.intensity.$borrow_op()
             }
             SettingID::CHROMA_NOISE_INTENSITY => {
                 $settings.chroma_noise.settings.intensity.$borrow_op()
@@ -661,6 +664,14 @@ macro_rules! impl_get_field_ref {
                 .settings
                 .jitter
                 .$borrow_op(),
+
+            SettingID::COMPOSITE_NOISE => $settings.composite_noise.enabled.$borrow_op(),
+            SettingID::COMPOSITE_NOISE_FREQUENCY => {
+                $settings.composite_noise.settings.frequency.$borrow_op()
+            }
+            SettingID::COMPOSITE_NOISE_DETAIL => {
+                $settings.composite_noise.settings.detail.$borrow_op()
+            }
         }
     };
 }
@@ -884,6 +895,9 @@ impl SettingID {
             SettingID::HEAD_SWITCHING_START_MID_LINE => "head_switching_start_mid_line",
             SettingID::HEAD_SWITCHING_MID_LINE_POSITION => "head_switching_mid_line_position",
             SettingID::HEAD_SWITCHING_MID_LINE_JITTER => "head_switching_mid_line_jitter",
+            SettingID::COMPOSITE_NOISE => "composite_noise",
+            SettingID::COMPOSITE_NOISE_FREQUENCY => "composite_noise_frequency",
+            SettingID::COMPOSITE_NOISE_DETAIL => "composite_noise_detail",
         }
     }
 }
@@ -1103,14 +1117,34 @@ impl SettingsList {
                 },
                 id: SettingID::COMPOSITE_PREEMPHASIS,
             },
+
             SettingDescriptor {
                 label: "Composite noise",
-                description: Some("Apply noise to the NTSC signal."),
-                kind: SettingKind::Percentage {
-                    logarithmic: true,
-                    default_value: default_settings.composite_noise_intensity,
+                description: Some("Noise applied to the composite NTSC signal."),
+                kind: SettingKind::Group {
+                    children: vec![
+                        SettingDescriptor {
+                            label: "Intensity",
+                            description: Some("Intensity of the noise."),
+                            kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.composite_noise.settings.intensity },
+                            id: SettingID::COMPOSITE_NOISE_INTENSITY
+                        },
+                        SettingDescriptor {
+                            label: "Frequency",
+                            description: Some("Base wavelength, in pixels, of the noise."),
+                            kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false, default_value: default_settings.composite_noise.settings.frequency },
+                            id: SettingID::COMPOSITE_NOISE_FREQUENCY
+                        },
+                        SettingDescriptor {
+                            label: "Detail",
+                            description: Some("Octaves of noise."),
+                            kind: SettingKind::IntRange { range: 1..=5, default_value: default_settings.composite_noise.settings.detail as i32 },
+                            id: SettingID::COMPOSITE_NOISE_DETAIL
+                        },
+                    ],
+                    default_value: true,
                 },
-                id: SettingID::COMPOSITE_NOISE_INTENSITY,
+                id: SettingID::COMPOSITE_NOISE,
             },
             SettingDescriptor {
                 label: "Snow",

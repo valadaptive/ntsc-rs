@@ -527,7 +527,7 @@ fn video_noise_line(
 }
 
 /// Add noise to an NTSC-encoded signal.
-fn composite_noise(yiq: &mut YiqView, info: &CommonInfo, frequency: f32, intensity: f32) {
+fn composite_noise(yiq: &mut YiqView, info: &CommonInfo, noise_settings: &FbmNoiseSettings) {
     let width = yiq.dimensions.0;
     let seeder = Seeder::new(info.seed)
         .mix(noise_seeds::VIDEO_COMPOSITE)
@@ -541,15 +541,15 @@ fn composite_noise(yiq: &mut YiqView, info: &CommonInfo, frequency: f32, intensi
                 row,
                 &seeder,
                 index,
-                frequency / info.bandwidth_scale,
-                intensity,
-                1,
+                noise_settings.frequency / info.bandwidth_scale,
+                noise_settings.intensity,
+                noise_settings.detail,
             );
         });
 }
 
 /// Add noise to the chrominance (I and Q) planes of a de-modulated signal.
-fn chroma_noise(yiq: &mut YiqView, info: &CommonInfo, settings: &ChromaNoiseSettings) {
+fn chroma_noise(yiq: &mut YiqView, info: &CommonInfo, settings: &FbmNoiseSettings) {
     let width = yiq.dimensions.0;
     let seeder = Seeder::new(info.seed)
         .mix(noise_seeds::VIDEO_CHROMA)
@@ -1073,8 +1073,8 @@ impl NtscEffect {
             );
         }
 
-        if self.composite_noise_intensity > 0.0 {
-            composite_noise(yiq, &info, 0.25, self.composite_noise_intensity);
+        if let Some(noise) = &self.composite_noise {
+            composite_noise(yiq, &info, &noise);
         }
 
         if self.snow_intensity > 0.0 && self.bandwidth_scale > 0.0 {
