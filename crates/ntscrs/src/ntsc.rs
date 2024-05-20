@@ -707,9 +707,9 @@ fn head_switching(
 }
 
 /// Helper function for generating "snow".
-fn row_speckles<R: Rng>(
+fn row_speckles(
     row: &mut [f32],
-    rng: &mut R,
+    rng: &mut Xoshiro256PlusPlus,
     intensity: f32,
     anisotropy: f32,
     bandwidth_scale: f32,
@@ -749,12 +749,18 @@ fn row_speckles<R: Rng>(
         let transient_len: f32 = rng.gen_range(8.0..=64.0) * bandwidth_scale;
         let transient_freq = rng.gen_range(transient_len * 3.0..=transient_len * 5.0);
 
+        // Each transient gets its own RNG to determine the intensity of each pixel within it.
+        // This is to prevent the length of each transient from affecting the random state of the subsequent
+        // transient, which can cause the snow to "jitter" when changing the "bandwidth scale" setting.
+        rng.jump();
+        let mut transient_rng = rng.clone();
+
         for i in pixel_idx..(pixel_idx + transient_len.ceil() as usize).min(row.len()) {
             let x = (i - pixel_idx) as f32;
             // Simulate transient with sin(pi*x / 4) * (1 - x/len)^2
             row[i] += ((x * PI) / transient_freq).cos()
                 * (1.0 - x / transient_len).powi(2)
-                * rng.gen_range(-1.0..2.0);
+                * transient_rng.gen_range(-1.0..2.0);
         }
 
         // Make sure we advance the pixel index each time. Our geometric distribution gives us the time between
