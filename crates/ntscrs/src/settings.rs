@@ -371,7 +371,7 @@ impl Default for NtscEffect {
             }),
             luma_noise: Some(FbmNoiseSettings {
                 frequency: 0.5,
-                intensity: 0.1,
+                intensity: 0.05,
                 detail: 1,
             }),
             chroma_noise: Some(FbmNoiseSettings {
