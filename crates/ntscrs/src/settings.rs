@@ -330,6 +330,8 @@ pub struct NtscEffect {
     #[settings_block]
     pub ringing: Option<RingingSettings>,
     #[settings_block]
+    pub luma_noise: Option<FbmNoiseSettings>,
+    #[settings_block]
     pub chroma_noise: Option<FbmNoiseSettings>,
     pub snow_intensity: f32,
     pub snow_anisotropy: f32,
@@ -365,6 +367,11 @@ impl Default for NtscEffect {
             composite_noise: Some(FbmNoiseSettings {
                 frequency: 0.5,
                 intensity: 0.01,
+                detail: 1,
+            }),
+            luma_noise: Some(FbmNoiseSettings {
+                frequency: 0.5,
+                intensity: 0.1,
                 detail: 1,
             }),
             chroma_noise: Some(FbmNoiseSettings {
@@ -501,6 +508,11 @@ pub enum SettingID {
     COMPOSITE_NOISE,
     COMPOSITE_NOISE_FREQUENCY,
     COMPOSITE_NOISE_DETAIL,
+
+    LUMA_NOISE,
+    LUMA_NOISE_FREQUENCY,
+    LUMA_NOISE_INTENSITY,
+    LUMA_NOISE_DETAIL,
 }
 
 macro_rules! impl_get_field_ref {
@@ -672,6 +684,11 @@ macro_rules! impl_get_field_ref {
             SettingID::COMPOSITE_NOISE_DETAIL => {
                 $settings.composite_noise.settings.detail.$borrow_op()
             }
+
+            SettingID::LUMA_NOISE => $settings.luma_noise.enabled.$borrow_op(),
+            SettingID::LUMA_NOISE_FREQUENCY => $settings.luma_noise.settings.frequency.$borrow_op(),
+            SettingID::LUMA_NOISE_INTENSITY => $settings.luma_noise.settings.intensity.$borrow_op(),
+            SettingID::LUMA_NOISE_DETAIL => $settings.luma_noise.settings.detail.$borrow_op(),
         }
     };
 }
@@ -898,6 +915,10 @@ impl SettingID {
             SettingID::COMPOSITE_NOISE => "composite_noise",
             SettingID::COMPOSITE_NOISE_FREQUENCY => "composite_noise_frequency",
             SettingID::COMPOSITE_NOISE_DETAIL => "composite_noise_detail",
+            SettingID::LUMA_NOISE => "luma_noise",
+            SettingID::LUMA_NOISE_FREQUENCY => "luma_noise_frequency",
+            SettingID::LUMA_NOISE_INTENSITY => "luma_noise_intensity",
+            SettingID::LUMA_NOISE_DETAIL => "luma_noise_detail",
         }
     }
 }
@@ -1354,6 +1375,34 @@ impl SettingsList {
                     default_value: true,
                 },
                 id: SettingID::RINGING,
+            },
+            SettingDescriptor {
+                label: "Luma noise",
+                description: Some("Noise applied to the luminance signal. Useful for higher-frequency noise than the \"Composite noise\" setting can provide."),
+                kind: SettingKind::Group {
+                    children: vec![
+                        SettingDescriptor {
+                            label: "Intensity",
+                            description: Some("Intensity of the noise."),
+                            kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.chroma_noise.settings.intensity },
+                            id: SettingID::LUMA_NOISE_INTENSITY
+                        },
+                        SettingDescriptor {
+                            label: "Frequency",
+                            description: Some("Base wavelength, in pixels, of the noise."),
+                            kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false, default_value: default_settings.chroma_noise.settings.frequency },
+                            id: SettingID::LUMA_NOISE_FREQUENCY
+                        },
+                        SettingDescriptor {
+                            label: "Detail",
+                            description: Some("Octaves of noise."),
+                            kind: SettingKind::IntRange { range: 1..=5, default_value: default_settings.chroma_noise.settings.detail as i32 },
+                            id: SettingID::LUMA_NOISE_DETAIL
+                        },
+                    ],
+                    default_value: true,
+                },
+                id: SettingID::LUMA_NOISE,
             },
             SettingDescriptor {
                 label: "Chroma noise",

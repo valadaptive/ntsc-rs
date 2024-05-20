@@ -487,7 +487,6 @@ fn luma_smear(yiq: &mut YiqView, info: &CommonInfo, amount: f32) {
 /// the *same* noise. Each pass gets its own random seed which is mixed into the RNG.
 mod noise_seeds {
     pub const VIDEO_COMPOSITE: u64 = 0;
-    pub const VIDEO_CHROMA: u64 = 1;
     pub const HEAD_SWITCHING: u64 = 2;
     pub const TRACKING_NOISE: u64 = 3;
     pub const VIDEO_CHROMA_PHASE: u64 = 4;
@@ -495,6 +494,10 @@ mod noise_seeds {
     pub const SNOW: u64 = 6;
     pub const CHROMA_LOSS: u64 = 7;
     pub const HEAD_SWITCHING_MID_LINE_JITTER: u64 = 8;
+
+    pub const VIDEO_CHROMA_I: u64 = 1;
+    pub const VIDEO_CHROMA_Q: u64 = 2;
+    pub const VIDEO_LUMA: u64 = 9;
 }
 
 /// Helper function to apply gradient noise to a single row of a single plane.
@@ -548,28 +551,22 @@ fn composite_noise(yiq: &mut YiqView, info: &CommonInfo, noise_settings: &FbmNoi
         });
 }
 
-/// Add noise to the chrominance (I and Q) planes of a de-modulated signal.
-fn chroma_noise(yiq: &mut YiqView, info: &CommonInfo, settings: &FbmNoiseSettings) {
-    let width = yiq.dimensions.0;
-    let seeder = Seeder::new(info.seed)
-        .mix(noise_seeds::VIDEO_CHROMA)
-        .mix(info.frame_num);
+/// Add noise to a color plane of a de-modulated signal.
+fn plane_noise(
+    plane: &mut [f32],
+    width: usize,
+    info: &CommonInfo,
+    settings: &FbmNoiseSettings,
+    noise_seed: u64,
+) {
+    let seeder = Seeder::new(info.seed).mix(noise_seed).mix(info.frame_num);
 
-    yiq.i
+    plane
         .par_chunks_mut(width)
-        .zip(yiq.q.par_chunks_mut(width))
         .enumerate()
-        .for_each(|(index, (i, q))| {
+        .for_each(|(index, row)| {
             video_noise_line(
-                i,
-                &seeder,
-                index,
-                settings.frequency / info.bandwidth_scale,
-                settings.intensity,
-                settings.detail,
-            );
-            video_noise_line(
-                q,
+                row,
                 &seeder,
                 index,
                 settings.frequency / info.bandwidth_scale,
@@ -1145,8 +1142,31 @@ impl NtscEffect {
             );
         }
 
+        if let Some(luma_noise_settings) = &self.luma_noise {
+            plane_noise(
+                &mut yiq.y,
+                yiq.dimensions.0,
+                &info,
+                &luma_noise_settings,
+                noise_seeds::VIDEO_LUMA,
+            );
+        }
+
         if let Some(chroma_noise_settings) = &self.chroma_noise {
-            chroma_noise(yiq, &info, chroma_noise_settings);
+            plane_noise(
+                &mut yiq.i,
+                yiq.dimensions.0,
+                &info,
+                &chroma_noise_settings,
+                noise_seeds::VIDEO_CHROMA_I,
+            );
+            plane_noise(
+                &mut yiq.q,
+                yiq.dimensions.0,
+                &info,
+                &chroma_noise_settings,
+                noise_seeds::VIDEO_CHROMA_Q,
+            );
         }
 
         if self.chroma_phase_error > 0.0 {
