@@ -1058,7 +1058,7 @@ impl NtscEffect {
             self.video_scanline_phase_shift_offset,
         );
 
-        if self.composite_preemphasis > 0.0 {
+        if self.composite_preemphasis != 0.0 {
             let preemphasis_filter = make_lowpass(
                 (315000000.0 / 88.0 / 2.0) * self.bandwidth_scale,
                 NTSC_RATE * self.bandwidth_scale,

@@ -1097,7 +1097,7 @@ impl SettingsList {
                 label: "Composite preemphasis",
                 description: Some("Boost high frequencies in the NTSC signal, sharpening the image and intensifying colors."),
                 kind: SettingKind::FloatRange {
-                    range: 0.0..=2.0,
+                    range: -1.0..=2.0,
                     logarithmic: false,
                     default_value: default_settings.composite_preemphasis,
                 },
