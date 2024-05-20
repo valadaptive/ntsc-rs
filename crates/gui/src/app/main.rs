@@ -1453,7 +1453,7 @@ impl NtscApp {
 
                                 checkbox
                             })
-                            .response;
+                            .inner;
 
                         ui.set_enabled(*checked);
 
