@@ -556,6 +556,11 @@ SmartRender(
 
 	ERR(extra->cb->checkout_output(in_data->effect_ref, &output_worldP));
 
+	// TODO: Not sure why this is needed, but sometimes the layer checkouts don't work?
+	if (!input_worldP || !output_worldP) {
+		return err;
+	}
+
 	AEFX_SuiteScoper<PF_WorldSuite2> worldSuite = AEFX_SuiteScoper<PF_WorldSuite2>(in_data,
 		kPFWorldSuite,
 		kPFWorldSuiteVersion2,
