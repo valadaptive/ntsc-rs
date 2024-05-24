@@ -57,7 +57,8 @@ GlobalSetup (
 	out_data->out_flags2 	=	PF_OutFlag2_PARAM_GROUP_START_COLLAPSED_FLAG	|
 								PF_OutFlag2_SUPPORTS_SMART_RENDER				|
 								PF_OutFlag2_FLOAT_COLOR_AWARE					|
-								PF_OutFlag2_REVEALS_ZERO_ALPHA;
+								PF_OutFlag2_REVEALS_ZERO_ALPHA					|
+								PF_OutFlag2_SUPPORTS_THREADED_RENDERING;
 
 	AEGP_SuiteHandler suites(in_data->pica_basicP);
 	// It's fine to store our Rust plugin data in a Handle (which can move around) because it's allocated on the Rust
