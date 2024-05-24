@@ -21,6 +21,10 @@ static ntscrs_pixel_format ntscrs_premiere_pixel_format_to_pixel_format (PF_Pixe
 	}
 }
 
+static A_long ceil_div(A_long a, A_long b) {
+	return (a / b) + (a % b != 0);
+}
+
 static PF_Err
 About (
 	PF_InData		*in_data,
@@ -111,9 +115,9 @@ PreRender(
 	// *still* wrong somehow, but it seems to give the correct results. I hope whoever designed the SmartFX API and
 	// *especially* whoever wrote the paltry and inadequate documentation for it are cursed with wet socks for eternity.
 	req.rect.left = 0;
-	req.rect.right = in_data->width * in_data->downsample_x.num / in_data->downsample_x.den;
+	req.rect.right = ceil_div(in_data->width * in_data->downsample_x.num, in_data->downsample_x.den);
 	req.rect.top = 0;
-	req.rect.bottom = in_data->height * in_data->downsample_y.num / in_data->downsample_y.den;
+	req.rect.bottom = ceil_div(in_data->height * in_data->downsample_y.num, in_data->downsample_y.den);
 
 	ERR(extra->cb->checkout_layer(	in_data->effect_ref,
 									LAYER_INPUT,
@@ -127,8 +131,8 @@ PreRender(
 	// Completely ignore previous bounds, and just use the layer bounds (for adjustment layers and shape layers, these
 	// are the comp bounds). This was surprisingly tricky to figure out--you'd think lots of effects would want to do
 	// this.
-	A_long out_w = in_result.ref_width * in_data->downsample_x.num / in_data->downsample_x.den;
-	A_long out_h = in_result.ref_height * in_data->downsample_y.num / in_data->downsample_y.den;
+	A_long out_w = ceil_div(in_result.ref_width * in_data->downsample_x.num, in_data->downsample_x.den);
+	A_long out_h = ceil_div(in_result.ref_height * in_data->downsample_y.num, in_data->downsample_y.den);
 
 	PF_Point out_origin = {
 		(A_short)in_data->pre_effect_source_origin_x,
