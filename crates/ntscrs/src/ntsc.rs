@@ -373,7 +373,7 @@ fn luma_into_chroma(
             let scratch = scratch_buffer.get();
             let filter: TransferFunction = make_notch_filter(0.5, 2.0);
             scratch.copy_from_slice(yiq.y);
-            filter_plane(yiq.y, width, &filter, InitialCondition::Zero, 1.0, 1);
+            filter_plane(yiq.y, width, &filter, InitialCondition::Zero, 1.0, 0);
 
             let y_lines = yiq.y.par_chunks_mut(width);
             let i_lines = yiq.i.par_chunks_mut(width);
