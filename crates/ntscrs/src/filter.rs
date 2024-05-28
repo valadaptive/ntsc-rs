@@ -213,16 +213,16 @@ impl TransferFunction {
     }
 
     #[inline(always)]
-    fn filter_signal_in_place_impl<const N: usize>(
-        signal: &mut [&mut [f32]; N],
+    fn filter_signal_in_place_impl<const ROWS: usize>(
+        signal: &mut [&mut [f32]; ROWS],
         num: &[f32],
         den: &[f32],
-        z: [&mut [f32]; N],
+        z: [&mut [f32]; ROWS],
         scale: f32,
         delay: usize,
     ) {
         let filter_len = num.len();
-        for samp_idx in 0..N {
+        for samp_idx in 0..ROWS {
             let signal = &mut signal[samp_idx];
             for i in 0..(signal.len() + delay) {
                 // Either the loop bound extending past items.len() or the min() call seems to prevent the optimizer from
