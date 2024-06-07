@@ -1,4 +1,4 @@
-use crate::util::{workspace_dir, PathBufExt};
+use crate::util::{workspace_dir, PathBufExt, StatusExt};
 
 use std::collections::HashSet;
 use std::error::Error;
@@ -42,7 +42,8 @@ fn build_for_target(target: &str, release_mode: bool) -> std::io::Result<PathBuf
     Command::new("cargo")
         .args(&cargo_args)
         .env("PKG_CONFIG_ALLOW_CROSS", "1")
-        .status()?;
+        .status()
+        .expect_success()?;
 
     let mut target_dir_path = workspace_dir().to_path_buf();
     target_dir_path.extend(&[
@@ -75,7 +76,7 @@ fn resize_image(
         OsString::from("--out"),
         OsString::from(dst_path.as_ref()),
     ];
-    Command::new("sips").args(args).status()?;
+    Command::new("sips").args(args).status().expect_success()?;
     Ok(())
 }
 
@@ -163,7 +164,8 @@ pub fn main(args: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
             x86_64_path.into(),
             aarch64_path.into(),
         ])
-        .status()?;
+        .status()
+        .expect_success()?;
 
     // Copy gstreamer libraries into the bundle
     println!("Copying gstreamer libraries...");
@@ -213,7 +215,8 @@ pub fn main(args: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
             OsString::from("@executable_path/../Frameworks/GStreamer.framework/Versions/1.0/lib"),
             OsString::from(&app_executable_path),
         ])
-        .status()?;
+        .status()
+        .expect_success()?;
 
     // Create icon
     println!("Resizing icons...");
@@ -256,7 +259,8 @@ pub fn main(args: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
             OsString::from(resources_dir_path.plus("icon.icns")),
             OsString::from(iconset_dir_path),
         ])
-        .status()?;
+        .status()
+        .expect_success()?;
 
     // TODO: code signing and notarization
 
