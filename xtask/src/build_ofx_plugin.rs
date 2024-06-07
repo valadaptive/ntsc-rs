@@ -1,4 +1,4 @@
-use crate::util::{workspace_dir, PathBufExt};
+use crate::util::{workspace_dir, PathBufExt, StatusExt};
 
 use std::ffi::OsString;
 use std::fs;
@@ -136,7 +136,10 @@ fn build_plugin_for_target(target: &Target, release_mode: bool) -> std::io::Resu
     if release_mode {
         cargo_args.push(String::from("--release"));
     }
-    Command::new("cargo").args(&cargo_args).status()?;
+    Command::new("cargo")
+        .args(&cargo_args)
+        .status()
+        .expect_success()?;
 
     let mut target_dir_path = workspace_dir().to_path_buf();
     target_dir_path.extend(&[
@@ -187,7 +190,8 @@ pub fn main(args: &clap::ArgMatches) -> std::io::Result<()> {
                 x86_64_path.into(),
                 aarch64_path.into(),
             ])
-            .status()?;
+            .status()
+            .expect_success()?;
 
         // both targets have ofx_architecture: "MacOS"
         assert_eq!(

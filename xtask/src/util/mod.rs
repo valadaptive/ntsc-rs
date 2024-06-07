@@ -1,5 +1,6 @@
 use std::{
     path::{Path, PathBuf},
+    process::ExitStatus,
     sync::OnceLock,
 };
 
@@ -35,5 +36,27 @@ impl<P: AsRef<Path>> PathBufExt for P {
         let mut new_path = self.as_ref().to_path_buf();
         new_path.extend(additional);
         new_path
+    }
+}
+
+pub trait StatusExt {
+    fn expect_success(self) -> std::io::Result<()>;
+}
+
+impl StatusExt for std::io::Result<ExitStatus> {
+    fn expect_success(self) -> std::io::Result<()> {
+        match self {
+            Err(e) => Err(e),
+            Ok(status) => {
+                if status.success() {
+                    Ok(())
+                } else {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        status.to_string(),
+                    ))
+                }
+            }
+        }
     }
 }
