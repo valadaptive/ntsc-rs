@@ -1,10 +1,10 @@
 use std::sync::RwLock;
 
 use gstreamer::glib;
-use gstreamer::glib::once_cell::sync::Lazy;
 use gstreamer::prelude::{GstParamSpecBuilderExt, ParamSpecBuilderExt, ToValue};
 use gstreamer_video::subclass::prelude::*;
-use gstreamer_video::VideoFormat;
+use gstreamer_video::{VideoFormat, VideoFrameExt};
+use once_cell::sync::Lazy;
 
 use ntscrs::ntsc::NtscEffect;
 use ntscrs::yiq_fielding::{Bgrx8, Rgbx8, Xbgr8, Xrgb16, Xrgb8};

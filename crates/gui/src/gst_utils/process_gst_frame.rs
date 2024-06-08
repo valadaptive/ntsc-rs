@@ -1,7 +1,7 @@
 use std::convert::identity;
 
 use gstreamer::{BufferRef, ClockTime, FlowError};
-use gstreamer_video::{VideoFormat, VideoFrameRef, VideoInterlaceMode};
+use gstreamer_video::{VideoFormat, VideoFrameExt, VideoFrameRef, VideoInterlaceMode};
 use ntscrs::{
     settings::NtscEffect,
     yiq_fielding::{

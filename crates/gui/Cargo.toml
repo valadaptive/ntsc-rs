@@ -10,24 +10,24 @@ repository = "https://github.com/valadaptive/ntsc-rs/tree/main/crates/gui"
 
 [dependencies]
 ntscrs = { path = "../ntscrs" }
-arboard = "3.3.2"
+arboard = "3.4.0"
 eframe = { version = "0.27", features=["persistence"] }
-env_logger = "0.10.0"
-image = "0.24.7"
-snafu = "0.7.5"
-logos = "0.13"
-gstreamer = "0.21"
-gstreamer-base = "0.21"
-gstreamer-video = "0.21"
-gstreamer-controller = "0.21"
-futures-lite = "2.2.0"
-async-executor = "1.5.1"
+env_logger = "0.11.3"
+snafu = "0.8.3"
+logos = "0.14"
+gstreamer = "0.22"
+gstreamer-base = "0.22"
+gstreamer-video = "0.22"
+gstreamer-controller = "0.22"
+futures-lite = "2.3.0"
+async-executor = "1.12.0"
 async-task = "4.7.0"
-waker-fn = "1.1.0"
+waker-fn = "1.2.0"
 log = "0.4.20"
 rfd = { git = "https://github.com/valadaptive/rfd", rev = "fe3d331" }
 rand = "0.8.5"
 tinyjson = "2.5.1"
+once_cell = "1.19.0"
 
 [build-dependencies]
 embed-resource = "2.4"

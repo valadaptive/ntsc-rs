@@ -1,12 +1,12 @@
 use eframe::egui::{Context, Rect, TextureFilter, TextureOptions};
 use eframe::epaint::{Color32, ColorImage, TextureHandle};
-use gstreamer::glib::once_cell::sync::Lazy;
 use gstreamer::prelude::*;
 use gstreamer::{glib, PadTemplate};
 use gstreamer_video::subclass::prelude::*;
 use gstreamer_video::video_frame::Readable;
-use gstreamer_video::VideoFrame;
+use gstreamer_video::{VideoFrame, VideoFrameExt};
 use ntscrs::yiq_fielding::{self, Rgbx8};
+use once_cell::sync::Lazy;
 use std::fmt::Debug;
 use std::sync::Mutex;
 

@@ -1,9 +1,9 @@
 use std::sync::RwLock;
 
 use gstreamer::glib;
-use gstreamer::glib::once_cell::sync::Lazy;
 use gstreamer_video::subclass::prelude::*;
-use gstreamer_video::VideoFormat;
+use gstreamer_video::{VideoFormat, VideoFrameExt};
+use once_cell::sync::Lazy;
 
 #[derive(Default)]
 pub struct VideoPadFilter {

@@ -84,21 +84,21 @@ fn initialize_gstreamer() -> Result<(), GstreamerError> {
     gstreamer::Element::register(
         None,
         "eguisink",
-        gstreamer::Rank::None,
+        gstreamer::Rank::NONE,
         elements::EguiSink::static_type(),
     )?;
 
     gstreamer::Element::register(
         None,
         "ntscfilter",
-        gstreamer::Rank::None,
+        gstreamer::Rank::NONE,
         elements::NtscFilter::static_type(),
     )?;
 
     gstreamer::Element::register(
         None,
         "videopadfilter",
-        gstreamer::Rank::None,
+        gstreamer::Rank::NONE,
         elements::VideoPadFilter::static_type(),
     )?;
 
@@ -110,7 +110,7 @@ fn initialize_gstreamer() -> Result<(), GstreamerError> {
     // Until then, disable it and pray that someone writes a PipeWire sink so we don't have to deal with any more
     // bugs like this
     if let Some(sink) = gstreamer::ElementFactory::find("pulsesink") {
-        sink.set_rank(gstreamer::Rank::None);
+        sink.set_rank(gstreamer::Rank::NONE);
     }
 
     Ok(())
@@ -754,7 +754,9 @@ impl NtscApp {
 
                                 let video_rate = pipeline.by_name("video_rate");
                                 let caps = video_rate.and_then(|video_rate| {
-                                    video_rate.static_pad("src").and_then(|pad| pad.caps())
+                                    video_rate
+                                        .static_pad("src")
+                                        .and_then(|pad| pad.current_caps())
                                 });
 
                                 if let Some(caps) = caps {
