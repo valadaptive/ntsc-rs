@@ -2155,7 +2155,7 @@ dependencies = [
 
 [[package]]
 name = "gui"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "arboard",
  "async-executor",

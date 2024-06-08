@@ -1,6 +1,6 @@
 [package]
 name = "gui"
-version = "0.7.2"
+version = "0.7.3"
 edition = "2021"
 default-run = "ntsc-rs-standalone"
 license = "GPL-3.0"
