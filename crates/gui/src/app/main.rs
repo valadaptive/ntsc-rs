@@ -2358,8 +2358,6 @@ impl NtscApp {
                     ui.add_enabled_ui(has_audio, |ui| {
                         let mut update_volume = false;
 
-                        // Not actually being made into an error and some want to remove the lint entirely
-                        #[allow(illegal_floating_point_literal_pattern)]
                         if ui
                             .button(if self.audio_volume.mute {
                                 "🔇"

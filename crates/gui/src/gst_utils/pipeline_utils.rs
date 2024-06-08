@@ -10,6 +10,7 @@ use std::{
 
 #[derive(Clone, Debug, glib::Boxed)]
 #[boxed_type(name = "ErrorValue")]
+#[allow(dead_code)]
 struct ErrorValue(Arc<Mutex<Option<GstreamerError>>>);
 
 #[derive(Debug, Clone)]
