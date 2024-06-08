@@ -33,7 +33,7 @@ use crate::{
         elements,
         gstreamer_error::GstreamerError,
         ntscrs_filter::NtscFilterSettings,
-        pipeline_utils::{create_pipeline, PipelineError},
+        pipeline_utils::{create_pipeline, PipelineError, VideoElemMetadata},
         scale_from_caps,
     },
     splitscreen::SplitScreen,
@@ -704,7 +704,7 @@ impl NtscApp {
                 metadata_for_audio_handler.lock().unwrap().has_audio = Some(true);
                 Ok(Some(audio_sink_for_closure))
             },
-            move |pipeline| {
+            move |pipeline, VideoElemMetadata { .. }| {
                 pipeline.add(&video_sink_for_closure)?;
                 Ok(video_sink_for_closure)
             },
@@ -912,7 +912,6 @@ impl NtscApp {
         let exec2 = self.execute_fn_next_frame();
         let ctx_for_handler = ctx.clone();
 
-        //let still_image_duration = settings.duration;
         let current_time = self
             .pipeline
             .as_ref()
@@ -946,7 +945,7 @@ impl NtscApp {
                     Ok(None)
                 }
             },
-            move |pipeline| {
+            move |pipeline, VideoElemMetadata { interlace_mode, .. }| {
                 let (_, video_out) = output_elems_cell_video
                     .get_or_init(|| create_output_elems_video(pipeline))
                     .as_ref()
@@ -1060,7 +1059,9 @@ impl NtscApp {
                 let video_convert = gstreamer::ElementFactory::make("videoconvert").build()?;
                 elems.push(video_convert);
 
-                if settings_video_closure.interlacing != RenderInterlaceMode::Progressive {
+                if settings_video_closure.interlacing != RenderInterlaceMode::Progressive
+                    && !matches!(interlace_mode, Some(VideoInterlaceMode::Progressive))
+                {
                     // Load the interlace plugin so the enum class exists. Nothing seems to work except actually instantiating an Element.
                     let _ = gstreamer::ElementFactory::make("interlace")
                         .build()

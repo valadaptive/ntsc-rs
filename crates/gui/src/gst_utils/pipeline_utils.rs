@@ -1,5 +1,6 @@
 use super::{gstreamer_error::GstreamerError, scale_from_caps};
 use gstreamer::{element_error, element_warning, glib, prelude::*};
+use gstreamer_video::VideoInterlaceMode;
 use log::debug;
 use std::{
     error::Error,
@@ -41,12 +42,21 @@ impl From<glib::Error> for PipelineError {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct VideoElemMetadata {
+    pub is_still_image: bool,
+    pub interlace_mode: Option<VideoInterlaceMode>,
+}
+
 pub fn create_pipeline<
     AudioElemCallback: FnOnce(&gstreamer::Pipeline) -> Result<Option<gstreamer::Element>, GstreamerError>
         + Send
         + Sync
         + 'static,
-    VideoElemCallback: FnOnce(&gstreamer::Pipeline) -> Result<gstreamer::Element, GstreamerError>
+    VideoElemCallback: FnOnce(
+            &gstreamer::Pipeline,
+            VideoElemMetadata,
+        ) -> Result<gstreamer::Element, GstreamerError>
         + Send
         + Sync
         + 'static,
@@ -195,7 +205,32 @@ pub fn create_pipeline<
                         pipeline.add_many(video_elements)?;
                         gstreamer::Element::link_many(video_elements)?;
 
-                        let video_sink = video_sink(&pipeline)?;
+                        let caps = src_pad.current_caps();
+                        let caps = caps.as_ref();
+                        let structure = caps.and_then(|caps| caps.structure(0));
+
+                        let framerate = structure.and_then(|structure| {
+                            structure.get::<gstreamer::Fraction>("framerate").ok()
+                        });
+
+                        let interlace_mode = structure.and_then(|structure| {
+                            Some(VideoInterlaceMode::from_string(
+                                structure.get("interlace-mode").ok()?,
+                            ))
+                        });
+
+                        let is_still_image = match framerate {
+                            Some(framerate) => framerate.numer() == 0,
+                            None => false,
+                        };
+
+                        let video_sink = video_sink(
+                            &pipeline,
+                            VideoElemMetadata {
+                                is_still_image,
+                                interlace_mode,
+                            },
+                        )?;
                         framerate_caps_filter.link(&video_sink)?;
 
                         for e in video_elements {
@@ -208,20 +243,6 @@ pub fn create_pipeline<
                         let sink_pad = video_queue
                             .static_pad("sink")
                             .expect("queue has no sinkpad");
-
-                        let caps = src_pad.current_caps();
-                        let caps = caps.as_ref();
-
-                        let framerate = caps.and_then(|caps| {
-                            caps.structure(0)?
-                                .get::<gstreamer::Fraction>("framerate")
-                                .ok()
-                        });
-
-                        let is_still_image = match framerate {
-                            Some(framerate) => framerate.numer() == 0,
-                            None => false,
-                        };
 
                         if let (Some(caps), Some(initial_scale)) = (caps, initial_scale) {
                             if let Some((width, height)) = scale_from_caps(caps, initial_scale) {
