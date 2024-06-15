@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use gstreamer::ClockTime;
+use gstreamer::{ClockTime, Fraction};
 use ntscrs::ntsc::NtscEffect;
 
 #[derive(Debug, Clone)]
@@ -51,6 +51,11 @@ pub struct Ffv1Settings {
     pub chroma_subsampling: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct PngSettings {
+    pub seek_to: ClockTime,
+}
+
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub enum OutputCodec {
     #[default]
@@ -78,7 +83,7 @@ impl OutputCodec {
 pub enum RenderPipelineCodec {
     H264(H264Settings),
     Ffv1(Ffv1Settings),
-    Png,
+    Png(PngSettings),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,10 +94,15 @@ pub enum RenderInterlaceMode {
 }
 
 #[derive(Debug, Clone)]
+pub struct StillImageSettings {
+    pub framerate: Fraction,
+    pub duration: ClockTime,
+}
+
+#[derive(Debug, Clone)]
 pub struct RenderPipelineSettings {
     pub codec_settings: RenderPipelineCodec,
     pub output_path: PathBuf,
-    pub duration: ClockTime,
     pub interlacing: RenderInterlaceMode,
     pub effect_settings: NtscEffect,
 }

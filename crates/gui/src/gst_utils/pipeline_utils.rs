@@ -68,7 +68,7 @@ pub fn create_pipeline<
     audio_sink: AudioElemCallback,
     video_sink: VideoElemCallback,
     bus_handler: BusHandler,
-    duration: Option<gstreamer::ClockTime>,
+    still_image_duration: Option<gstreamer::ClockTime>,
     initial_scale: Option<usize>,
     initial_still_image_framerate: gstreamer::Fraction,
     callback: Option<PipelineCallback>,
@@ -273,7 +273,7 @@ pub fn create_pipeline<
 
                             // We cannot move this functionality into create_render_job. If we do this seek outside of
                             // this callback, the output video will be truncated. No idea why.
-                            if let Some(duration) = duration {
+                            if let Some(duration) = still_image_duration {
                                 image_freeze.seek(
                                     1.0,
                                     gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,

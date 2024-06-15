@@ -1,4 +1,4 @@
-use std::sync::{atomic::AtomicBool, Arc, Mutex};
+use std::sync::{atomic::AtomicBool, Arc};
 
 use eframe::egui::util::undoer::Undoer;
 use ntscrs::ntsc::{NtscEffectFullSettings, SettingsList};
@@ -16,7 +16,7 @@ pub type AppFn = Box<dyn FnOnce(&mut NtscApp) -> Result<(), error::ApplicationEr
 pub struct NtscApp {
     pub gstreamer_initialized: Arc<AtomicBool>,
     pub settings_list: SettingsList,
-    pub executor: Arc<Mutex<executor::AppExecutor>>,
+    pub executor: executor::AppExecutor,
     pub pipeline: Option<pipeline_info::PipelineInfo>,
     pub undoer: Undoer<NtscEffectFullSettings>,
     pub video_zoom: app_state::VideoZoom,
