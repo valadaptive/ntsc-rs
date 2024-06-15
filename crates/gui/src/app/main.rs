@@ -369,7 +369,7 @@ impl NtscApp {
 
         let tex = ctx.load_texture(
             "preview",
-            egui::ColorImage::from_rgb([1, 1], &[0, 0, 0]),
+            egui::ColorImage::from_rgb([0, 0], &[]),
             egui::TextureOptions::LINEAR,
         );
         let tex_sink = SinkTexture(Some(tex.clone()));
@@ -1750,6 +1750,11 @@ impl NtscApp {
                                         );
                                         return;
                                     };
+
+                                    if preview.size().iter().any(|dim| *dim == 0) {
+                                        ui.add(egui::Spinner::new());
+                                        return;
+                                    }
 
                                     let texture_size = if self.video_scale.enabled {
                                         let texture_actual_size = preview.size_vec2();
