@@ -15,6 +15,8 @@ use std::{
     thread,
 };
 
+use async_executor::Executor;
+use async_task::Task;
 use eframe::egui::{self, pos2, util::undoer::Undoer, vec2, ColorImage, Rect, Response};
 use futures_lite::{Future, FutureExt};
 use glib::clone::Downgrade;
@@ -47,7 +49,7 @@ use ntscrs::settings::{
 };
 use snafu::{prelude::*, ResultExt};
 
-use log::debug;
+use log::{debug, trace};
 
 use super::{
     render_job::{RenderJob, RenderJobState},
@@ -399,66 +401,63 @@ impl LayoutHelper for egui::Ui {
 type AppFn = Box<dyn FnOnce(&mut NtscApp) -> Result<(), ApplicationError> + Send>;
 
 struct AppExecutor {
+    executor: Arc<Executor<'static>>,
+    exec_future: Pin<Box<dyn Future<Output = ()> + Send>>,
     waker: Waker,
-    ctx: egui::Context,
-    run_tasks: Vec<Pin<Box<dyn Future<Output = Option<AppFn>> + Send>>>,
-    queued: Vec<AppFn>,
+    egui_ctx: egui::Context,
+    tasks: Vec<Task<Option<AppFn>>>,
 }
 
 impl AppExecutor {
-    fn new(ctx: egui::Context) -> Self {
-        let waker_ctx = ctx.clone();
-        AppExecutor {
-            waker: waker_fn::waker_fn(move || waker_ctx.request_repaint()),
-            ctx,
-            run_tasks: Vec::new(),
-            queued: Vec::new(),
+    fn new(egui_ctx: egui::Context) -> Self {
+        let executor = Arc::new(Executor::new());
+        let executor_for_future = Arc::clone(&executor);
+        let egui_ctx_for_waker = egui_ctx.clone();
+        Self {
+            executor,
+            exec_future: Box::pin(async move {
+                executor_for_future
+                    .run(futures_lite::future::pending())
+                    .await
+            }),
+            waker: waker_fn::waker_fn(move || egui_ctx_for_waker.request_repaint()),
+            egui_ctx,
+            tasks: Vec::new(),
         }
     }
 
     #[must_use]
     fn tick(&mut self) -> Vec<AppFn> {
-        let mut i = 0usize;
-        let mut queued = std::mem::take(&mut self.queued);
-        while i < self.run_tasks.len() {
-            let task = &mut self.run_tasks[i];
-            match task.poll(&mut Context::from_waker(&self.waker)) {
-                Poll::Pending => {
-                    i += 1;
-                }
-                Poll::Ready(f) => {
-                    if let Some(f) = f {
-                        queued.push(f);
-                    }
-                    let _ = self.run_tasks.swap_remove(i);
-                }
+        let mut context = Context::from_waker(&self.waker);
+        let _ = self.exec_future.poll(&mut context);
+
+        let mut queued = Vec::new();
+
+        self.tasks.retain_mut(|task| {
+            if !task.is_finished() {
+                return true;
             }
-        }
+            trace!("finished task on frame {}", self.egui_ctx.frame_nr());
+
+            let Poll::Ready(cb) = task.poll(&mut context) else {
+                panic!("task is finished but poll is not ready");
+            };
+
+            if let Some(cb) = cb {
+                queued.push(cb);
+            }
+
+            return false;
+        });
 
         queued
     }
 
-    fn spawn(
-        &mut self,
-        future: impl Future<Output = Option<AppFn>> + 'static + Send,
-        next_frame: bool,
-    ) {
-        let mut boxed = Box::pin(future);
-        if next_frame {
-            self.run_tasks.push(boxed);
-            self.ctx.request_repaint();
-        } else {
-            match boxed.poll(&mut Context::from_waker(&self.waker)) {
-                Poll::Ready(f) => {
-                    if let Some(f) = f {
-                        self.queued.push(f);
-                    }
-                }
-                Poll::Pending => {
-                    self.run_tasks.push(boxed);
-                }
-            }
-        }
+    fn spawn(&mut self, future: impl Future<Output = Option<AppFn>> + 'static + Send) {
+        trace!("spawned task on frame {}", self.egui_ctx.frame_nr());
+        let task = self.executor.spawn(future);
+        self.tasks.push(task);
+        self.egui_ctx.request_repaint();
     }
 }
 
@@ -520,17 +519,17 @@ impl NtscApp {
     }
 
     fn spawn(&mut self, future: impl Future<Output = Option<AppFn>> + 'static + Send) {
-        self.executor.lock().unwrap().spawn(future, false);
+        self.executor.lock().unwrap().spawn(future);
     }
 
-    fn execute_fn_next_frame<T: Future<Output = Option<AppFn>> + 'static + Send>(
+    fn make_spawner<T: Future<Output = Option<AppFn>> + 'static + Send>(
         &self,
     ) -> impl Fn(T) + Send {
         let weak_exec = self.executor.downgrade();
 
         move |future: T| {
             if let Some(exec) = weak_exec.upgrade() {
-                exec.lock().unwrap().spawn(future, true);
+                exec.lock().unwrap().spawn(future);
             }
         }
     }
@@ -910,8 +909,8 @@ impl NtscApp {
 
         let job_state = Arc::new(Mutex::new(RenderJobState::Waiting));
         let job_state_for_handler = Arc::clone(&job_state);
-        let exec = self.execute_fn_next_frame();
-        let exec2 = self.execute_fn_next_frame();
+        let exec = self.make_spawner();
+        let exec2 = self.make_spawner();
         let ctx_for_handler = ctx.clone();
 
         let current_time = self
@@ -2844,12 +2843,12 @@ impl NtscApp {
 
 impl eframe::App for NtscApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        self.tick();
+
         if !self.gstreamer_initialized.load(Ordering::Acquire) {
             self.show_loading_screen(ctx);
             return;
         }
-
-        self.tick();
 
         let mut pipeline_error = None::<PipelineError>;
         if let Some(pipeline) = &self.pipeline {
