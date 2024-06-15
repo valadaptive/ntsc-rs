@@ -6,19 +6,15 @@ use std::{
     io::Read,
     ops::RangeInclusive,
     path::{Path, PathBuf},
-    pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex, OnceLock,
     },
-    task::{Context, Poll, Waker},
     thread,
 };
 
-use async_executor::Executor;
-use async_task::Task;
-use eframe::egui::{self, pos2, util::undoer::Undoer, vec2, ColorImage, Rect, Response};
-use futures_lite::{Future, FutureExt};
+use eframe::egui::{self, util::undoer::Undoer, vec2, ColorImage, Response};
+use futures_lite::Future;
 use glib::clone::Downgrade;
 use gstreamer::{
     glib::{self, subclass::types::ObjectSubclassExt},
@@ -44,41 +40,30 @@ use crate::{
 };
 
 use ntscrs::settings::{
-    NtscEffectFullSettings, ParseSettingsError, SettingDescriptor, SettingID, SettingKind,
-    SettingsList, UseField,
+    NtscEffectFullSettings, SettingDescriptor, SettingID, SettingKind, SettingsList, UseField,
 };
-use snafu::{prelude::*, ResultExt};
+use snafu::ResultExt;
 
-use log::{debug, trace};
+use log::debug;
 
 use super::{
+    app_state::{
+        AudioVolume, ColorTheme, EffectPreviewMode, EffectPreviewSettings, LeftPanelState,
+        VideoScale, VideoZoom,
+    },
+    error::{
+        ApplicationError, CreatePipelineSnafu, CreateRenderJobSnafu, JSONParseSnafu, JSONReadSnafu,
+        JSONSaveSnafu, LoadVideoSnafu,
+    },
+    executor::AppExecutor,
+    pipeline_info::{PipelineInfo, PipelineMetadata, PipelineStatus},
     render_job::{RenderJob, RenderJobState},
     render_settings::{
         Ffv1BitDepth, H264Settings, OutputCodec, RenderInterlaceMode, RenderPipelineCodec,
         RenderPipelineSettings, RenderSettings,
     },
+    AppFn, NtscApp,
 };
-
-#[derive(Debug, Snafu)]
-enum ApplicationError {
-    #[snafu(display("Error loading video: {source}"))]
-    LoadVideo { source: GstreamerError },
-
-    #[snafu(display("Error creating pipeline: {source}"))]
-    CreatePipeline { source: PipelineError },
-
-    #[snafu(display("Error creating render job: {source}"))]
-    CreateRenderJob { source: GstreamerError },
-
-    #[snafu(display("Error reading JSON: {source}"))]
-    JSONRead { source: std::io::Error },
-
-    #[snafu(display("Error parsing JSON: {source}"))]
-    JSONParse { source: ParseSettingsError },
-
-    #[snafu(display("Error saving JSON: {source}"))]
-    JSONSave { source: std::io::Error },
-}
 
 fn initialize_gstreamer() -> Result<(), GstreamerError> {
     gstreamer::init()?;
@@ -192,176 +177,6 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     )?)
 }
 
-#[derive(Debug)]
-enum PipelineInfoState {
-    Loading,
-    Loaded,
-    Error(PipelineError),
-}
-
-struct PipelineInfo {
-    pipeline: gstreamer::Pipeline,
-    state: Arc<Mutex<PipelineInfoState>>,
-    path: PathBuf,
-    egui_sink: gstreamer::Element,
-    last_seek_pos: ClockTime,
-    preview: egui::TextureHandle,
-    at_eos: Arc<Mutex<bool>>,
-    metadata: Arc<Mutex<PipelineMetadata>>,
-}
-
-impl PipelineInfo {
-    fn toggle_playing(&self) -> Result<(), GstreamerError> {
-        match self.pipeline.current_state() {
-            gstreamer::State::Paused | gstreamer::State::Ready => {
-                // Restart from the beginning if "play" is pressed at the end of the video
-                let (position, duration) = (
-                    self.pipeline.query_position::<ClockTime>(),
-                    self.pipeline.query_duration::<ClockTime>(),
-                );
-                if let (Some(position), Some(duration)) = (position, duration) {
-                    if position == duration {
-                        self.pipeline.seek_simple(
-                            gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
-                            ClockTime::ZERO,
-                        )?;
-                    }
-                }
-
-                self.pipeline.set_state(gstreamer::State::Playing)?;
-            }
-            gstreamer::State::Playing => {
-                self.pipeline.set_state(gstreamer::State::Paused)?;
-            }
-            _ => {}
-        }
-
-        Ok(())
-    }
-}
-
-impl Drop for PipelineInfo {
-    fn drop(&mut self) {
-        let _ = self.pipeline.set_state(gstreamer::State::Null);
-    }
-}
-
-#[derive(Debug, Default)]
-struct PipelineMetadata {
-    is_still_image: Option<bool>,
-    has_audio: Option<bool>,
-    framerate: Option<gstreamer::Fraction>,
-    interlace_mode: Option<VideoInterlaceMode>,
-    resolution: Option<(usize, usize)>,
-}
-
-#[derive(Debug)]
-struct VideoZoom {
-    scale: f64,
-    fit: bool,
-}
-
-#[derive(Debug)]
-struct VideoScale {
-    scale: usize,
-    enabled: bool,
-}
-
-#[derive(Debug)]
-struct AudioVolume {
-    gain: f64,
-    // If the user drags the volume slider all the way to 0, we want to keep track of what it was before they did that
-    // so we can reset the volume to it when they click the unmute button. This prevents e.g. the user setting the
-    // volume to 25%, dragging it down to 0%, then clicking unmute and having it reset to some really loud default
-    // value.
-    gain_pre_mute: f64,
-    mute: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum EffectPreviewMode {
-    #[default]
-    Enabled,
-    Disabled,
-    SplitScreen,
-}
-
-#[derive(Debug)]
-struct EffectPreviewSettings {
-    mode: EffectPreviewMode,
-    preview_rect: Rect,
-}
-
-impl Default for EffectPreviewSettings {
-    fn default() -> Self {
-        Self {
-            mode: Default::default(),
-            preview_rect: Rect::from_min_max(pos2(0.0, 0.0), pos2(0.5, 1.0)),
-        }
-    }
-}
-
-impl Default for AudioVolume {
-    fn default() -> Self {
-        Self {
-            gain: 1.0,
-            gain_pre_mute: 1.0,
-            mute: false,
-        }
-    }
-}
-
-#[derive(Default, PartialEq, Eq)]
-enum LeftPanelState {
-    #[default]
-    EffectSettings,
-    RenderSettings,
-}
-
-#[derive(Default, PartialEq, Eq)]
-enum ColorTheme {
-    Dark,
-    Light,
-    #[default]
-    System,
-}
-
-impl ColorTheme {
-    fn visuals(&self, info: &eframe::IntegrationInfo) -> egui::Visuals {
-        match &self {
-            ColorTheme::Dark => egui::Visuals::dark(),
-            ColorTheme::Light => egui::Visuals::light(),
-            ColorTheme::System => match info.system_theme {
-                Some(eframe::Theme::Dark) => egui::Visuals::dark(),
-                Some(eframe::Theme::Light) => egui::Visuals::light(),
-                None => egui::Visuals::default(),
-            },
-        }
-    }
-}
-
-impl From<&ColorTheme> for &str {
-    fn from(value: &ColorTheme) -> Self {
-        match value {
-            ColorTheme::Dark => "Dark",
-            ColorTheme::Light => "Light",
-            ColorTheme::System => "System",
-        }
-    }
-}
-
-impl TryFrom<&str> for ColorTheme {
-    type Error = ();
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "Dark" => Ok(ColorTheme::Dark),
-            "Light" => Ok(ColorTheme::Light),
-            "System" => Ok(ColorTheme::System),
-            _ => Err(()),
-        }
-    }
-}
-
 trait LayoutHelper {
     fn ltr<R>(&mut self, add_contents: impl FnOnce(&mut Self) -> R) -> egui::InnerResponse<R>;
     fn rtl<R>(&mut self, add_contents: impl FnOnce(&mut Self) -> R) -> egui::InnerResponse<R>;
@@ -396,90 +211,6 @@ impl LayoutHelper for egui::Ui {
             Box::new(add_contents),
         )
     }
-}
-
-type AppFn = Box<dyn FnOnce(&mut NtscApp) -> Result<(), ApplicationError> + Send>;
-
-struct AppExecutor {
-    executor: Arc<Executor<'static>>,
-    exec_future: Pin<Box<dyn Future<Output = ()> + Send>>,
-    waker: Waker,
-    egui_ctx: egui::Context,
-    tasks: Vec<Task<Option<AppFn>>>,
-}
-
-impl AppExecutor {
-    fn new(egui_ctx: egui::Context) -> Self {
-        let executor = Arc::new(Executor::new());
-        let executor_for_future = Arc::clone(&executor);
-        let egui_ctx_for_waker = egui_ctx.clone();
-        Self {
-            executor,
-            exec_future: Box::pin(async move {
-                executor_for_future
-                    .run(futures_lite::future::pending())
-                    .await
-            }),
-            waker: waker_fn::waker_fn(move || egui_ctx_for_waker.request_repaint()),
-            egui_ctx,
-            tasks: Vec::new(),
-        }
-    }
-
-    #[must_use]
-    fn tick(&mut self) -> Vec<AppFn> {
-        let mut context = Context::from_waker(&self.waker);
-        let _ = self.exec_future.poll(&mut context);
-
-        let mut queued = Vec::new();
-
-        self.tasks.retain_mut(|task| {
-            if !task.is_finished() {
-                return true;
-            }
-            trace!("finished task on frame {}", self.egui_ctx.frame_nr());
-
-            let Poll::Ready(cb) = task.poll(&mut context) else {
-                panic!("task is finished but poll is not ready");
-            };
-
-            if let Some(cb) = cb {
-                queued.push(cb);
-            }
-
-            return false;
-        });
-
-        queued
-    }
-
-    fn spawn(&mut self, future: impl Future<Output = Option<AppFn>> + 'static + Send) {
-        trace!("spawned task on frame {}", self.egui_ctx.frame_nr());
-        let task = self.executor.spawn(future);
-        self.tasks.push(task);
-        self.egui_ctx.request_repaint();
-    }
-}
-
-struct NtscApp {
-    gstreamer_initialized: Arc<AtomicBool>,
-    settings_list: SettingsList,
-    executor: Arc<Mutex<AppExecutor>>,
-    pipeline: Option<PipelineInfo>,
-    undoer: Undoer<NtscEffectFullSettings>,
-    video_zoom: VideoZoom,
-    video_scale: VideoScale,
-    audio_volume: AudioVolume,
-    effect_preview: EffectPreviewSettings,
-    left_panel_state: LeftPanelState,
-    effect_settings: NtscEffectFullSettings,
-    render_settings: RenderSettings,
-    render_jobs: Vec<RenderJob>,
-    settings_json_paste: String,
-    last_error: Option<String>,
-    color_theme: ColorTheme,
-    credits_dialog_open: bool,
-    licenses_dialog_open: bool,
 }
 
 impl NtscApp {
@@ -681,7 +412,7 @@ impl NtscApp {
             )
             .build()?;
 
-        let pipeline_info_state = Arc::new(Mutex::new(PipelineInfoState::Loading));
+        let pipeline_info_state = Arc::new(Mutex::new(PipelineStatus::Loading));
         let pipeline_info_state_for_handler = Arc::clone(&pipeline_info_state);
         let pipeline_info_state_for_callback = Arc::clone(&pipeline_info_state);
         let at_eos = Arc::new(Mutex::new(false));
@@ -721,8 +452,8 @@ impl NtscApp {
                     if let gstreamer::MessageView::Error(err_msg) = msg.view() {
                         debug!("handling error message: {:?}", msg);
                         let mut pipeline_state = pipeline_info_state.lock().unwrap();
-                        if !matches!(&*pipeline_state, PipelineInfoState::Error(_)) {
-                            *pipeline_state = PipelineInfoState::Error(err_msg.error().into());
+                        if !matches!(&*pipeline_state, PipelineStatus::Error(_)) {
+                            *pipeline_state = PipelineStatus::Error(err_msg.error().into());
                             ctx.request_repaint();
                         }
                     }
@@ -743,7 +474,7 @@ impl NtscApp {
                                 )
                             {
                                 // Changed from READY to PAUSED/PLAYING.
-                                *pipeline_info_state.lock().unwrap() = PipelineInfoState::Loaded;
+                                *pipeline_info_state.lock().unwrap() = PipelineStatus::Loaded;
 
                                 let mut metadata = metadata.lock().unwrap();
 
@@ -802,7 +533,7 @@ impl NtscApp {
             gstreamer::Fraction::from(30),
             Some(move |p: Result<gstreamer::Pipeline, PipelineError>| {
                 if let Err(e) = p {
-                    *pipeline_info_state_for_callback.lock().unwrap() = PipelineInfoState::Error(e);
+                    *pipeline_info_state_for_callback.lock().unwrap() = PipelineStatus::Error(e);
                     ctx_for_callback.request_repaint();
                 }
             }),
@@ -2855,8 +2586,8 @@ impl eframe::App for NtscApp {
             let state = pipeline.state.lock().unwrap();
             let state = &*state;
             match state {
-                PipelineInfoState::Loading => {}
-                PipelineInfoState::Loaded => {
+                PipelineStatus::Loading => {}
+                PipelineStatus::Loaded => {
                     let pipeline = self.pipeline.as_ref().unwrap();
                     let mut at_eos = pipeline.at_eos.lock().unwrap();
                     if *at_eos {
@@ -2864,7 +2595,7 @@ impl eframe::App for NtscApp {
                         *at_eos = false;
                     }
                 }
-                PipelineInfoState::Error(err) => {
+                PipelineStatus::Error(err) => {
                     pipeline_error = Some(err.clone());
                 }
             };
