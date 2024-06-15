@@ -878,6 +878,7 @@ impl NtscApp {
             .exact_height(ui.spacing().interact_size.y * 2.0)
             .show_inside(ui, |ui| {
                 ui.horizontal_centered(|ui| {
+                    ui.label("Presets");
                     if ui.button("Save").clicked() {
                         let json = self.settings_list.to_json(&self.effect_settings);
                         let handle = rfd::AsyncFileDialog::new()
