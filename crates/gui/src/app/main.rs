@@ -337,7 +337,7 @@ impl NtscApp {
         }
     }
 
-    fn set_volume(pipeline: &gstreamer::Pipeline, volume: f64, mute: bool) {
+    fn set_pipeline_volume(pipeline: &gstreamer::Pipeline, volume: f64, mute: bool) {
         let Some(audio_volume) = pipeline.by_name("audio_volume") else {
             return;
         };
@@ -1653,18 +1653,18 @@ impl NtscApp {
                             }
                         }
 
-                        if resp.changed() {
+                        if resp.changed() || resp.drag_stopped() {
                             update_volume = true;
                         }
 
                         if update_volume {
                             if let Some(pipeline_info) = &self.pipeline {
-                                NtscApp::set_volume(
+                                NtscApp::set_pipeline_volume(
                                     &pipeline_info.pipeline,
                                     // Unlogarithmify volume (at least to my ears, this gives more control at the low end
                                     // of the slider)
                                     10f64.powf(self.audio_volume.gain - 1.0).max(0.0),
-                                    self.audio_volume.mute,
+                                    self.audio_volume.mute || self.audio_volume.gain == 0.0,
                                 );
                             }
                         }
