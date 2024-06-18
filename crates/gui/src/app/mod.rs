@@ -1,4 +1,4 @@
-use std::sync::{atomic::AtomicBool, Arc};
+use std::{cell::RefCell, sync::{atomic::AtomicBool, Arc}};
 
 use eframe::egui::util::undoer::Undoer;
 use ntscrs::ntsc::{NtscEffectFullSettings, SettingsList};
@@ -28,7 +28,7 @@ pub struct NtscApp {
     pub render_settings: render_settings::RenderSettings,
     pub render_jobs: Vec<render_job::RenderJob>,
     pub settings_json_paste: String,
-    pub last_error: Option<String>,
+    pub last_error: RefCell<Option<String>>,
     pub color_theme: app_state::ColorTheme,
     pub credits_dialog_open: bool,
     pub licenses_dialog_open: bool,

@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    cell::RefCell,
     error::Error,
     ffi::OsStr,
     fs::File,
@@ -235,7 +236,7 @@ impl NtscApp {
             render_settings: RenderSettings::default(),
             render_jobs: Vec::new(),
             settings_json_paste: String::new(),
-            last_error: None,
+            last_error: RefCell::new(None),
             color_theme,
             credits_dialog_open: false,
             licenses_dialog_open: false,
@@ -593,11 +594,11 @@ impl NtscApp {
         }
     }
 
-    fn handle_error(&mut self, err: &dyn Error) {
-        self.last_error = Some(format!("{}", err));
+    fn handle_error(&self, err: &dyn Error) {
+        *self.last_error.borrow_mut() = Some(format!("{}", err));
     }
 
-    fn handle_result<T, E: Error>(&mut self, result: Result<T, E>) {
+    fn handle_result<T, E: Error>(&self, result: Result<T, E>) {
         if let Err(err) = result {
             self.handle_error(&err);
         }
@@ -2008,7 +2009,7 @@ impl NtscApp {
                     ui.label(format!("{} v{VERSION}", Self::APP_ID));
 
                     let mut close_error = false;
-                    if let Some(error) = self.last_error.as_ref() {
+                    if let Some(error) = self.last_error.borrow().as_ref() {
                         egui::Frame::none()
                             .rounding(3.0)
                             .stroke(ui.style().noninteractive().fg_stroke)
@@ -2022,7 +2023,7 @@ impl NtscApp {
                             });
                     }
                     if close_error {
-                        self.last_error = None;
+                        *self.last_error.borrow_mut() = None;
                     }
                 });
             });
