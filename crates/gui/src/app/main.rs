@@ -263,12 +263,23 @@ impl NtscApp {
     }
 
     fn load_video(&mut self, ctx: &egui::Context, path: PathBuf) -> Result<(), ApplicationError> {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(
+            path.file_name()
+                .map(|file_name| format!("ntsc-rs — {}", file_name.to_string_lossy()))
+                .unwrap_or_else(|| "ntsc-rs".to_string()),
+        ));
+
         self.pipeline = Some(
             self.create_preview_pipeline(ctx, path)
                 .context(LoadVideoSnafu)?,
         );
 
         Ok(())
+    }
+
+    fn close_video(&mut self, ctx: &egui::Context) {
+        self.pipeline = None;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title("ntsc-rs".to_string()));
     }
 
     fn rescale_video(
@@ -1274,7 +1285,6 @@ impl NtscApp {
     }
 
     fn show_video_pane(&mut self, ui: &mut egui::Ui) {
-        let ctx = ui.ctx().clone();
         let last_seek_pos = if let Some(info) = &mut self.pipeline {
             // While seeking, GStreamer sometimes doesn't return a timecode. In that case, use the last timecode it
             // did respond with.
@@ -1413,11 +1423,11 @@ impl NtscApp {
                 }
 
                 if remove_pipeline {
-                    self.pipeline = None;
+                    self.close_video(ui.ctx())
                 }
 
                 if let Some((src_path, dst_path)) = save_image_to {
-                    let ctx = ctx.clone();
+                    let ctx = ui.ctx().clone();
                     self.spawn(async move {
                         let handle = rfd::AsyncFileDialog::new()
                             .set_directory(dst_path.parent().unwrap_or(Path::new("/")))
@@ -1486,6 +1496,7 @@ impl NtscApp {
                         btn_widget,
                     );
 
+                    let ctx = ui.ctx();
                     if !ctx.wants_keyboard_input()
                         && ctx.input(|i| {
                             i.events.iter().any(|event| {
@@ -1708,7 +1719,7 @@ impl NtscApp {
             });
 
         egui::CentralPanel::default()
-            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(0.0))
+            .frame(egui::Frame::side_top_panel(&ui.ctx().style()).inner_margin(0.0))
             .show_inside(ui, |ui| {
                 ui.visuals_mut().clip_rect_margin = 0.0;
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
@@ -2125,7 +2136,7 @@ impl eframe::App for NtscApp {
         }
 
         if let Some(err) = pipeline_error {
-            self.pipeline = None;
+            self.close_video(ctx);
             self.handle_error(&err);
         }
 
