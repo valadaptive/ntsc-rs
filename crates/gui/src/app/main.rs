@@ -124,7 +124,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         ..Default::default()
     };
     Ok(eframe::run_native(
-        "ntsc-rs",
+        NtscApp::APP_ID,
         options,
         Box::new(|cc| {
             // GStreamer can be slow to initialize (on the order of minutes). Do it off-thread so we can display a
@@ -205,6 +205,8 @@ impl LayoutHelper for egui::Ui {
 }
 
 impl NtscApp {
+    const APP_ID: &'static str = "ntsc-rs";
+
     fn new(
         ctx: egui::Context,
         settings_list: SettingsList,
@@ -265,8 +267,8 @@ impl NtscApp {
     fn load_video(&mut self, ctx: &egui::Context, path: PathBuf) -> Result<(), ApplicationError> {
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(
             path.file_name()
-                .map(|file_name| format!("ntsc-rs — {}", file_name.to_string_lossy()))
-                .unwrap_or_else(|| "ntsc-rs".to_string()),
+                .map(|file_name| format!("{} — {}", Self::APP_ID, file_name.to_string_lossy()))
+                .unwrap_or_else(|| Self::APP_ID.to_string()),
         ));
 
         self.pipeline = Some(
@@ -279,7 +281,7 @@ impl NtscApp {
 
     fn close_video(&mut self, ctx: &egui::Context) {
         self.pipeline = None;
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title("ntsc-rs".to_string()));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(Self::APP_ID.to_string()));
     }
 
     fn rescale_video(
@@ -1836,7 +1838,7 @@ impl NtscApp {
             .default_width(400.0)
             .show(ctx, |ui| {
                 const VERSION: &str = env!("CARGO_PKG_VERSION");
-                ui.heading(format!("ntsc-rs v{VERSION}"));
+                ui.heading(format!("{} v{VERSION}", Self::APP_ID));
 
                 ui.separator();
 
@@ -2003,7 +2005,7 @@ impl NtscApp {
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     const VERSION: &str = env!("CARGO_PKG_VERSION");
-                    ui.label(format!("ntsc-rs v{VERSION}"));
+                    ui.label(format!("{} v{VERSION}", Self::APP_ID));
 
                     let mut close_error = false;
                     if let Some(error) = self.last_error.as_ref() {
