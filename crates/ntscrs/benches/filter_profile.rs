@@ -13,13 +13,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     let img = img.to_rgb8();
     c.bench_function("full effect", |b| {
         b.iter(|| {
-            rayon::ThreadPoolBuilder::new()
-                .num_threads(1)
-                .build()
-                .unwrap()
-                .install(|| {
-                    NtscEffect::default().apply_effect(&img, 0);
-                });
+            NtscEffect::default().apply_effect(&img, 0);
         })
     });
 }
