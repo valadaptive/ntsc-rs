@@ -6,6 +6,7 @@ use ntscrs::ntsc::{NtscEffectFullSettings, SettingsList};
 pub mod app_state;
 pub mod error;
 pub mod executor;
+pub mod license_dialog;
 pub mod main;
 pub mod pipeline_info;
 pub mod render_job;
@@ -31,5 +32,6 @@ pub struct NtscApp {
     pub last_error: RefCell<Option<String>>,
     pub color_theme: app_state::ColorTheme,
     pub credits_dialog_open: bool,
-    pub licenses_dialog_open: bool,
+    pub third_party_licenses_dialog_open: bool,
+    pub license_dialog_open: bool,
 }

@@ -239,7 +239,8 @@ impl NtscApp {
             last_error: RefCell::new(None),
             color_theme,
             credits_dialog_open: false,
-            licenses_dialog_open: false,
+            third_party_licenses_dialog_open: false,
+            license_dialog_open: false,
         }
     }
 
@@ -1881,9 +1882,9 @@ impl NtscApp {
             });
     }
 
-    fn show_licenses_dialog(&mut self, ctx: &egui::Context) {
-        egui::Window::new("Licenses")
-            .open(&mut self.licenses_dialog_open)
+    fn show_third_party_licenses_dialog(&mut self, ctx: &egui::Context) {
+        egui::Window::new("Third-Party Licenses")
+            .open(&mut self.third_party_licenses_dialog_open)
             .default_width(400.0)
             .default_height(400.0)
             .show(ctx, |ui| {
@@ -1993,8 +1994,13 @@ impl NtscApp {
                         ui.close_menu();
                     }
 
+                    if ui.button("License").clicked() {
+                        self.license_dialog_open = true;
+                        ui.close_menu();
+                    }
+
                     if ui.button("Third-Party Licenses").clicked() {
-                        self.licenses_dialog_open = true;
+                        self.third_party_licenses_dialog_open = true;
                         ui.close_menu();
                     }
 
@@ -2074,8 +2080,12 @@ impl NtscApp {
             self.show_credits_dialog(ctx);
         }
 
-        if self.licenses_dialog_open {
-            self.show_licenses_dialog(ctx);
+        if self.third_party_licenses_dialog_open {
+            self.show_third_party_licenses_dialog(ctx);
+        }
+
+        if self.license_dialog_open {
+            self.show_license_dialog(ctx);
         }
     }
 
