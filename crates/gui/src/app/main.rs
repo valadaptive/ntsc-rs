@@ -48,7 +48,9 @@ use super::{
     },
     error::{ApplicationError, JSONParseSnafu, JSONReadSnafu, JSONSaveSnafu, LoadVideoSnafu},
     executor::AppExecutor,
+    layout_helper::LayoutHelper,
     pipeline_info::{PipelineInfo, PipelineMetadata, PipelineStatus},
+    presets::PresetsState,
     render_job::RenderJob,
     render_settings::{
         Ffv1BitDepth, OutputCodec, PngSettings, RenderInterlaceMode, RenderPipelineCodec,
@@ -121,7 +123,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1300.0, 720.0])
-            .with_icon(eframe::icon_data::from_png_bytes(ICON)?),
+            .with_icon(eframe::icon_data::from_png_bytes(ICON)?)
+            .with_app_id(NtscApp::APP_ID),
         ..Default::default()
     };
     Ok(eframe::run_native(
@@ -169,44 +172,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     )?)
 }
 
-trait LayoutHelper {
-    fn ltr<R>(&mut self, add_contents: impl FnOnce(&mut Self) -> R) -> egui::InnerResponse<R>;
-    fn rtl<R>(&mut self, add_contents: impl FnOnce(&mut Self) -> R) -> egui::InnerResponse<R>;
-}
-
-fn ui_with_layout<'c, R>(
-    ui: &mut egui::Ui,
-    layout: egui::Layout,
-    add_contents: Box<dyn FnOnce(&mut egui::Ui) -> R + 'c>,
-) -> egui::InnerResponse<R> {
-    let initial_size = vec2(
-        ui.available_size_before_wrap().x,
-        ui.spacing().interact_size.y,
-    );
-
-    ui.allocate_ui_with_layout(initial_size, layout, |ui| add_contents(ui))
-}
-
-impl LayoutHelper for egui::Ui {
-    fn ltr<R>(&mut self, add_contents: impl FnOnce(&mut egui::Ui) -> R) -> egui::InnerResponse<R> {
-        ui_with_layout(
-            self,
-            egui::Layout::left_to_right(egui::Align::Center),
-            Box::new(add_contents),
-        )
-    }
-
-    fn rtl<R>(&mut self, add_contents: impl FnOnce(&mut egui::Ui) -> R) -> egui::InnerResponse<R> {
-        ui_with_layout(
-            self,
-            egui::Layout::right_to_left(egui::Align::Center),
-            Box::new(add_contents),
-        )
-    }
-}
-
 impl NtscApp {
-    const APP_ID: &'static str = "ntsc-rs";
+    pub const APP_ID: &'static str = "ntsc-rs";
 
     fn new(
         ctx: egui::Context,
@@ -233,6 +200,7 @@ impl NtscApp {
             effect_preview: EffectPreviewSettings::default(),
             left_panel_state: LeftPanelState::default(),
             effect_settings,
+            presets_state: PresetsState::default(),
             render_settings: RenderSettings::default(),
             render_jobs: Vec::new(),
             settings_json_paste: String::new(),
@@ -244,7 +212,7 @@ impl NtscApp {
         }
     }
 
-    fn spawn(&self, future: impl Future<Output = Option<AppFn>> + 'static + Send) {
+    pub fn spawn(&self, future: impl Future<Output = Option<AppFn>> + 'static + Send) {
         self.executor.spawn(future);
     }
 
@@ -595,32 +563,35 @@ impl NtscApp {
         }
     }
 
-    fn handle_error(&self, err: &dyn Error) {
+    pub fn set_effect_settings(&mut self, effect_settings: NtscEffectFullSettings) {
+        self.effect_settings = effect_settings;
+        self.update_effect();
+    }
+
+    pub fn handle_error(&self, err: &dyn Error) {
         *self.last_error.borrow_mut() = Some(format!("{}", err));
     }
 
-    fn handle_result<T, E: Error>(&self, result: Result<T, E>) {
+    pub fn handle_result<T, E: Error>(&self, result: Result<T, E>) {
         if let Err(err) = result {
             self.handle_error(&err);
         }
     }
 
-    fn handle_result_with<T, E: Error, F: FnOnce(&mut Self) -> Result<T, E>>(&mut self, cb: F) {
+    pub fn handle_result_with<T, E: Error, F: FnOnce(&mut Self) -> Result<T, E>>(&mut self, cb: F) {
         let result = cb(self);
         self.handle_result(result);
     }
 
     fn undo(&mut self) {
-        if let Some(new_state) = self.undoer.undo(&self.effect_settings) {
-            self.effect_settings = new_state.clone();
-            self.update_effect();
+        if let Some(new_state) = self.undoer.undo(&self.effect_settings).cloned() {
+            self.set_effect_settings(new_state);
         }
     }
 
     fn redo(&mut self) {
-        if let Some(new_state) = self.undoer.redo(&self.effect_settings) {
-            self.effect_settings = new_state.clone();
-            self.update_effect();
+        if let Some(new_state) = self.undoer.redo(&self.effect_settings).cloned() {
+            self.set_effect_settings(new_state);
         }
     }
 }
@@ -889,12 +860,11 @@ impl NtscApp {
     }
 
     fn show_effect_settings(&mut self, ui: &mut egui::Ui) {
-        egui::TopBottomPanel::bottom("effect_load_save")
+        egui::TopBottomPanel::bottom("preset_copy_paste")
             .exact_height(ui.spacing().interact_size.y * 2.0)
             .show_inside(ui, |ui| {
                 ui.horizontal_centered(|ui| {
-                    ui.label("Presets");
-                    if ui.button("Save").clicked() {
+                    if ui.button("Save to...").clicked() {
                         let json = self.settings_list.to_json(&self.effect_settings);
                         let handle = rfd::AsyncFileDialog::new()
                             .set_file_name("settings.json")
@@ -915,7 +885,7 @@ impl NtscApp {
                         });
                     }
 
-                    if ui.button("Load").clicked() {
+                    if ui.button("Load from...").clicked() {
                         let handle = rfd::AsyncFileDialog::new()
                             .add_filter("JSON", &["json"])
                             .pick_file();
@@ -941,8 +911,7 @@ impl NtscApp {
                                         .from_json(&buf)
                                         .context(JSONParseSnafu)?;
 
-                                    app.effect_settings = settings;
-                                    app.update_effect();
+                                    app.set_effect_settings(settings);
 
                                     Ok(())
                                 },
@@ -988,8 +957,7 @@ impl NtscApp {
                                             .from_json(&self.settings_json_paste)
                                         {
                                             Ok(settings) => {
-                                                self.effect_settings = settings;
-                                                self.update_effect();
+                                                self.set_effect_settings(settings);
                                                 // Close the popup if the JSON was successfully loaded
                                                 ui.ctx().data_mut(|map| {
                                                     map.insert_temp(paste_popup_id, false)
@@ -1025,9 +993,41 @@ impl NtscApp {
                     }
 
                     if ui.button("Reset").clicked() {
-                        self.effect_settings = NtscEffectFullSettings::default();
-                        self.update_effect();
+                        self.set_effect_settings(NtscEffectFullSettings::default());
                     }
+                });
+            });
+
+        let id = ui.make_persistent_id("presets_manager_open");
+        let collapse_state =
+            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
+        egui::TopBottomPanel::bottom("preset_manager")
+            .resizable(collapse_state.is_open())
+            // Determined experimentall to prevent the presets manager from becoming too tall to drag back down by its
+            // top edge
+            .max_height(600.0f32.min(ui.available_height() - 100.0))
+            .min_height(egui::lerp(
+                ui.spacing().interact_size.y..=200.0,
+                collapse_state.openness(ui.ctx()),
+            ))
+            .show_inside(ui, |ui| {
+                // Prevent buttons in the preset manager from having their outlines cut off
+                ui.visuals_mut().clip_rect_margin = 2.0;
+                let collapse_state = collapse_state.show_header(ui, |ui| {
+                    // In order to properly resize the panel when we open the "Presets" header, we need to create the
+                    // CollapsingState outside this UI. That means we can't just use a regular CollapsingHeader and must
+                    // draw it ourselves. Somehow, this `interact` causes the header to be clickable throughout.
+                    let resp =
+                        ui.interact(ui.available_rect_before_wrap(), id, egui::Sense::click());
+                    let style = ui.style().interact(&resp);
+                    ui.add(
+                        egui::Label::new(egui::RichText::new("Presets").color(style.text_color()))
+                            .selectable(false),
+                    );
+                });
+
+                collapse_state.body_unindented(|ui| {
+                    self.show_presets_pane(ui);
                 });
             });
         egui::CentralPanel::default().show_inside(ui, |ui| {

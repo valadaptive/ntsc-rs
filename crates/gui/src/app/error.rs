@@ -23,4 +23,19 @@ pub enum ApplicationError {
 
     #[snafu(display("Error saving JSON: {source}"))]
     JSONSave { source: std::io::Error },
+
+    #[snafu(display("Error creating presets directory: {source}"))]
+    CreatePresetsDirectory { source: std::io::Error },
+
+    #[snafu(display("Error creating preset: {source}"))]
+    CreatePreset { source: std::io::Error },
+
+    #[snafu(display("Error deleting preset: {source}"))]
+    DeletePreset { source: trash::Error },
+
+    #[snafu(display("Error renaming preset: {source}"))]
+    RenamePreset { source: std::io::Error },
+
+    #[snafu(display("Filesystem error: {source}"))]
+    Fs { source: std::io::Error },
 }
