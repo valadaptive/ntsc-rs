@@ -1984,6 +1984,25 @@ impl NtscApp {
                             ui.close_menu();
                         }
                     });
+
+                    ui.menu_button("Zoom", |ui| {
+                        let mut zoom = ui.ctx().zoom_factor();
+                        let mut changed = false;
+                        const ZOOM_FACTORS: &[f32] = &[0.75, 0.9, 1.0, 1.25, 1.5, 1.75, 2.0];
+                        for item_zoom_factor in ZOOM_FACTORS {
+                            changed |= ui
+                                .selectable_value(
+                                    &mut zoom,
+                                    *item_zoom_factor,
+                                    format!("{}%", item_zoom_factor * 100.0),
+                                )
+                                .changed();
+                        }
+                        if changed {
+                            ui.ctx().set_zoom_factor(zoom);
+                            ui.close_menu()
+                        }
+                    })
                 });
 
                 ui.menu_button("Help", |ui| {
