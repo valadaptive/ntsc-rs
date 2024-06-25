@@ -61,12 +61,7 @@ pub struct BlitInfo {
 
 impl From<&Rect> for RsRect {
     fn from(value: &Rect) -> Self {
-        Self {
-            top: value.top,
-            right: value.right,
-            bottom: value.bottom,
-            left: value.left,
-        }
+        RsRect::new(value.top, value.left, value.bottom, value.right)
     }
 }
 

@@ -207,6 +207,7 @@ pub enum DeinterlaceMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Rect {
     pub top: usize,
     pub left: usize,
@@ -345,8 +346,8 @@ impl<'a> YiqView<'a> {
                 >= blit_info.rect.width(),
             "Blit rectangle width exceeds rowbytes"
         );
-        assert_eq!(self.dimensions.0, blit_info.rect.width());
-        assert_eq!(self.dimensions.1, blit_info.rect.height());
+        assert!(self.dimensions.0 >= blit_info.rect.width());
+        assert!(self.dimensions.1 >= blit_info.rect.height());
         assert_eq!(
             blit_info.row_bytes % std::mem::size_of::<S::DataFormat>(),
             0,
@@ -359,6 +360,8 @@ impl<'a> YiqView<'a> {
 
         y.par_chunks_mut(width)
             .zip(i.par_chunks_mut(width).zip(q.par_chunks_mut(width)))
+            .skip(blit_info.rect.top)
+            .take(blit_info.rect.height())
             .enumerate()
             .for_each(|(row_idx, (y, (i, q)))| {
                 // For interleaved fields, we write the first field into the first half of the buffer,
@@ -394,18 +397,15 @@ impl<'a> YiqView<'a> {
                     src_row_idx = 0;
                 }
                 let src_offset = src_row_idx * row_length;
-                for pixel_idx in 0..width {
+                for pixel_idx in blit_info.rect.left..blit_info.rect.right {
                     let yiq_pixel = rgb_to_yiq(pixel_transform([
-                        buf[(((pixel_idx + blit_info.rect.left) * num_components) + src_offset)
-                            + r_idx]
+                        buf[((pixel_idx * num_components) + src_offset) + r_idx]
                             .assume_init()
                             .to_norm(),
-                        buf[(((pixel_idx + blit_info.rect.left) * num_components) + src_offset)
-                            + g_idx]
+                        buf[((pixel_idx * num_components) + src_offset) + g_idx]
                             .assume_init()
                             .to_norm(),
-                        buf[(((pixel_idx + blit_info.rect.left) * num_components) + src_offset)
-                            + b_idx]
+                        buf[((pixel_idx * num_components) + src_offset) + b_idx]
                             .assume_init()
                             .to_norm(),
                     ]));
