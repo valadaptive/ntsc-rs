@@ -1627,11 +1627,14 @@ impl NtscApp {
                             .button(if self.audio_volume.mute {
                                 "🔇"
                             } else {
-                                match self.audio_volume.gain {
-                                    0.0 => "🔇",
-                                    0.0..=0.33 => "🔈",
-                                    0.0..=0.67 => "🔉",
-                                    _ => "🔊",
+                                if self.audio_volume.gain == 0.0 {
+                                    "🔇"
+                                } else if self.audio_volume.gain <= 0.33 {
+                                    "🔈"
+                                } else if self.audio_volume.gain <= 0.67 {
+                                    "🔉"
+                                } else {
+                                    "🔊"
                                 }
                             })
                             .on_hover_text(if self.audio_volume.mute {
