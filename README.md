@@ -1,8 +1,10 @@
 <p align="center">
-    <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="./docs/img/logo-darkmode.svg">
-        <img alt="ntsc-rs logo" src="./docs/img/logo-lightmode.svg">
-    </picture>
+    <a href="https://ntsc.rs">
+        <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="./docs/img/logo-darkmode.svg">
+            <img alt="ntsc-rs logo" src="./docs/img/logo-lightmode.svg">
+        </picture>
+    </a>
 </p>
 
 ---
@@ -11,39 +13,11 @@
 
 ![Screenshot of the ntsc-rs standalone application](./docs/img/appdemo.png)
 
-## Download
+## Download and Install
 
 The latest version of ntsc-rs can be downloaded from [the releases page](https://github.com/valadaptive/ntsc-rs/releases).
 
-### Windows
-
-The GUI, and possibly the plugins as well, require [the Microsoft Visual C++ Redistributable](https://learn.microsoft.com/en-US/cpp/windows/latest-supported-vc-redist?view=msvc-170#visual-studio-2015-2017-2019-and-2022). Since a lot of other software does too, you probably already have it installed, but if you get an error about VCRUNTIME140.dll being missing, you need to install it.
-
-### Linux
-
-If you're using Linux, the GUI in particular requires GStreamer and some of its plugins to be installed:
-
-<details>
-<summary>Ubuntu / Debian</summary>
-
-```bash
-$ sudo apt-get install libgstreamer1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-alsa
-```
-</details>
-
-<details>
-<summary>Fedora</summary>
-
-In order to decode and encode H.264 video, you'll need packages from the [RPM Fusion "free" repository](https://rpmfusion.org/Configuration).
-
-After enabling the RPM Fusion "free" repository:
-
-```bash
-$ sudo dnf install gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-plugins-bad-freeworld gstreamer1-plugins-ugly gstreamer1-plugin-libav libavcodec-freeworld
-```
-</details>
-
-On Linux, you'll probably also need to give it execute permissions. This can be found under "Properties > Executable as Program" in the GNOME file manager, and similar places on others. You can also use the terminal (`chmod +x ntsc-rs-standalone`).
+After downloading, [read the documentation for how to run it](https://ntsc.rs/docs/standalone-installation/). In particular, ntsc-rs will not work properly on Linux unless you install all of the GStreamer packages listed in the documentation.
 
 ## More information
 
