@@ -7,9 +7,9 @@ license = "MIT OR ISC OR Apache-2.0"
 [lib]
 crate-type = ["cdylib"]
 
-[dependencies]
+[target.'cfg(any(windows, target_os="macos"))'.dependencies]
 after-effects = {git = "https://github.com/AdrianEddy/after-effects", rev = "b5e7454"}
 ntscrs = { path = "../ntscrs" }
 
-[build-dependencies]
+[target.'cfg(any(windows, target_os="macos"))'.build-dependencies]
 pipl = {git = "https://github.com/AdrianEddy/after-effects", rev = "b5e7454"}

@@ -1,3 +1,5 @@
+#![cfg(any(windows, target_os = "macos"))]
+
 mod handle;
 
 use std::{
