@@ -99,7 +99,6 @@ PreRender(
 	PF_PreRenderExtra		*extra)
 {
 	PF_Err err = PF_Err_NONE;
-	PF_ParamDef channel_param;
 	PF_RenderRequest req = extra->input->output_request;
 	PF_CheckoutResult in_result;
 

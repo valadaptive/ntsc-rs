@@ -1,0 +1,15 @@
+[package]
+name = "ae-plugin"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR ISC OR Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+after-effects = {git = "https://github.com/AdrianEddy/after-effects", rev = "b5e7454"}
+ntscrs = { path = "../ntscrs" }
+
+[build-dependencies]
+pipl = {git = "https://github.com/AdrianEddy/after-effects", rev = "b5e7454"}

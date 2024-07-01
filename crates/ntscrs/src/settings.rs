@@ -9,7 +9,7 @@ use std::{
 
 use crate::{yiq_fielding::YiqField, FromPrimitive, ToPrimitive};
 use macros::FullSettings;
-use tinyjson::{JsonParseError, JsonValue};
+use tinyjson::{InnerAsRef, JsonParseError, JsonValue};
 
 /// This is used to dynamically inform API consumers of the settings that can be passed to ntsc-rs. This lets various
 /// UIs and effect plugins to query this set of settings and display them in their preferred format without having to
@@ -754,6 +754,12 @@ impl SetFieldEnumError {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum SetFieldIntError {
+    NegativeValue { setting_id: SettingID },
+    NotAnInt { setting_id: SettingID },
+}
+
 impl Display for SetFieldEnumError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -857,6 +863,25 @@ impl SettingID {
         field_ref.downcast_mut::<T>()
     }
 
+    /// Set an integer-valued field, whether it's signed or unsigned.
+    pub fn set_field_int(
+        &self,
+        settings: &mut NtscEffectFullSettings,
+        value: i32,
+    ) -> Result<(), SetFieldIntError> {
+        if let Some(field) = self.get_field_mut::<i32>(settings) {
+            *field = value;
+        } else if let Some(field) = self.get_field_mut::<u32>(settings) {
+            *field = value
+                .try_into()
+                .map_err(|_| SetFieldIntError::NegativeValue { setting_id: *self })?;
+        } else {
+            return Err(SetFieldIntError::NotAnInt { setting_id: *self });
+        }
+
+        Ok(())
+    }
+
     /// Get the fixed name for a setting ID. These are unique and will not be reused, and will not change.
     pub fn name(&self) -> &'static str {
         match self {
@@ -924,51 +949,24 @@ impl SettingID {
 }
 
 trait GetAndExpect {
-    fn get_and_expect_bool(&self, key: &str) -> Result<Option<bool>, ParseSettingsError>;
-    fn get_and_expect_number(&self, key: &str) -> Result<Option<f64>, ParseSettingsError>;
-    fn get_and_expect_object(
+    fn get_and_expect<T: InnerAsRef + Clone>(
         &self,
         key: &str,
-    ) -> Result<Option<&HashMap<String, JsonValue>>, ParseSettingsError>;
+    ) -> Result<Option<T>, ParseSettingsError>;
 }
 
 impl GetAndExpect for HashMap<String, JsonValue> {
-    fn get_and_expect_bool(&self, key: &str) -> Result<Option<bool>, ParseSettingsError> {
-        self.get(key)
-            .map(|v| {
-                v.get::<bool>()
-                    .cloned()
-                    .ok_or_else(|| ParseSettingsError::InvalidSettingType {
-                        key: key.to_owned(),
-                        expected: "bool",
-                    })
-            })
-            .transpose()
-    }
-
-    fn get_and_expect_number(&self, key: &str) -> Result<Option<f64>, ParseSettingsError> {
-        self.get(key)
-            .map(|v| {
-                v.get::<f64>()
-                    .cloned()
-                    .ok_or_else(|| ParseSettingsError::InvalidSettingType {
-                        key: key.to_owned(),
-                        expected: "number",
-                    })
-            })
-            .transpose()
-    }
-
-    fn get_and_expect_object(
+    fn get_and_expect<T: InnerAsRef + Clone>(
         &self,
         key: &str,
-    ) -> Result<Option<&HashMap<String, JsonValue>>, ParseSettingsError> {
+    ) -> Result<Option<T>, ParseSettingsError> {
         self.get(key)
             .map(|v| {
-                v.get::<HashMap<_, _>>()
+                v.get::<T>()
+                    .cloned()
                     .ok_or_else(|| ParseSettingsError::InvalidSettingType {
                         key: key.to_owned(),
-                        expected: "object",
+                        expected: std::any::type_name::<T>(),
                     })
             })
             .transpose()
@@ -1384,19 +1382,19 @@ impl SettingsList {
                         SettingDescriptor {
                             label: "Intensity",
                             description: Some("Intensity of the noise."),
-                            kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.chroma_noise.settings.intensity },
+                            kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.luma_noise.settings.intensity },
                             id: SettingID::LUMA_NOISE_INTENSITY
                         },
                         SettingDescriptor {
                             label: "Frequency",
                             description: Some("Base wavelength, in pixels, of the noise."),
-                            kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false, default_value: default_settings.chroma_noise.settings.frequency },
+                            kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false, default_value: default_settings.luma_noise.settings.frequency },
                             id: SettingID::LUMA_NOISE_FREQUENCY
                         },
                         SettingDescriptor {
                             label: "Detail",
                             description: Some("Octaves of noise."),
-                            kind: SettingKind::IntRange { range: 1..=5, default_value: default_settings.chroma_noise.settings.detail as i32 },
+                            kind: SettingKind::IntRange { range: 1..=5, default_value: default_settings.luma_noise.settings.detail as i32 },
                             id: SettingID::LUMA_NOISE_DETAIL
                         },
                     ],
@@ -1663,17 +1661,17 @@ impl SettingsList {
             let key = descriptor.id.name();
             match &descriptor.kind {
                 SettingKind::Enumeration { .. } => {
-                    json.get_and_expect_number(key)?
+                    json.get_and_expect::<f64>(key)?
                         .map(|n| descriptor.id.set_field_enum(settings, n as u32))
                         .transpose()?;
                 }
                 SettingKind::Percentage { .. } | SettingKind::FloatRange { .. } => {
-                    json.get_and_expect_number(key)?.map(|n| {
+                    json.get_and_expect::<f64>(key)?.map(|n| {
                         *descriptor.id.get_field_mut::<f32>(settings).unwrap() = n as f32;
                     });
                 }
                 SettingKind::IntRange { .. } => {
-                    json.get_and_expect_number(key)?.map(|n| {
+                    json.get_and_expect::<f64>(key)?.map(|n| {
                         if let Some(field) = descriptor.id.get_field_mut::<u32>(settings) {
                             *field = n as u32;
                         } else if let Some(field) = descriptor.id.get_field_mut::<i32>(settings) {
@@ -1682,12 +1680,12 @@ impl SettingsList {
                     });
                 }
                 SettingKind::Boolean { .. } => {
-                    json.get_and_expect_bool(key)?.map(|b| {
+                    json.get_and_expect::<bool>(key)?.map(|b| {
                         *descriptor.id.get_field_mut::<bool>(settings).unwrap() = b;
                     });
                 }
                 SettingKind::Group { children, .. } => {
-                    json.get_and_expect_bool(key)?.map(|b| {
+                    json.get_and_expect::<bool>(key)?.map(|b| {
                         *descriptor.id.get_field_mut::<bool>(settings).unwrap() = b;
                     });
                     Self::settings_from_json(json, children, settings)?;
@@ -1709,7 +1707,7 @@ impl SettingsList {
         })?;
 
         let version = parsed_map
-            .get_and_expect_number("version")?
+            .get_and_expect::<f64>("version")?
             .ok_or_else(|| ParseSettingsError::MissingField { field: "version" })?;
         if version != 1.0 {
             return Err(ParseSettingsError::UnsupportedVersion { version });
@@ -1719,5 +1717,45 @@ impl SettingsList {
         Self::settings_from_json(parsed_map, &self.settings, &mut dst_settings)?;
 
         Ok(dst_settings)
+    }
+
+    pub fn all_descriptors(&self) -> SettingDescriptors {
+        SettingDescriptors::new(self)
+    }
+}
+
+pub struct SettingDescriptors<'a> {
+    path: Vec<(&'a [SettingDescriptor], usize)>,
+}
+
+impl<'a> Iterator for SettingDescriptors<'a> {
+    type Item = &'a SettingDescriptor;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let (leaf, index) = self.path.last_mut()?;
+
+            let setting = leaf.get(*index);
+            match setting {
+                Some(desc) => {
+                    *index += 1;
+                    if let SettingKind::Group { children, .. } = &desc.kind {
+                        self.path.push((children.as_slice(), 0));
+                    }
+                    return Some(desc);
+                }
+                None => {
+                    self.path.pop();
+                }
+            }
+        }
+    }
+}
+
+impl<'a> SettingDescriptors<'a> {
+    fn new(settings_list: &'a SettingsList) -> Self {
+        Self {
+            path: vec![(&settings_list.settings, 0)],
+        }
     }
 }

@@ -7,6 +7,7 @@ use std::{
 /// A trait for 4-wide single-precision floating point SIMD vectors, for both NEON and AVX.
 /// Only contains the ops that I need to implement the IIR filter.
 /// Soundness is upheld by making all ways to construct a SIMD vector (e.g. load, set1) unsafe.
+#[allow(dead_code)]
 pub trait F32x4:
     Sized
     + Add<Output = Self>

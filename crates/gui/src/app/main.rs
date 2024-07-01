@@ -2002,7 +2002,7 @@ impl NtscApp {
                             ui.ctx().set_zoom_factor(zoom);
                             ui.close_menu()
                         }
-                    })
+                    });
                 });
 
                 ui.menu_button("Help", |ui| {
