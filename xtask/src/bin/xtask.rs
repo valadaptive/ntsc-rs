@@ -1,11 +1,12 @@
 use std::process;
 
-use xtask::{build_ofx_plugin, macos_bundle};
+use xtask::{build_ofx_plugin, macos_ae_plugin, macos_bundle};
 
 fn main() {
     let cmd = clap::Command::new("xtask")
         .subcommand_required(true)
         .subcommand(build_ofx_plugin::command())
+        .subcommand(macos_ae_plugin::command())
         .subcommand(macos_bundle::command());
 
     let matches = cmd.get_matches();
@@ -13,6 +14,9 @@ fn main() {
     let (task, args) = matches.subcommand().unwrap();
 
     match task {
+        "macos-ae-plugin" => {
+            macos_ae_plugin::main(&args).unwrap();
+        }
         "macos-bundle" => {
             macos_bundle::main(&args).unwrap();
         }
