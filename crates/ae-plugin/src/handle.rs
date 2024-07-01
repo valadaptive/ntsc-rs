@@ -3,14 +3,18 @@ use std::{
     borrow::{Borrow, BorrowMut},
     marker::PhantomData,
     mem::{transmute, MaybeUninit},
-    os::raw::c_void,
     ptr::NonNull,
 };
 
 use after_effects::{suites, Error};
 
+#[cfg(not(target_os = "macos"))]
+type HandleInner = *mut std::os::raw::c_void;
+#[cfg(target_os = "macos")]
+type HandleInner = *mut std::os::raw::c_char;
+
 pub struct SliceHandle<T> {
-    handle: NonNull<*mut c_void>,
+    handle: NonNull<HandleInner>,
     _ty: PhantomData<T>,
     len: usize,
     suite: suites::Handle,
