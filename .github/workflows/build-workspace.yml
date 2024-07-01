@@ -142,7 +142,6 @@ jobs:
     needs:
       - build-windows
       - build-linux
-      - build-ae-plugin
     if: ${{ github.ref_type == 'tag' }}
 
     steps:
