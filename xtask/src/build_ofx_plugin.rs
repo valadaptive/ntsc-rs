@@ -1,63 +1,10 @@
+use crate::util::targets::{Target, MACOS_AARCH64, MACOS_X86_64, TARGETS};
 use crate::util::{workspace_dir, PathBufExt, StatusExt};
 
 use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-
-#[derive(Debug)]
-struct Target {
-    /// Cargo target triple for this target
-    target_triple: &'static str,
-    /// OpenFX architecture string for this target
-    /// https://openfx.readthedocs.io/en/master/Reference/ofxPackaging.html#installation-directory-hierarchy
-    ofx_architecture: &'static str,
-    /// File extension for a dynamic library on this platform, excluding the leading dot
-    library_extension: &'static str,
-    /// Prefix for the library output filename. Platform-dependant; thanks Cargo!
-    library_prefix: &'static str,
-}
-
-// "Supported" target triples
-const TARGETS: &[Target] = &[
-    Target {
-        target_triple: "x86_64-unknown-linux-gnu",
-        ofx_architecture: "Linux-x86-64",
-        library_extension: "so",
-        library_prefix: "lib",
-    },
-    Target {
-        target_triple: "i686-unknown-linux-gnu",
-        ofx_architecture: "Linux-x86",
-        library_extension: "so",
-        library_prefix: "lib",
-    },
-    Target {
-        target_triple: "x86_64-pc-windows-msvc",
-        ofx_architecture: "Win64",
-        library_extension: "dll",
-        library_prefix: "",
-    },
-    Target {
-        target_triple: "i686-pc-windows-msvc",
-        ofx_architecture: "Win32",
-        library_extension: "dll",
-        library_prefix: "",
-    },
-    // These two are completely untested. If your macOS build fails, don't be afraid to change these.
-    Target {
-        target_triple: "x86_64-apple-darwin",
-        ofx_architecture: "MacOS",
-        library_extension: "dylib",
-        library_prefix: "lib",
-    },
-    Target {
-        target_triple: "aarch64-apple-darwin",
-        ofx_architecture: "MacOS",
-        library_extension: "dylib",
-        library_prefix: "lib",
-    },
-];
 
 pub fn command() -> clap::Command {
     clap::Command::new("build-ofx-plugin")
@@ -152,8 +99,8 @@ fn build_plugin_for_target(target: &Target, release_mode: bool) -> std::io::Resu
         },
     ]);
 
-    let mut built_library_path = target_dir_path.clone();
-    built_library_path.push(target.library_prefix.to_owned() + "openfx_plugin");
+    let mut built_library_path =
+        target_dir_path.plus(target.library_prefix.to_owned() + "openfx_plugin");
     built_library_path.set_extension(target.library_extension);
 
     Ok(built_library_path)
@@ -162,19 +109,12 @@ fn build_plugin_for_target(target: &Target, release_mode: bool) -> std::io::Resu
 pub fn main(args: &clap::ArgMatches) -> std::io::Result<()> {
     let release_mode = args.get_flag("release");
     let (built_library_path, ofx_architecture) = if args.get_flag("macos-universal") {
-        let x86_64_target = TARGETS
-            .iter()
-            .find(|target| target.target_triple == "x86_64-apple-darwin")
-            .unwrap();
-        let aarch64_target = TARGETS
-            .iter()
-            .find(|target| target.target_triple == "aarch64-apple-darwin")
-            .unwrap();
+        let x86_64_target = MACOS_X86_64;
+        let aarch64_target = MACOS_AARCH64;
         let x86_64_path = build_plugin_for_target(x86_64_target, release_mode)?;
         let aarch64_path = build_plugin_for_target(aarch64_target, release_mode)?;
 
-        let mut dst_path = std::env::temp_dir();
-        dst_path.push(format!(
+        let dst_path = std::env::temp_dir().plus(format!(
             "ntsc-rs-ofx-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

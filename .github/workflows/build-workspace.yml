@@ -153,7 +153,6 @@ jobs:
 
     - name: Install packages
       run: |
-        brew install age meson
         brew install --cask gstreamer-runtime
         brew install --cask gstreamer-development
 
@@ -170,37 +169,10 @@ jobs:
     - name: Build OpenFX plugin
       run: cargo xtask build-ofx-plugin --macos-universal --release
 
-    - name: Get After Effects SDK
-      env:
-        BLOB_KEY: ${{ secrets.BLOB_KEY }}
-      run: |
-        git fetch --depth=1 origin blobs
-        git checkout origin/blobs -- ae_sdk_mac.zip.age
-        echo "$BLOB_KEY" > ./blob_key.txt
-        age --decrypt -i ./blob_key.txt -o ./ae_sdk_mac.zip ./ae_sdk_mac.zip.age
-        unzip ae_sdk_mac.zip
-        hdiutil attach May2023_AfterEffectsSDK_MacOS.dmg -mountpoint /Volumes/sdk -noverify
-        cp -r /Volumes/sdk/AfterEffectsSDK ./ae-plugin/sdk
-        hdiutil detach /Volumes/sdk
+    - name: Build After Effects plugin
+      run: cargo xtask macos-ae-plugin --macos-universal --release
 
-    - name: Setup for AE plugin build
-      run: cargo install cbindgen
-
-    - name: Build AE plugin binary (arm64)
-      run: |
-        cd ae-plugin
-        meson setup --buildtype=release build_arm64
-        cd build_arm64
-        meson compile
-
-    - name: Build AE plugin binary (x86_64)
-      run: |
-        cd ae-plugin
-        meson setup --buildtype=release --cross-file cross-macos-arm64-to-x86_64 build_x86_64
-        cd build_x86_64
-        meson compile
-
-    # TODO: combine AE plugin binaries and create and sign bundle
+    # TODO: sign bundles (necessary for AE)
 
   release:
     runs-on: ubuntu-latest

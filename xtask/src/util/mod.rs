@@ -1,3 +1,5 @@
+pub mod targets;
+
 use std::{
     path::{Path, PathBuf},
     process::ExitStatus,
