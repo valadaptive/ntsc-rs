@@ -2818,7 +2818,7 @@ dependencies = [
  "biquad",
  "criterion",
  "glam",
- "image 0.24.9",
+ "image 0.25.1",
  "macros",
  "num-derive",
  "num-traits",

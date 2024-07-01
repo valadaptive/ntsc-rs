@@ -140,10 +140,10 @@ PreRender(
 	};
 
 	PF_Rect constrained_rect = {
-		out_origin.h,
-		out_origin.v,
-		out_origin.h + out_w,
-		out_origin.v + out_h,
+		0,
+		0,
+		out_w,
+		out_h,
 	};
 
 	extra->output->result_rect = extra->output->max_result_rect = constrained_rect;
@@ -336,19 +336,36 @@ ActuallyRender(
 		if (out_handle) {
 			float* out_buf = reinterpret_cast<float*>(suites.HandleSuite1()->host_lock_handle(out_handle));
 			if (out_buf) {
-				struct ntscrs_BlitInfo blit_info = {0};
-				blit_info.rect.left = 0;
-				blit_info.rect.top = 0;
-				blit_info.rect.right = input->width;
-				blit_info.rect.bottom = input->height;
-				blit_info.row_bytes = input->rowbytes;
-				blit_info.flip_y = 0;
+				for (int i = 0; i < output_plane_size * 3; i++) {
+					out_buf[i] = 0.0;
+				}
+
+				struct ntscrs_BlitInfo src_blit_info = {0};
+				src_blit_info.row_bytes = input->rowbytes;
+				src_blit_info.other_buffer_height = input->height;
+				src_blit_info.destination_x = MAX(0, input->origin_x);
+				src_blit_info.destination_y = MAX(0, input->origin_y);
+				src_blit_info.rect.left = 0;
+				src_blit_info.rect.top = 0;
+				src_blit_info.rect.right = MIN(input->width, output->width - src_blit_info.destination_x);
+				src_blit_info.rect.bottom = MIN(input->height, output->height - src_blit_info.destination_y);
+				src_blit_info.flip_y = 0;
+
+				struct ntscrs_BlitInfo dst_blit_info = {0};
+				dst_blit_info.other_buffer_height = output->height;
+				dst_blit_info.rect.left = 0;
+				dst_blit_info.rect.top = 0;
+				dst_blit_info.rect.right = output->width;
+				dst_blit_info.rect.bottom = output->height;
+				dst_blit_info.row_bytes = output->rowbytes;
+				dst_blit_info.flip_y = 0;
+
 				switch (input_pixel_format) {
 					case NTSCRS_XRGB32F: {
 						ntscrs_yiq_set_from_strided_buffer_Xrgb32f(
 							(float_t*)input->data,
 							out_buf,
-							blit_info,
+							src_blit_info,
 							output->width,
 							output->height,
 							yiq_field
@@ -359,7 +376,7 @@ ActuallyRender(
 						ntscrs_yiq_set_from_strided_buffer_Xrgb16AE(
 							(int16_t*)input->data,
 							out_buf,
-							blit_info,
+							src_blit_info,
 							output->width,
 							output->height,
 							yiq_field
@@ -370,7 +387,7 @@ ActuallyRender(
 						ntscrs_yiq_set_from_strided_buffer_Xrgb8(
 							(uint8_t*)input->data,
 							out_buf,
-							blit_info,
+							src_blit_info,
 							output->width,
 							output->height,
 							yiq_field
@@ -381,7 +398,7 @@ ActuallyRender(
 						ntscrs_yiq_set_from_strided_buffer_Bgrx32f(
 							(float_t*)input->data,
 							out_buf,
-							blit_info,
+							src_blit_info,
 							output->width,
 							output->height,
 							yiq_field
@@ -392,7 +409,7 @@ ActuallyRender(
 						ntscrs_yiq_set_from_strided_buffer_Bgrx16(
 							(uint16_t*)input->data,
 							out_buf,
-							blit_info,
+							src_blit_info,
 							output->width,
 							output->height,
 							yiq_field
@@ -403,7 +420,7 @@ ActuallyRender(
 						ntscrs_yiq_set_from_strided_buffer_Bgrx8(
 							(uint8_t*)input->data,
 							out_buf,
-							blit_info,
+							src_blit_info,
 							output->width,
 							output->height,
 							yiq_field
@@ -423,7 +440,7 @@ ActuallyRender(
 						ntscrs_yiq_write_to_strided_buffer_Xrgb32f(
 							out_buf,
 							(float_t*)output->data,
-							blit_info,
+							dst_blit_info,
 							output->width,
 							output->height,
 							yiq_field
@@ -434,7 +451,7 @@ ActuallyRender(
 						ntscrs_yiq_write_to_strided_buffer_Xrgb16AE(
 							out_buf,
 							(int16_t*)output->data,
-							blit_info,
+							dst_blit_info,
 							output->width,
 							output->height,
 							yiq_field
@@ -445,7 +462,7 @@ ActuallyRender(
 						ntscrs_yiq_write_to_strided_buffer_Xrgb8(
 							out_buf,
 							(uint8_t*)output->data,
-							blit_info,
+							dst_blit_info,
 							output->width,
 							output->height,
 							yiq_field
@@ -456,7 +473,7 @@ ActuallyRender(
 						ntscrs_yiq_write_to_strided_buffer_Bgrx32f(
 							out_buf,
 							(float_t*)output->data,
-							blit_info,
+							dst_blit_info,
 							output->width,
 							output->height,
 							yiq_field
@@ -467,7 +484,7 @@ ActuallyRender(
 						ntscrs_yiq_write_to_strided_buffer_Bgrx16(
 							out_buf,
 							(uint16_t*)output->data,
-							blit_info,
+							dst_blit_info,
 							output->width,
 							output->height,
 							yiq_field
@@ -478,7 +495,7 @@ ActuallyRender(
 						ntscrs_yiq_write_to_strided_buffer_Bgrx8(
 							out_buf,
 							(uint8_t*)output->data,
-							blit_info,
+							dst_blit_info,
 							output->width,
 							output->height,
 							yiq_field

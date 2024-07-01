@@ -8,7 +8,6 @@ repository = "https://github.com/valadaptive/ntsc-rs/tree/main/crates/ntscrs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-image = { version = "0.24.7", default-features = false }
 glam = "0.24.2"
 rand = { version = "0.8.5", default-features = false }
 rand_xoshiro = "0.6.0"
@@ -23,7 +22,7 @@ biquad = "0.4.2"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
-image = { version = "0.24.7", default-features = false, features = ["png"] }
+image = { version = "0.25.1", default-features = false, features = ["png"] }
 
 [target.'cfg(not(windows))'.dev-dependencies]
 pprof = { version = "0.13.0", features = ["flamegraph", "criterion"] }

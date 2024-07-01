@@ -56,7 +56,15 @@ pub fn process_gst_frame<S: PixelFormat>(
         / ClockTime::SECOND.nseconds();
 
     let blit_info = out_rect
-        .map(|rect| BlitInfo::new(rect, out_stride, false))
+        .map(|rect| {
+            BlitInfo::new(
+                rect,
+                (rect.left, rect.top),
+                out_stride,
+                in_frame.height() as usize,
+                false,
+            )
+        })
         .unwrap_or_else(|| {
             BlitInfo::from_full_frame(
                 in_frame.width() as usize,

@@ -1071,7 +1071,9 @@ impl<'a> EffectApplicationParams<'a> {
         // from positive Y = up to positive Y = down.
         let blit_info = BlitInfo::new(
             Rect::from_width_height(srcWidth, srcHeight),
+            (0, 0),
             srcStride,
+            srcHeight,
             flip_y,
         );
         if self.apply_srgb_gamma {

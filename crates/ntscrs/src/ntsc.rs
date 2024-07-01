@@ -1,8 +1,7 @@
-use std::cell::OnceCell;
 use std::collections::VecDeque;
+use std::{cell::OnceCell, convert::identity};
 
 use core::f32::consts::PI;
-use image::RgbImage;
 use rand::{Rng, RngCore, SeedableRng};
 use rand_xoshiro::Xoshiro256PlusPlus;
 use rayon::prelude::*;
@@ -12,7 +11,7 @@ use crate::{
     filter::TransferFunction,
     random::{Geometric, Seeder},
     shift::{shift_row, shift_row_to, BoundaryHandling},
-    yiq_fielding::{YiqField, YiqOwned, YiqView},
+    yiq_fielding::{BlitInfo, PixelFormat, YiqField, YiqOwned, YiqView},
 };
 
 pub use crate::settings::*;
@@ -1299,15 +1298,15 @@ impl NtscEffect {
                 self.apply_effect_to_yiq_field(yiq, frame_num);
             }
             YiqField::InterleavedUpper | YiqField::InterleavedLower => {
-                let num_upper_rows = YiqField::Upper.num_image_rows(yiq.dimensions.1);
-                let num_lower_rows = YiqField::Lower.num_image_rows(yiq.dimensions.1);
                 let (mut yiq_upper, mut yiq_lower, frame_num_upper, frame_num_lower) =
                     match yiq.field {
                         YiqField::InterleavedUpper => {
+                            let num_upper_rows = YiqField::Upper.num_image_rows(yiq.dimensions.1);
                             let (upper, lower) = yiq.split_at_row(num_upper_rows);
                             (upper, lower, frame_num * 2, frame_num * 2 + 1)
                         }
                         YiqField::InterleavedLower => {
+                            let num_lower_rows = YiqField::Lower.num_image_rows(yiq.dimensions.1);
                             let (lower, upper) = yiq.split_at_row(num_lower_rows);
                             (upper, lower, frame_num * 2 + 1, frame_num * 2)
                         }
@@ -1321,11 +1320,28 @@ impl NtscEffect {
         })
     }
 
-    pub fn apply_effect(&self, input_frame: &RgbImage, frame_num: usize) -> RgbImage {
+    pub fn apply_effect_to_buffer<S: PixelFormat>(
+        &self,
+        dimensions: (usize, usize),
+        input_frame: &mut [S::DataFormat],
+        frame_num: usize,
+    ) {
         let field = self.use_field.to_yiq_field(frame_num);
-        let mut yiq = YiqOwned::from_image(input_frame, field);
+        let row_bytes = dimensions.0 * S::pixel_bytes();
+        let mut yiq = YiqOwned::from_strided_buffer::<S>(
+            input_frame,
+            row_bytes,
+            dimensions.0,
+            dimensions.1,
+            field,
+        );
         let mut view = YiqView::from(&mut yiq);
         self.apply_effect_to_yiq(&mut view, frame_num);
-        RgbImage::from(&view)
+        view.write_to_strided_buffer::<S, _>(
+            input_frame,
+            BlitInfo::from_full_frame(dimensions.0, dimensions.1, row_bytes),
+            crate::yiq_fielding::DeinterlaceMode::Bob,
+            identity,
+        );
     }
 }

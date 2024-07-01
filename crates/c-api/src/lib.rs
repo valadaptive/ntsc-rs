@@ -53,8 +53,13 @@ pub struct Rect {
 pub struct BlitInfo {
     /// The rectangular area which will be read out of or written into the other buffer.
     pub rect: Rect,
+    /// The coordinates at which to place the image.
+    pub destination_x: usize,
+    pub destination_y: usize,
     /// Number of bytes per pixel row in the other buffer. May include padding.
     pub row_bytes: isize,
+    /// Height of the non-YIQ buffer.
+    pub other_buffer_height: usize,
     /// True if the source buffer is y-up instead of y-down.
     pub flip_y: bool,
 }
@@ -495,7 +500,9 @@ unsafe fn yiq_set_from_strided_buffer_generic<S: PixelFormat>(
         ),
         RsBlitInfo {
             rect: (&blit_info.rect).into(),
+            destination: (blit_info.destination_x, blit_info.destination_y),
             row_bytes: stride,
+            other_buffer_height: blit_info.other_buffer_height,
             flip_y,
         },
         identity,
@@ -545,7 +552,9 @@ unsafe fn ntscrs_yiq_write_to_strided_buffer_generic<S: PixelFormat>(
         ),
         RsBlitInfo {
             rect: (&blit_info.rect).into(),
+            destination: (blit_info.destination_x, blit_info.destination_y),
             row_bytes: stride,
+            other_buffer_height: blit_info.other_buffer_height,
             flip_y,
         },
         DeinterlaceMode::Bob,
