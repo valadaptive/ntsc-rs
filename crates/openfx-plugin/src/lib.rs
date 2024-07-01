@@ -1030,14 +1030,11 @@ impl<'a> EffectApplicationParams<'a> {
         let srcHeight = (self.src_bounds.y2 - self.src_bounds.y1) as usize;
 
         let cur_field = self.effect.use_field.to_yiq_field(self.frame_num);
-        let numRows = cur_field.num_image_rows(srcHeight);
 
-        // Pixels per YIQ plane
-        let numPlanePixels = srcWidth * numRows;
+        let yiqBufLength = YiqView::buf_length_for((srcWidth, srcHeight), cur_field);
 
         let mut ntsc_buf =
-            AllocBox::<[f32], _>::new_zeroed_slice_in(numPlanePixels * 3, OfxAllocator)
-                .assume_init();
+            AllocBox::<[f32], _>::new_zeroed_slice_in(yiqBufLength, OfxAllocator).assume_init();
 
         let (srcFirstRowPtr, flip_y) = if self.src_row_bytes < 0 {
             // Currently untested because I can't find an OFX host that uses negative rowbytes. Fingers crossed it works!
@@ -1051,16 +1048,7 @@ impl<'a> EffectApplicationParams<'a> {
         };
         let srcStride = self.src_row_bytes.abs() as usize;
 
-        let (y, iq) = ntsc_buf.split_at_mut(numPlanePixels);
-        let (i, q) = iq.split_at_mut(numPlanePixels);
-
-        let mut yiq_view = YiqView {
-            y,
-            i,
-            q,
-            dimensions: (srcWidth, srcHeight),
-            field: cur_field,
-        };
+        let mut yiq_view = YiqView::from_parts(&mut ntsc_buf, (srcWidth, srcHeight), cur_field);
 
         let srcData = slice::from_raw_parts(
             srcFirstRowPtr as *const MaybeUninit<S::DataFormat>,

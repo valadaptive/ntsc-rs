@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::{cell::OnceCell, convert::identity};
+use std::convert::identity;
 
 use core::f32::consts::PI;
 use rand::{Rng, RngCore, SeedableRng};
@@ -88,26 +88,6 @@ enum InitialCondition {
     Constant(f32),
     /// Set the initial filter condition to that of the first sample to be filtered.
     FirstSample,
-}
-
-struct ScratchBuffer {
-    cell: OnceCell<Box<[f32]>>,
-    len: usize,
-}
-
-impl ScratchBuffer {
-    pub fn new(len: usize) -> Self {
-        ScratchBuffer {
-            cell: OnceCell::new(),
-            len,
-        }
-    }
-    pub fn get(&mut self) -> &mut [f32] {
-        _ = self
-            .cell
-            .get_or_init(|| vec![0f32; self.len].into_boxed_slice());
-        self.cell.get_mut().unwrap()
-    }
 }
 
 /// Apply a given IIR filter to each row of one color plane.
@@ -345,7 +325,6 @@ fn luma_into_chroma(
     yiq: &mut YiqView,
     info: &CommonInfo,
     filter_mode: ChromaDemodulationFilter,
-    scratch_buffer: &mut ScratchBuffer,
     phase_shift: PhaseShift,
     phase_offset: i32,
 ) {
@@ -356,7 +335,7 @@ fn luma_into_chroma(
             let y_lines = yiq.y.par_chunks_mut(width);
             let i_lines = yiq.i.par_chunks_mut(width);
             let q_lines = yiq.q.par_chunks_mut(width);
-            let scratch_lines = scratch_buffer.get().par_chunks_mut(width);
+            let scratch_lines = yiq.scratch.par_chunks_mut(width);
 
             y_lines
                 .zip(i_lines.zip(q_lines.zip(scratch_lines)))
@@ -369,7 +348,7 @@ fn luma_into_chroma(
                 });
         }
         ChromaDemodulationFilter::Notch => {
-            let scratch = scratch_buffer.get();
+            let scratch = &mut yiq.scratch;
             let filter: TransferFunction = make_notch_filter(0.5, 2.0);
             scratch.copy_from_slice(yiq.y);
             filter_plane(yiq.y, width, &filter, InitialCondition::Zero, 1.0, 0);
@@ -377,7 +356,7 @@ fn luma_into_chroma(
             let y_lines = yiq.y.par_chunks_mut(width);
             let i_lines = yiq.i.par_chunks_mut(width);
             let q_lines = yiq.q.par_chunks_mut(width);
-            let scratch_lines = scratch_buffer.get().par_chunks_mut(width);
+            let scratch_lines = scratch.par_chunks_mut(width);
 
             y_lines
                 .zip(i_lines.zip(q_lines.zip(scratch_lines)))
@@ -393,7 +372,7 @@ fn luma_into_chroma(
                 });
         }
         ChromaDemodulationFilter::OneLineComb => {
-            let delay = scratch_buffer.get();
+            let delay = &mut yiq.scratch;
             // "Reflect" line 2 to line 0, so that the chroma is properly demodulated.
             // A comb filter requires the phase of the chroma carrier to alternate per line, so simply repeating line 1
             // wouldn't work.
@@ -423,9 +402,9 @@ fn luma_into_chroma(
                 });
         }
         ChromaDemodulationFilter::TwoLineComb => {
-            let modulated = scratch_buffer.get();
-            modulated.copy_from_slice(yiq.y);
             let height = yiq.num_rows();
+            let modulated = &mut yiq.scratch;
+            modulated.copy_from_slice(yiq.y);
 
             let y_lines = yiq.y.par_chunks_mut(width);
             let i_lines = yiq.i.par_chunks_mut(width);
@@ -1033,8 +1012,6 @@ impl NtscEffect {
             bandwidth_scale: self.bandwidth_scale,
         };
 
-        let mut scratch_buffer = ScratchBuffer::new(yiq.y.len());
-
         luma_filter(yiq, self.input_luma_filter);
 
         match self.chroma_lowpass_in {
@@ -1117,7 +1094,6 @@ impl NtscEffect {
             yiq,
             &info,
             self.chroma_demodulation,
-            &mut scratch_buffer,
             self.video_scanline_phase_shift,
             self.video_scanline_phase_shift_offset,
         );

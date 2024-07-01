@@ -431,12 +431,14 @@ impl SettingsList {
 #[no_mangle]
 /// # Safety
 ///
-/// The `y`, `i`, and `q` arguments must be valid pointers into arrays of `width` * `height` if the `settings` says to
-/// process every field, or `width` * `height` / 2 if the `settings` says to process every other field.
+/// The `y`, `i`, `q`, and `scratch` arguments must be valid pointers into arrays of `width` * `height` if the
+/// `settings` says to process every field, or `width` * `height` / 2 if the `settings` says to process every other
+/// field.
 pub unsafe extern "C" fn ntscrs_process_yiq(
     y: *mut f32,
     i: *mut f32,
     q: *mut f32,
+    scratch: *mut f32,
     num_rows: usize,
     width: usize,
     height: usize,
@@ -449,13 +451,14 @@ pub unsafe extern "C" fn ntscrs_process_yiq(
         y: slice::from_raw_parts_mut(y, len),
         i: slice::from_raw_parts_mut(i, len),
         q: slice::from_raw_parts_mut(q, len),
+        scratch: slice::from_raw_parts_mut(scratch, len),
         dimensions: (width, height),
         field: (&field).into(),
     };
     NtscEffect::from(&settings.0).apply_effect_to_yiq(&mut yiq, frame_num);
 }
 
-unsafe fn yiq_set_from_strided_buffer_generic<S: PixelFormat>(
+unsafe fn ntscrs_yiq_set_from_strided_buffer_generic<S: PixelFormat>(
     src_data: *mut S::DataFormat,
     dst_yiq: *mut f32,
     mut blit_info: BlitInfo,
@@ -463,17 +466,14 @@ unsafe fn yiq_set_from_strided_buffer_generic<S: PixelFormat>(
     height: usize,
     field: YiqField,
 ) {
-    let num_rows = RsYiqField::from(&field).num_image_rows(height);
-    let len = width * num_rows;
-    let (y, iq) = slice::from_raw_parts_mut(dst_yiq, len * 3).split_at_mut(len);
-    let (i, q) = iq.split_at_mut(len);
-    let mut yiq = YiqView {
-        y,
-        i,
-        q,
-        dimensions: (width, height),
-        field: (&field).into(),
-    };
+    let mut yiq = YiqView::from_parts(
+        slice::from_raw_parts_mut(
+            dst_yiq,
+            YiqView::buf_length_for((width, height), (&field).into()),
+        ),
+        (width, height),
+        (&field).into(),
+    );
 
     // Premiere uses negative rowbytes because its coordinate space is flipped vertically from After Effects. Great for
     // C pointer arithmetic, not so great for Rust.
@@ -517,17 +517,14 @@ unsafe fn ntscrs_yiq_write_to_strided_buffer_generic<S: PixelFormat>(
     height: usize,
     field: YiqField,
 ) {
-    let num_rows = RsYiqField::from(&field).num_image_rows(height);
-    let len = width * num_rows;
-    let (y, iq) = slice::from_raw_parts_mut(src_yiq, len * 3).split_at_mut(len);
-    let (i, q) = iq.split_at_mut(len);
-    let yiq = YiqView {
-        y,
-        i,
-        q,
-        dimensions: (width, height),
-        field: (&field).into(),
-    };
+    let yiq = YiqView::from_parts(
+        slice::from_raw_parts_mut(
+            src_yiq,
+            YiqView::buf_length_for((width, height), (&field).into()),
+        ),
+        (width, height),
+        (&field).into(),
+    );
 
     let (start_ptr, stride, flip_y) = if blit_info.row_bytes > 0 {
         (dst_data, blit_info.row_bytes as usize, false)
@@ -572,7 +569,7 @@ pub unsafe extern "C" fn ntscrs_yiq_set_from_strided_buffer_Xrgb32f(
     height: usize,
     field: YiqField,
 ) {
-    yiq_set_from_strided_buffer_generic::<Xrgb32f>(
+    ntscrs_yiq_set_from_strided_buffer_generic::<Xrgb32f>(
         src_data, dst_yiq, blit_info, width, height, field,
     )
 }
@@ -586,7 +583,7 @@ pub unsafe extern "C" fn ntscrs_yiq_set_from_strided_buffer_Xrgb16AE(
     height: usize,
     field: YiqField,
 ) {
-    yiq_set_from_strided_buffer_generic::<Xrgb16AE>(
+    ntscrs_yiq_set_from_strided_buffer_generic::<Xrgb16AE>(
         mem::transmute::<_, *mut AfterEffectsU16>(src_data),
         dst_yiq,
         blit_info,
@@ -605,7 +602,9 @@ pub unsafe extern "C" fn ntscrs_yiq_set_from_strided_buffer_Xrgb8(
     height: usize,
     field: YiqField,
 ) {
-    yiq_set_from_strided_buffer_generic::<Xrgb8>(src_data, dst_yiq, blit_info, width, height, field)
+    ntscrs_yiq_set_from_strided_buffer_generic::<Xrgb8>(
+        src_data, dst_yiq, blit_info, width, height, field,
+    )
 }
 
 #[no_mangle]
@@ -617,7 +616,7 @@ pub unsafe extern "C" fn ntscrs_yiq_set_from_strided_buffer_Bgrx32f(
     height: usize,
     field: YiqField,
 ) {
-    yiq_set_from_strided_buffer_generic::<Bgrx32f>(
+    ntscrs_yiq_set_from_strided_buffer_generic::<Bgrx32f>(
         src_data, dst_yiq, blit_info, width, height, field,
     )
 }
@@ -631,7 +630,7 @@ pub unsafe extern "C" fn ntscrs_yiq_set_from_strided_buffer_Bgrx16(
     height: usize,
     field: YiqField,
 ) {
-    yiq_set_from_strided_buffer_generic::<Bgrx16>(
+    ntscrs_yiq_set_from_strided_buffer_generic::<Bgrx16>(
         src_data, dst_yiq, blit_info, width, height, field,
     )
 }
@@ -645,7 +644,9 @@ pub unsafe extern "C" fn ntscrs_yiq_set_from_strided_buffer_Bgrx8(
     height: usize,
     field: YiqField,
 ) {
-    yiq_set_from_strided_buffer_generic::<Bgrx8>(src_data, dst_yiq, blit_info, width, height, field)
+    ntscrs_yiq_set_from_strided_buffer_generic::<Bgrx8>(
+        src_data, dst_yiq, blit_info, width, height, field,
+    )
 }
 
 #[no_mangle]

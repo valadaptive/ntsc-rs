@@ -316,9 +316,8 @@ impl Plugin {
             UseField::InterleavedLower => YiqField::InterleavedLower,
         };
 
-        let num_rows = yiq_field.num_image_rows(out_layer.height());
-
-        let out_buf_size = out_layer.width() * num_rows * 3;
+        let out_buf_size =
+            YiqView::buf_length_for((out_layer.width(), out_layer.height()), yiq_field);
         let mut out_handle = SliceHandle::<f32>::new(out_buf_size, 0.0)?;
         let mut locked = out_handle.lock()?;
         let out_buf: &mut [f32] = locked.borrow_mut();

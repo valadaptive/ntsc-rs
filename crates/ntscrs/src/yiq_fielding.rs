@@ -312,6 +312,7 @@ pub struct YiqView<'a> {
     pub y: &'a mut [f32],
     pub i: &'a mut [f32],
     pub q: &'a mut [f32],
+    pub scratch: &'a mut [f32],
     pub dimensions: (usize, usize),
     /// The source field that this data is for.
     pub field: YiqField,
@@ -335,11 +336,13 @@ impl<'a> YiqView<'a> {
         let (y1, y2) = self.y.split_at_mut(idx * self.dimensions.0);
         let (i1, i2) = self.i.split_at_mut(idx * self.dimensions.0);
         let (q1, q2) = self.q.split_at_mut(idx * self.dimensions.0);
+        let (s1, s2) = self.scratch.split_at_mut(idx * self.dimensions.0);
         (
             YiqView {
                 y: y1,
                 i: i1,
                 q: q1,
+                scratch: s1,
                 dimensions: (self.dimensions.0, self.dimensions.1),
                 field: self.field,
             },
@@ -347,6 +350,7 @@ impl<'a> YiqView<'a> {
                 y: y2,
                 i: i2,
                 q: q2,
+                scratch: s2,
                 dimensions: (self.dimensions.0, self.dimensions.1),
                 field: self.field,
             },
@@ -732,20 +736,28 @@ impl<'a> YiqView<'a> {
         let num_pixels = dimensions.0 * field.num_image_rows(dimensions.1);
         assert_eq!(
             buf.len(),
-            num_pixels * 3,
+            num_pixels * 4,
             "buffer length: {}, expected buffer length: {}",
             buf.len(),
-            num_pixels * 3
+            num_pixels * 4
         );
-        let (y, iq) = buf.split_at_mut(num_pixels);
-        let (i, q) = iq.split_at_mut(num_pixels);
+        let (y, iqs) = buf.split_at_mut(num_pixels);
+        let (i, qs) = iqs.split_at_mut(num_pixels);
+        let (q, s) = qs.split_at_mut(num_pixels);
         YiqView {
             y,
             i,
             q,
+            scratch: s,
             dimensions,
             field,
         }
+    }
+
+    /// Calculate the length (in elements, not bytes) of a buffer needed to hold a YiqView with the given dimensions and
+    /// field.
+    pub fn buf_length_for(dimensions: (usize, usize), field: YiqField) -> usize {
+        dimensions.0 * field.num_image_rows(dimensions.1) * 4
     }
 }
 
@@ -775,17 +787,8 @@ impl YiqOwned {
         let num_rows = field.num_image_rows(height);
         let num_pixels = width * num_rows;
 
-        let mut data = vec![0f32; num_pixels * 3];
-        let (y, iq) = data.split_at_mut(num_pixels);
-        let (i, q) = iq.split_at_mut(num_pixels);
-
-        let mut view = YiqView {
-            y,
-            i,
-            q,
-            dimensions: (width, height),
-            field,
-        };
+        let mut data = vec![0f32; num_pixels * 4];
+        let mut view = YiqView::from_parts(&mut data, (width, height), field);
 
         view.set_from_strided_buffer::<S, _>(
             buf,
@@ -803,15 +806,6 @@ impl YiqOwned {
 
 impl<'a> From<&'a mut YiqOwned> for YiqView<'a> {
     fn from(value: &'a mut YiqOwned) -> Self {
-        let num_pixels = value.dimensions.0 * value.num_rows();
-        let (y, iq) = value.data.split_at_mut(num_pixels);
-        let (i, q) = iq.split_at_mut(num_pixels);
-        YiqView {
-            y,
-            i,
-            q,
-            dimensions: value.dimensions,
-            field: value.field,
-        }
+        YiqView::from_parts(&mut value.data, value.dimensions, value.field)
     }
 }
