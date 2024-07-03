@@ -13,7 +13,7 @@ ntscrs = { path = "../ntscrs" }
 arboard = "3.4.0"
 # Needed to avoid buggy widget interactions in the presets pane
 # https://github.com/emilk/egui/pull/4675
-eframe = { git = "https://github.com/valadaptive/egui", branch = "0.27.2-patch", features=["persistence"] }
+eframe = { version = "0.28.0", features=["persistence"] }
 env_logger = "0.11.3"
 snafu = "0.8.3"
 logos = "0.14"

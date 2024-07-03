@@ -185,7 +185,7 @@ impl NtscApp {
                 PresetsDirState::Loaded(presets) | PresetsDirState::Loading(Some(presets)) => {
                     ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
                         if matches!(&self.presets_state.presets_dir, PresetsDirState::Loading(_)) {
-                            ui.set_enabled(false);
+                            ui.disable();
                         }
 
                         let mut renamed_preset = self.presets_state.renamed_preset.borrow_mut();

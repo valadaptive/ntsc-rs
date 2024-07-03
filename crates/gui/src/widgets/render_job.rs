@@ -66,7 +66,7 @@ impl<'a, 'b> Widget for RenderJobWidget<'a, 'b> {
                             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                                 ui.add(
                                     egui::Label::new(job.settings.output_path.to_string_lossy())
-                                        .truncate(true),
+                                        .truncate(),
                                 );
                             })
                         });

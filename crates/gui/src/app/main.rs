@@ -48,7 +48,7 @@ use super::{
     },
     error::{ApplicationError, JSONParseSnafu, JSONReadSnafu, JSONSaveSnafu, LoadVideoSnafu},
     executor::AppExecutor,
-    layout_helper::LayoutHelper,
+    layout_helper::{LayoutHelper, TopBottomPanelExt},
     pipeline_info::{PipelineInfo, PipelineMetadata, PipelineStatus},
     presets::PresetsState,
     render_job::RenderJob,
@@ -161,13 +161,13 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             let ctx = cc.egui_ctx.clone();
             ctx.set_visuals(theme.visuals(&cc.integration_info));
             ctx.style_mut(|style| style.interaction.tooltip_delay = 0.5);
-            Box::new(NtscApp::new(
+            Ok(Box::new(NtscApp::new(
                 ctx,
                 settings_list,
                 settings,
                 theme,
                 gstreamer_initialized,
-            ))
+            )))
         }),
     )?)
 }
@@ -622,7 +622,7 @@ impl NtscApp {
                             ui.spacing().interact_size.y,
                         ),
                         egui::DragValue::new(&mut effect_settings.random_seed)
-                            .clamp_range(i32::MIN..=i32::MAX),
+                            .range(i32::MIN..=i32::MAX),
                     );
 
                     if ui
@@ -637,7 +637,7 @@ impl NtscApp {
                         changed = true;
                     }
 
-                    let label = ui.add(egui::Label::new(descriptor.label).truncate(true));
+                    let label = ui.add(egui::Label::new(descriptor.label).truncate());
                     if let Some(description) = descriptor.description {
                         label.on_hover_text(description);
                     }
@@ -792,7 +792,9 @@ impl NtscApp {
                             })
                             .inner;
 
-                        ui.set_enabled(*checked);
+                        if !*checked {
+                            ui.disable();
+                        }
 
                         // When a settings group is re-enabled, expand it automatically.
                         if *checked && !was_checked {
@@ -861,7 +863,7 @@ impl NtscApp {
 
     fn show_effect_settings(&mut self, ui: &mut egui::Ui) {
         egui::TopBottomPanel::bottom("preset_copy_paste")
-            .exact_height(ui.spacing().interact_size.y * 2.0)
+            .interact_height_tall(ui.ctx())
             .show_inside(ui, |ui| {
                 ui.horizontal_centered(|ui| {
                     if ui.button("Save to...").clicked() {
@@ -1316,169 +1318,175 @@ impl NtscApp {
             Some(framerate)
         })();
 
-        egui::TopBottomPanel::top("video_info").show_inside(ui, |ui| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let mut remove_pipeline = false;
-                let mut change_framerate_res = None;
-                let mut save_image_to: Option<(PathBuf, PathBuf)> = None;
-                let mut copy_image_res: Option<Result<ColorImage, GstreamerError>> = None;
-                if let Some(info) = &mut self.pipeline {
-                    let mut metadata = info.metadata.lock().unwrap();
-                    if ui.button("🗙").clicked() {
-                        remove_pipeline = true;
-                    }
+        egui::TopBottomPanel::top("video_info")
+            .interact_height(ui.ctx())
+            .show_inside(ui, |ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let mut remove_pipeline = false;
+                    let mut change_framerate_res = None;
+                    let mut save_image_to: Option<(PathBuf, PathBuf)> = None;
+                    let mut copy_image_res: Option<Result<ColorImage, GstreamerError>> = None;
+                    if let Some(info) = &mut self.pipeline {
+                        let mut metadata = info.metadata.lock().unwrap();
+                        if ui.button("🗙").clicked() {
+                            remove_pipeline = true;
+                        }
 
-                    ui.separator();
-
-                    if ui.button("Save frame").clicked() {
-                        let src_path = info.path.clone();
-
-                        let dst_path = src_path.with_extension("");
-                        save_image_to = Some((src_path, dst_path));
-                    }
-
-                    if ui.button("Copy frame").clicked() {
-                        let egui_sink =
-                            info.egui_sink.downcast_ref::<elements::EguiSink>().unwrap();
-
-                        let egui_sink = EguiSink::from_obj(egui_sink);
-                        copy_image_res = Some(egui_sink.get_image().map_err(|e| e.into()));
-                    }
-
-                    if let Some(current_framerate) = metadata.framerate {
                         ui.separator();
-                        match metadata.is_still_image {
-                            Some(true) => {
-                                let mut new_framerate = current_framerate.numer() as f64
-                                    / current_framerate.denom() as f64;
-                                ui.label("fps");
-                                if ui
-                                    .add(
-                                        egui::DragValue::new(&mut new_framerate)
-                                            .clamp_range(0.0..=240.0),
-                                    )
-                                    .changed()
-                                {
-                                    let framerate_fraction =
-                                        gstreamer::Fraction::approximate_f64(new_framerate);
-                                    if let Some(f) = framerate_fraction {
-                                        let changed_framerate =
-                                            Self::set_still_image_framerate(&info.pipeline, f);
-                                        if let Ok(Some(new_framerate)) = changed_framerate {
-                                            metadata.framerate = Some(new_framerate);
-                                        }
 
-                                        change_framerate_res = Some(changed_framerate);
+                        if ui.button("Save frame").clicked() {
+                            let src_path = info.path.clone();
+
+                            let dst_path = src_path.with_extension("");
+                            save_image_to = Some((src_path, dst_path));
+                        }
+
+                        if ui.button("Copy frame").clicked() {
+                            let egui_sink =
+                                info.egui_sink.downcast_ref::<elements::EguiSink>().unwrap();
+
+                            let egui_sink = EguiSink::from_obj(egui_sink);
+                            copy_image_res = Some(egui_sink.get_image().map_err(|e| e.into()));
+                        }
+
+                        if let Some(current_framerate) = metadata.framerate {
+                            ui.separator();
+                            match metadata.is_still_image {
+                                Some(true) => {
+                                    let mut new_framerate = current_framerate.numer() as f64
+                                        / current_framerate.denom() as f64;
+                                    ui.label("fps");
+                                    if ui
+                                        .add(
+                                            egui::DragValue::new(&mut new_framerate)
+                                                .range(0.0..=240.0),
+                                        )
+                                        .changed()
+                                    {
+                                        let framerate_fraction =
+                                            gstreamer::Fraction::approximate_f64(new_framerate);
+                                        if let Some(f) = framerate_fraction {
+                                            let changed_framerate =
+                                                Self::set_still_image_framerate(&info.pipeline, f);
+                                            if let Ok(Some(new_framerate)) = changed_framerate {
+                                                metadata.framerate = Some(new_framerate);
+                                            }
+
+                                            change_framerate_res = Some(changed_framerate);
+                                        }
                                     }
                                 }
-                            }
-                            Some(false) => {
-                                let mut fps_display = format!(
-                                    "{:.2} fps",
-                                    current_framerate.numer() as f64
-                                        / current_framerate.denom() as f64
-                                );
-                                if let Some(interlace_mode) = metadata.interlace_mode {
-                                    fps_display.push_str(match interlace_mode {
-                                        VideoInterlaceMode::Progressive => " (progressive)",
-                                        VideoInterlaceMode::Interleaved => " (interlaced)",
-                                        VideoInterlaceMode::Mixed => " (telecined)",
-                                        _ => "",
-                                    });
+                                Some(false) => {
+                                    let mut fps_display = format!(
+                                        "{:.2} fps",
+                                        current_framerate.numer() as f64
+                                            / current_framerate.denom() as f64
+                                    );
+                                    if let Some(interlace_mode) = metadata.interlace_mode {
+                                        fps_display.push_str(match interlace_mode {
+                                            VideoInterlaceMode::Progressive => " (progressive)",
+                                            VideoInterlaceMode::Interleaved => " (interlaced)",
+                                            VideoInterlaceMode::Mixed => " (telecined)",
+                                            _ => "",
+                                        });
+                                    }
+                                    ui.label(fps_display);
                                 }
-                                ui.label(fps_display);
+                                None => {}
                             }
-                            None => {}
+                        }
+
+                        if let Some((width, height)) = metadata.resolution {
+                            ui.separator();
+                            ui.label(format!("{}x{}", width, height));
+                        }
+
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            ui.add(egui::Label::new(info.path.to_string_lossy()).truncate());
+                        });
+                    }
+
+                    if let Some(res) = change_framerate_res {
+                        self.handle_result(res);
+                    }
+
+                    if let Some(res) = copy_image_res {
+                        match res {
+                            Ok(image) => {
+                                let res = arboard::Clipboard::new().and_then(|mut cb| {
+                                    let data = arboard::ImageData {
+                                        width: image.width(),
+                                        height: image.height(),
+                                        bytes: Cow::from(image.as_raw()),
+                                    };
+                                    cb.set_image(data)?;
+                                    Ok(())
+                                });
+                                self.handle_result(res);
+                            }
+                            Err(e) => {
+                                self.handle_error(&e);
+                            }
                         }
                     }
 
-                    if let Some((width, height)) = metadata.resolution {
-                        ui.separator();
-                        ui.label(format!("{}x{}", width, height));
+                    if remove_pipeline {
+                        self.close_video(ui.ctx())
                     }
 
-                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                        ui.add(egui::Label::new(info.path.to_string_lossy()).truncate(true));
-                    });
-                }
+                    if let Some((src_path, dst_path)) = save_image_to {
+                        let ctx = ui.ctx().clone();
+                        self.spawn(async move {
+                            let handle = rfd::AsyncFileDialog::new()
+                                .set_directory(dst_path.parent().unwrap_or(Path::new("/")))
+                                .set_file_name(format!(
+                                    "{}_ntsc.png",
+                                    dst_path.file_name().to_owned().unwrap().to_string_lossy()
+                                ))
+                                .save_file()
+                                .await;
 
-                if let Some(res) = change_framerate_res {
-                    self.handle_result(res);
-                }
+                            handle.map(|handle| {
+                                Box::new(move |app: &mut NtscApp| {
+                                    let current_time = app
+                                        .pipeline
+                                        .as_ref()
+                                        .and_then(|info| {
+                                            info.pipeline.query_position::<ClockTime>()
+                                        })
+                                        .unwrap_or(ClockTime::ZERO);
 
-                if let Some(res) = copy_image_res {
-                    match res {
-                        Ok(image) => {
-                            let res = arboard::Clipboard::new().and_then(|mut cb| {
-                                let data = arboard::ImageData {
-                                    width: image.width(),
-                                    height: image.height(),
-                                    bytes: Cow::from(image.as_raw()),
-                                };
-                                cb.set_image(data)?;
-                                Ok(())
-                            });
-                            self.handle_result(res);
-                        }
-                        Err(e) => {
-                            self.handle_error(&e);
-                        }
+                                    let res = app.create_render_job(
+                                        &ctx,
+                                        &src_path.clone(),
+                                        RenderPipelineSettings {
+                                            codec_settings: RenderPipelineCodec::Png(PngSettings {
+                                                seek_to: current_time,
+                                            }),
+                                            output_path: handle.into(),
+                                            interlacing: RenderInterlaceMode::Progressive,
+                                            effect_settings: (&app.effect_settings).into(),
+                                        },
+                                    );
+                                    if let Ok(job) = res {
+                                        app.render_jobs.push(job);
+                                    } else {
+                                        app.handle_result(res);
+                                    }
+                                    Ok(())
+                                }) as _
+                            })
+                        });
                     }
-                }
-
-                if remove_pipeline {
-                    self.close_video(ui.ctx())
-                }
-
-                if let Some((src_path, dst_path)) = save_image_to {
-                    let ctx = ui.ctx().clone();
-                    self.spawn(async move {
-                        let handle = rfd::AsyncFileDialog::new()
-                            .set_directory(dst_path.parent().unwrap_or(Path::new("/")))
-                            .set_file_name(format!(
-                                "{}_ntsc.png",
-                                dst_path.file_name().to_owned().unwrap().to_string_lossy()
-                            ))
-                            .save_file()
-                            .await;
-
-                        handle.map(|handle| {
-                            Box::new(move |app: &mut NtscApp| {
-                                let current_time = app
-                                    .pipeline
-                                    .as_ref()
-                                    .and_then(|info| info.pipeline.query_position::<ClockTime>())
-                                    .unwrap_or(ClockTime::ZERO);
-
-                                let res = app.create_render_job(
-                                    &ctx,
-                                    &src_path.clone(),
-                                    RenderPipelineSettings {
-                                        codec_settings: RenderPipelineCodec::Png(PngSettings {
-                                            seek_to: current_time,
-                                        }),
-                                        output_path: handle.into(),
-                                        interlacing: RenderInterlaceMode::Progressive,
-                                        effect_settings: (&app.effect_settings).into(),
-                                    },
-                                );
-                                if let Ok(job) = res {
-                                    app.render_jobs.push(job);
-                                } else {
-                                    app.handle_result(res);
-                                }
-                                Ok(())
-                            }) as _
-                        })
-                    });
-                }
+                });
             });
-        });
 
         egui::TopBottomPanel::bottom("video_controls")
-            .exact_height(ui.spacing().interact_size.y * 2.0)
+            .interact_height_tall(ui.ctx())
             .show_inside(ui, |ui| {
-                ui.set_enabled(self.pipeline.is_some());
+                if self.pipeline.is_none() {
+                    ui.disable();
+                }
                 ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
                     let btn_widget = egui::Button::new(match &self.pipeline {
@@ -1557,7 +1565,7 @@ impl NtscApp {
                         .speed(frame_pace * 1000.0 * 0.5);
 
                     if let Some(duration) = duration {
-                        drag_value = drag_value.clamp_range(0..=duration.mseconds());
+                        drag_value = drag_value.range(0..=duration.mseconds());
                     }
 
                     if ui.add(drag_value).changed() {
@@ -1578,7 +1586,7 @@ impl NtscApp {
                     ui.add_enabled(
                         !self.video_zoom.fit,
                         egui::DragValue::new(&mut self.video_zoom.scale)
-                            .clamp_range(0.0..=8.0)
+                            .range(0.0..=8.0)
                             .speed(0.01)
                             .custom_formatter(format_percentage)
                             // Treat as a percentage above 8x zoom
@@ -1591,8 +1599,7 @@ impl NtscApp {
                     let scale_checkbox = ui.checkbox(&mut self.video_scale.enabled, "Scale to");
                     ui.add_enabled_ui(self.video_scale.enabled, |ui| {
                         let drag_resp = ui.add(
-                            egui::DragValue::new(&mut self.video_scale.scale)
-                                .clamp_range(1..=usize::MAX),
+                            egui::DragValue::new(&mut self.video_scale.scale).range(1..=usize::MAX),
                         );
                         if drag_resp.changed() || scale_checkbox.changed() {
                             if let Some(pipeline) = &self.pipeline {
@@ -1915,144 +1922,150 @@ impl NtscApp {
     }
 
     fn show_app(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("Open").clicked() {
-                        let file_dialog = rfd::AsyncFileDialog::new().pick_file();
-                        let ctx = ctx.clone();
-                        self.spawn(async move {
-                            let handle = file_dialog.await;
+        egui::TopBottomPanel::top("menu_bar")
+            .interact_height(ctx)
+            .show(ctx, |ui| {
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.menu_button("File", |ui| {
+                        if ui.button("Open").clicked() {
+                            let file_dialog = rfd::AsyncFileDialog::new().pick_file();
+                            let ctx = ctx.clone();
+                            self.spawn(async move {
+                                let handle = file_dialog.await;
 
-                            Some(Box::new(move |app: &mut NtscApp| match handle {
-                                Some(handle) => app.load_video(&ctx, handle.into()),
-                                None => Ok(()),
-                            }) as _)
-                        });
+                                Some(Box::new(move |app: &mut NtscApp| match handle {
+                                    Some(handle) => app.load_video(&ctx, handle.into()),
+                                    None => Ok(()),
+                                }) as _)
+                            });
 
-                        ui.close_menu();
-                    }
-                    if ui.button("Quit").clicked() {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        ui.close_menu();
-                    }
-                });
-
-                ui.menu_button("Edit", |ui| {
-                    if ui
-                        .add_enabled(
-                            self.undoer.has_undo(&mut self.effect_settings),
-                            egui::Button::new("Undo"),
-                        )
-                        .clicked()
-                    {
-                        self.undo();
-                        ui.close_menu();
-                    }
-                    if ui
-                        .add_enabled(
-                            self.undoer.has_redo(&mut self.effect_settings),
-                            egui::Button::new("Redo"),
-                        )
-                        .clicked()
-                    {
-                        self.redo();
-                        ui.close_menu();
-                    }
-                });
-
-                ui.menu_button("View", |ui| {
-                    ui.menu_button("Theme", |ui| {
-                        let mut color_theme_changed = false;
-                        color_theme_changed |= ui
-                            .selectable_value(&mut self.color_theme, ColorTheme::System, "System")
-                            .on_hover_text("Follow system color theme")
-                            .changed();
-                        color_theme_changed |= ui
-                            .selectable_value(&mut self.color_theme, ColorTheme::Light, "Light")
-                            .on_hover_text("Use light mode")
-                            .changed();
-                        color_theme_changed |= ui
-                            .selectable_value(&mut self.color_theme, ColorTheme::Dark, "Dark")
-                            .on_hover_text("Use dark mode")
-                            .changed();
-
-                        if color_theme_changed {
-                            // Results in a bit of "theme tearing" since every widget rendered after this will use a
-                            // different color scheme than those rendered before it. Not really noticeable in practice.
-                            ui.ctx().set_visuals(self.color_theme.visuals(frame.info()));
+                            ui.close_menu();
+                        }
+                        if ui.button("Quit").clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                             ui.close_menu();
                         }
                     });
 
-                    ui.menu_button("Zoom", |ui| {
-                        let mut zoom = ui.ctx().zoom_factor();
-                        let mut changed = false;
-                        const ZOOM_FACTORS: &[f32] = &[0.75, 0.9, 1.0, 1.25, 1.5, 1.75, 2.0];
-                        for item_zoom_factor in ZOOM_FACTORS {
-                            changed |= ui
-                                .selectable_value(
-                                    &mut zoom,
-                                    *item_zoom_factor,
-                                    format!("{}%", item_zoom_factor * 100.0),
-                                )
-                                .changed();
+                    ui.menu_button("Edit", |ui| {
+                        if ui
+                            .add_enabled(
+                                self.undoer.has_undo(&mut self.effect_settings),
+                                egui::Button::new("Undo"),
+                            )
+                            .clicked()
+                        {
+                            self.undo();
+                            ui.close_menu();
                         }
-                        if changed {
-                            ui.ctx().set_zoom_factor(zoom);
-                            ui.close_menu()
+                        if ui
+                            .add_enabled(
+                                self.undoer.has_redo(&mut self.effect_settings),
+                                egui::Button::new("Redo"),
+                            )
+                            .clicked()
+                        {
+                            self.redo();
+                            ui.close_menu();
+                        }
+                    });
+
+                    ui.menu_button("View", |ui| {
+                        ui.menu_button("Theme", |ui| {
+                            let mut color_theme_changed = false;
+                            color_theme_changed |= ui
+                                .selectable_value(
+                                    &mut self.color_theme,
+                                    ColorTheme::System,
+                                    "System",
+                                )
+                                .on_hover_text("Follow system color theme")
+                                .changed();
+                            color_theme_changed |= ui
+                                .selectable_value(&mut self.color_theme, ColorTheme::Light, "Light")
+                                .on_hover_text("Use light mode")
+                                .changed();
+                            color_theme_changed |= ui
+                                .selectable_value(&mut self.color_theme, ColorTheme::Dark, "Dark")
+                                .on_hover_text("Use dark mode")
+                                .changed();
+
+                            if color_theme_changed {
+                                // Results in a bit of "theme tearing" since every widget rendered after this will use a
+                                // different color scheme than those rendered before it. Not really noticeable in practice.
+                                ui.ctx().set_visuals(self.color_theme.visuals(frame.info()));
+                                ui.close_menu();
+                            }
+                        });
+
+                        ui.menu_button("Zoom", |ui| {
+                            let mut zoom = ui.ctx().zoom_factor();
+                            let mut changed = false;
+                            const ZOOM_FACTORS: &[f32] = &[0.75, 0.9, 1.0, 1.25, 1.5, 1.75, 2.0];
+                            for item_zoom_factor in ZOOM_FACTORS {
+                                changed |= ui
+                                    .selectable_value(
+                                        &mut zoom,
+                                        *item_zoom_factor,
+                                        format!("{}%", item_zoom_factor * 100.0),
+                                    )
+                                    .changed();
+                            }
+                            if changed {
+                                ui.ctx().set_zoom_factor(zoom);
+                                ui.close_menu()
+                            }
+                        });
+                    });
+
+                    ui.menu_button("Help", |ui| {
+                        if ui.button("Online Documentation ⤴").clicked() {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(
+                                "https://ntsc.rs/docs/standalone-application/",
+                            ));
+                            ui.close_menu();
+                        }
+
+                        if ui.button("License").clicked() {
+                            self.license_dialog_open = true;
+                            ui.close_menu();
+                        }
+
+                        if ui.button("Third-Party Licenses").clicked() {
+                            self.third_party_licenses_dialog_open = true;
+                            ui.close_menu();
+                        }
+
+                        if ui.button("About + Credits").clicked() {
+                            self.credits_dialog_open = true;
+                            ui.close_menu();
+                        }
+                    });
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        const VERSION: &str = env!("CARGO_PKG_VERSION");
+                        ui.label(format!("{} v{VERSION}", Self::APP_ID));
+
+                        let mut close_error = false;
+                        if let Some(error) = self.last_error.borrow().as_ref() {
+                            egui::Frame::none()
+                                .rounding(3.0)
+                                .stroke(ui.style().noninteractive().fg_stroke)
+                                .inner_margin(ui.style().spacing.button_padding)
+                                .show(ui, |ui| {
+                                    if ui.button("OK").clicked() {
+                                        close_error = true;
+                                    }
+                                    ui.label(error);
+                                    ui.colored_label(egui::Color32::YELLOW, "⚠");
+                                });
+                        }
+                        if close_error {
+                            *self.last_error.borrow_mut() = None;
                         }
                     });
                 });
-
-                ui.menu_button("Help", |ui| {
-                    if ui.button("Online Documentation ⤴").clicked() {
-                        ui.ctx().open_url(egui::OpenUrl::new_tab(
-                            "https://ntsc.rs/docs/standalone-application/",
-                        ));
-                        ui.close_menu();
-                    }
-
-                    if ui.button("License").clicked() {
-                        self.license_dialog_open = true;
-                        ui.close_menu();
-                    }
-
-                    if ui.button("Third-Party Licenses").clicked() {
-                        self.third_party_licenses_dialog_open = true;
-                        ui.close_menu();
-                    }
-
-                    if ui.button("About + Credits").clicked() {
-                        self.credits_dialog_open = true;
-                        ui.close_menu();
-                    }
-                });
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    const VERSION: &str = env!("CARGO_PKG_VERSION");
-                    ui.label(format!("{} v{VERSION}", Self::APP_ID));
-
-                    let mut close_error = false;
-                    if let Some(error) = self.last_error.borrow().as_ref() {
-                        egui::Frame::none()
-                            .rounding(3.0)
-                            .stroke(ui.style().noninteractive().fg_stroke)
-                            .inner_margin(ui.style().spacing.button_padding)
-                            .show(ui, |ui| {
-                                if ui.button("OK").clicked() {
-                                    close_error = true;
-                                }
-                                ui.label(error);
-                                ui.colored_label(egui::Color32::YELLOW, "⚠");
-                            });
-                    }
-                    if close_error {
-                        *self.last_error.borrow_mut() = None;
-                    }
-                });
             });
-        });
 
         egui::SidePanel::left("controls")
             .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(0.0))
@@ -2061,20 +2074,22 @@ impl NtscApp {
             .width_range(300.0..=800.0)
             .show(ctx, |ui| {
                 ui.visuals_mut().clip_rect_margin = 0.0;
-                egui::TopBottomPanel::top("left_tabs").show_inside(ui, |ui| {
-                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                        ui.selectable_value(
-                            &mut self.left_panel_state,
-                            LeftPanelState::EffectSettings,
-                            "Effect",
-                        );
-                        ui.selectable_value(
-                            &mut self.left_panel_state,
-                            LeftPanelState::RenderSettings,
-                            "Render",
-                        );
+                egui::TopBottomPanel::top("left_tabs")
+                    .interact_height(ui.ctx())
+                    .show_inside(ui, |ui| {
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            ui.selectable_value(
+                                &mut self.left_panel_state,
+                                LeftPanelState::EffectSettings,
+                                "Effect",
+                            );
+                            ui.selectable_value(
+                                &mut self.left_panel_state,
+                                LeftPanelState::RenderSettings,
+                                "Render",
+                            );
+                        });
                     });
-                });
 
                 egui::CentralPanel::default()
                     .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(0.0))

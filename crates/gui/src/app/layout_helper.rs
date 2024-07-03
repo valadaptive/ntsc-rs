@@ -35,3 +35,39 @@ impl LayoutHelper for egui::Ui {
         )
     }
 }
+
+pub trait TopBottomPanelExt {
+    fn interact_height(self, ctx: &egui::Context) -> Self;
+    fn interact_height_tall(self, ctx: &egui::Context) -> Self;
+}
+
+impl TopBottomPanelExt for egui::TopBottomPanel {
+    fn interact_height(self, ctx: &egui::Context) -> Self {
+        let mut frame = egui::Frame::side_top_panel(&ctx.style());
+        let expected_margin = frame.inner_margin;
+        frame.inner_margin.top = 0.0;
+        frame.inner_margin.bottom = 0.0;
+        // TODO: there needs to be a fudge factor of 2 here, to prevent the contents from being off-center.
+        self.exact_height(
+            ctx.style().spacing.interact_size.y
+                + expected_margin.top
+                + expected_margin.bottom
+                + 2.0,
+        )
+        .frame(frame)
+    }
+
+    fn interact_height_tall(self, ctx: &egui::Context) -> Self {
+        let mut frame = egui::Frame::side_top_panel(&ctx.style());
+        let expected_margin = frame.inner_margin;
+        frame.inner_margin.top = 0.0;
+        frame.inner_margin.bottom = 0.0;
+        //let frame_margin = egui::Frame::side_top_panel(ui.style()).inner_margin;
+        self.exact_height(
+            ctx.style().spacing.interact_size.y * 2.0
+                + expected_margin.top
+                + expected_margin.bottom,
+        )
+        .frame(frame)
+    }
+}
