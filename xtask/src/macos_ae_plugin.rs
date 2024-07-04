@@ -1,3 +1,6 @@
+//! Builds and bundles the After Effects plugin for macOS.
+//! Adapted from https://github.com/AdrianEddy/after-effects/blob/cbcaf4b/AdobePlugin.just.
+
 use crate::util::targets::{Target, MACOS_AARCH64, MACOS_X86_64, TARGETS};
 use crate::util::{workspace_dir, PathBufExt, StatusExt};
 
@@ -8,6 +11,7 @@ use std::process::Command;
 
 pub fn command() -> clap::Command {
     clap::Command::new("macos-ae-plugin")
+        .about("Builds and bundles the After Effects plugin for macOS, handling Apple-specific things like creating a universal binary and a bundle.")
         .arg(
             clap::Arg::new("release")
                 .long("release")
@@ -37,6 +41,8 @@ pub fn command() -> clap::Command {
         )
 }
 
+/// Build the After Effects plugin for a specific target, returning the paths to 1. the plugin library itself and
+/// 2. the Carbon resource file (.rsrc) to include with it in the bundle.
 fn build_plugin_for_target(
     target: &Target,
     release_mode: bool,
@@ -86,7 +92,7 @@ pub fn main(args: &clap::ArgMatches) -> std::io::Result<()> {
     let build_dir_path = workspace_dir().plus("build");
     let plugin_dir_path = build_dir_path.plus("ntsc-rs.plugin");
 
-    // the dirs may not exist; try to remove them regardless
+    // Clean up the previous build. If there is no previous build, this will fail; that's OK.
     let _ = fs::remove_dir_all(&plugin_dir_path);
 
     let contents_dir_path = plugin_dir_path.plus("Contents");
@@ -120,6 +126,7 @@ pub fn main(args: &clap::ArgMatches) -> std::io::Result<()> {
     let (built_library_path, built_rsrc_path) = if args.get_flag("macos-universal") {
         let x86_64_target = MACOS_X86_64;
         let aarch64_target = MACOS_AARCH64;
+
         let (x86_64_lib_path, x86_64_rsrc_path) =
             build_plugin_for_target(x86_64_target, release_mode)?;
         let (aarch64_lib_path, _) = build_plugin_for_target(aarch64_target, release_mode)?;
@@ -132,6 +139,9 @@ pub fn main(args: &clap::ArgMatches) -> std::io::Result<()> {
                 .as_millis()
         ));
 
+        // Combine the x86_64 and aarch64 builds into one using `lipo`, and output to the temp file we created
+        // above.
+        // TODO: Create the directories beforehand, output into that with lipo, and just rename it afterwards?
         Command::new("lipo")
             .args(&[
                 OsString::from("-create"),
@@ -143,6 +153,8 @@ pub fn main(args: &clap::ArgMatches) -> std::io::Result<()> {
             .status()
             .expect_success()?;
 
+        // I hope the .rsrc files are the same between builds--I haven't checked and don't want to compare the contents
+        // in case they do differ but it's OK--but the Justfile mentioned in the docs at the top use the x86_64 .rsrc.
         (dst_path, x86_64_rsrc_path)
     } else {
         let target_triple = args.get_one::<String>("target").unwrap();

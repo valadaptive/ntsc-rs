@@ -1,3 +1,7 @@
+//! Builds the OpenFX plugin and bundles it according to the OpenFX specification, optionally taking care of producing
+//! a universal binary for macOS.
+//! For more information, see https://openfx.readthedocs.io/en/main/Reference/ofxPackaging.html.
+
 use crate::util::targets::{Target, MACOS_AARCH64, MACOS_X86_64, TARGETS};
 use crate::util::{workspace_dir, PathBufExt, StatusExt};
 
@@ -8,6 +12,9 @@ use std::process::Command;
 
 pub fn command() -> clap::Command {
     clap::Command::new("build-ofx-plugin")
+        .about(
+            "Builds and bundles the OpenFX plugin, which is then output to `crates/openfx/build`.",
+        )
         .arg(
             clap::Arg::new("release")
                 .long("release")
@@ -37,6 +44,8 @@ pub fn command() -> clap::Command {
         )
 }
 
+/// Creates the contents of the Info.plist file for the bundle when building for macOS.
+/// I may want to consider using PlistBuddy, but string formatting is likely a lot faster.
 fn get_info_plist() -> String {
     let cargo_toml_path = workspace_dir().plus_iter(["crates", "openfx-plugin", "Cargo.toml"]);
     let manifest = cargo_toml::Manifest::from_path(cargo_toml_path).unwrap();
@@ -70,6 +79,9 @@ fn get_info_plist() -> String {
     )
 }
 
+/// Build the plugin for a given target, in either debug or release mode. This is called once in most cases, but when
+/// creating a macOS universal binary, it's called twice--once per architecture.
+/// This returns the path to the built library.
 fn build_plugin_for_target(target: &Target, release_mode: bool) -> std::io::Result<PathBuf> {
     println!("Building OpenFX plugin for target {}", target.target_triple);
 
@@ -88,8 +100,7 @@ fn build_plugin_for_target(target: &Target, release_mode: bool) -> std::io::Resu
         .status()
         .expect_success()?;
 
-    let mut target_dir_path = workspace_dir().to_path_buf();
-    target_dir_path.extend(&[
+    let target_dir_path = workspace_dir().to_path_buf().plus_iter(&[
         "target",
         target.target_triple,
         if cargo_args.contains(&String::from("--release")) {
@@ -108,6 +119,9 @@ fn build_plugin_for_target(target: &Target, release_mode: bool) -> std::io::Resu
 
 pub fn main(args: &clap::ArgMatches) -> std::io::Result<()> {
     let release_mode = args.get_flag("release");
+
+    // TODO: remove previous built bundle?
+
     let (built_library_path, ofx_architecture) = if args.get_flag("macos-universal") {
         let x86_64_target = MACOS_X86_64;
         let aarch64_target = MACOS_AARCH64;
@@ -122,6 +136,9 @@ pub fn main(args: &clap::ArgMatches) -> std::io::Result<()> {
                 .as_millis()
         ));
 
+        // Combine the x86_64 and aarch64 builds into one using `lipo`, and output to the temp file we created
+        // above.
+        // TODO: Create the directories beforehand, output into that with lipo, and just rename it afterwards?
         Command::new("lipo")
             .args(&[
                 OsString::from("-create"),
@@ -133,7 +150,10 @@ pub fn main(args: &clap::ArgMatches) -> std::io::Result<()> {
             .status()
             .expect_success()?;
 
-        // both targets have ofx_architecture: "MacOS"
+        // Both targets should have ofx_architecture: "MacOS" since it's a universal binary. Some platforms have
+        // different bundle directories depending on the architecture, but as of Apple Silicon, that's not done for
+        // macOS:
+        // https://openfx.readthedocs.io/en/main/Reference/ofxPackaging.html#macos-architectures-and-universal-binaries
         assert_eq!(
             x86_64_target.ofx_architecture,
             aarch64_target.ofx_architecture

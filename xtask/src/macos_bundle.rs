@@ -1,3 +1,5 @@
+//! Builds and bundles the standalone GUI as a macOS .app bundle.
+
 use crate::util::{workspace_dir, PathBufExt, StatusExt};
 
 use std::collections::HashSet;
@@ -11,6 +13,7 @@ use walkdir::WalkDir;
 
 pub fn command() -> clap::Command {
     clap::Command::new("macos-bundle")
+        .about("Builds the standalone app and creates a macOS application bundle.")
         .arg(
             clap::Arg::new("release")
                 .long("release")
@@ -27,6 +30,9 @@ pub fn command() -> clap::Command {
         )
 }
 
+/// Build the plugin for a given target, in either debug or release mode. This is called once in most cases, but when
+/// creating a macOS universal binary, it's called twice--once per architecture.
+/// This returns the path to the built binary.
 fn build_for_target(target: &str, release_mode: bool) -> std::io::Result<PathBuf> {
     println!("Building application for target {}", target);
 
@@ -41,6 +47,8 @@ fn build_for_target(target: &str, release_mode: bool) -> std::io::Result<PathBuf
     }
     Command::new("cargo")
         .args(&cargo_args)
+        // When cross-compiling, pkg-config will complain and fail by default. Cross-compilation works just fine, so we
+        // disable the check.
         .env("PKG_CONFIG_ALLOW_CROSS", "1")
         .status()
         .expect_success()?;
@@ -62,6 +70,8 @@ fn build_for_target(target: &str, release_mode: bool) -> std::io::Result<PathBuf
     Ok(built_app_path)
 }
 
+/// Use the `sips` utility built into macOS to resize an image (used for the application icon).
+/// See https://ss64.com/mac/sips.html.
 fn resize_image(
     src_path: impl AsRef<Path>,
     dst_path: impl AsRef<Path>,
@@ -83,19 +93,20 @@ fn resize_image(
 pub fn main(args: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
     let release_mode = args.get_flag("release");
 
-    // Build x86_64 and aarch64 binaries
+    // Build x86_64 and aarch64 binaries.
+    // TODO: unlike the other macOS xtasks, this doesn't yet support choosing the targets.
     println!("Building binaries...");
     let x86_64_path = build_for_target("x86_64-apple-darwin", release_mode)?;
     let aarch64_path = build_for_target("aarch64-apple-darwin", release_mode)?;
 
-    // Extract gui version from Cargo.toml
+    // Extract gui version from Cargo.toml.
     println!("Getting version for Info.plist and creating bundle directories...");
     let mut cargo_toml_path = workspace_dir().to_path_buf();
     cargo_toml_path.extend(["crates", "gui", "Cargo.toml"]);
     let gui_manifest = cargo_toml::Manifest::from_path(cargo_toml_path)?;
     let gui_version = gui_manifest.package().version();
 
-    // Construct Info.plist and bundle structure
+    // Construct Info.plist and bundle structure.
     let info_plist_contents = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -134,7 +145,7 @@ pub fn main(args: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
     let app_dir_path = build_dir_path.plus("ntsc-rs.app");
     let iconset_dir_path = build_dir_path.plus("ntsc-rs.iconset");
 
-    // the dirs may not exist; try to remove them regardless
+    // Clean up the previous build. If there is no previous build, this will fail; that's OK.
     let _ = fs::remove_dir_all(&app_dir_path);
     let _ = fs::remove_dir_all(&iconset_dir_path);
 
@@ -155,7 +166,7 @@ pub fn main(args: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
     let app_executable_path = macos_dir_path.plus("ntsc-rs-standalone");
 
     println!("Creating universal binary...");
-    // Combine x86_64 and aarch64 binaries and place the result in the bundle
+    // Combine x86_64 and aarch64 binaries and place the result in the bundle.
     Command::new("lipo")
         .args(&[
             OsString::from("-create"),
@@ -167,7 +178,7 @@ pub fn main(args: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
         .status()
         .expect_success()?;
 
-    // Copy gstreamer libraries into the bundle
+    // Copy gstreamer libraries into the bundle.
     println!("Copying gstreamer libraries...");
     let src_lib_path = PathBuf::from("/Library/Frameworks/GStreamer.framework/Versions/1.0/lib");
     let dst_lib_path = contents_dir_path.plus_iter([
@@ -193,13 +204,13 @@ pub fn main(args: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
         let Some(ext) = rel_lib_path.extension() else {
             continue;
         };
-        // We only want dylibs, not the static libs also present
+        // We only want dylibs, not the static libs also present.
         if ext != "dylib" {
             continue;
         }
         let dst_path = dst_lib_path.plus(rel_lib_path);
         let dst_dir = dst_path.parent().unwrap().to_path_buf();
-        // avoid making one create_dir_all call per file (could be expensive?)
+        // Avoid making one create_dir_all call per file (could be expensive?)
         let dst_dir_does_not_exist = created_dirs.insert(dst_dir.clone());
         if dst_dir_does_not_exist {
             std::fs::create_dir_all(&dst_dir)?;
@@ -207,7 +218,13 @@ pub fn main(args: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
         std::fs::copy(src_path, &dst_path)?;
     }
 
-    // Add gstreamer rpath to executable
+    // Add gstreamer rpath to the executable, so it can load the gstreamer libraries.
+    // According to https://gstreamer.freedesktop.org/documentation/deploying/mac-osx.html?gi-language=c#location-of-dependent-dynamic-libraries,
+    // macOS doesn't locate libraries relative to the executable. That page's prescribed solution is a convoluted
+    // `osxrelocator.py` script that I've seen several versions of floating around, but I just use `install_name_tool`
+    // and it *seems* to work fine. GStreamer includes many binaries which would also need to be `install_name_tool`'d
+    // and apparently the paths *to* those binaries need to be properly set via environment variables(?), but we don't
+    // copy any binaries anyway (see the above recursive copy, which only copies .dylibs), so hopefully it's okay.
     println!("Adding gstreamer rpath...");
     Command::new("install_name_tool")
         .args([
@@ -218,7 +235,12 @@ pub fn main(args: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
         .status()
         .expect_success()?;
 
-    // Create icon
+    // Create the iconset. Adapted from https://stackoverflow.com/a/20703594.
+
+    // First, we resize the icons to all the sizes that Apple specifies:
+    // https://developer.apple.com/design/human-interface-guidelines/app-icons#macOS-app-icon-sizes
+    // Note that we actually have 2 icons: one for larger sizes, and one for smaller sizes where the thin lines on the
+    // VHS label are removed.
     println!("Resizing icons...");
     let src_icon_folder_path = workspace_dir().plus("assets");
     let icon_lg_path = src_icon_folder_path.plus("macos_icon.png");
@@ -250,6 +272,7 @@ pub fn main(args: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
         1024,
     )?;
 
+    // Combine the iconset files into a single .icns.
     println!("Creating iconset...");
     Command::new("iconutil")
         .args([
