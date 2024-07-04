@@ -1,3 +1,5 @@
+//! Contains information on the various build targets how their build artifacts are named.
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct Target {
     /// Cargo target triple for this target
@@ -8,6 +10,8 @@ pub struct Target {
     /// File extension for a dynamic library on this platform, excluding the leading dot
     pub library_extension: &'static str,
     /// Prefix for the library output filename. Platform-dependant; thanks Cargo!
+    /// On Unix, it's "lib", so e.g. "foo" becomes "libfoo.so" or "libfoo.dylib". On Windows, there's no prefix, so it
+    /// would just be "foo.dll".
     pub library_prefix: &'static str,
 }
 

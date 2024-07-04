@@ -1,3 +1,8 @@
+//! cargo-xtask is a pattern which provides a platform-independent way to run build scripts by writing them in Rust.
+//! While many of the build scripts are to some degree platform-specific, there's a lot of shared logic that is nice
+//! to be able to reuse between platforms.
+//! See https://github.com/matklad/cargo-xtask for more information.
+
 use std::process;
 
 use xtask::{build_ofx_plugin, macos_ae_plugin, macos_bundle};

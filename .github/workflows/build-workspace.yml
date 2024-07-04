@@ -56,6 +56,7 @@ jobs:
     if: ${{ github.ref_name != 'macos' }}
 
     steps:
+      # This is an attempt to make the Windows CI image faster. Not sure if it works.
     - name: Disable Defender
       run: Set-MpPreference -DisableRealtimeMonitoring $true
 
@@ -64,6 +65,7 @@ jobs:
       with:
         submodules: recursive
 
+      # Put the Chocolatey temp directory in a place where we can use the cache action to save and restore it.
     - name: Set chocolatey temp directory
       run: |
         choco config set cacheLocation --value "$Env:GITHUB_WORKSPACE\chocolatey_cache"
@@ -74,10 +76,16 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: ${{ env.CHOCO_TEMP }}
+        # TODO: Why did I set up the cache key like this?
         key: 'this should never hit'
         restore-keys: choco-${{ github.job }}-
 
     - name: Install gstreamer
+      # Some things to note:
+      # - GStreamer adds some environment variables, which we need to pick up.
+      # - GSTREAMER_1_0_ROOT_MSVC_X86_64 cannot be hardcoded because it can be installed on different drive letters,
+      #   seemingly chosen at random.
+      # - We need to export said path to the environment variables so that later steps can use it.
       run: |
         choco install gstreamer gstreamer-devel
         Import-Module $env:ChocolateyInstall\helpers\chocolateyProfile.psm1
@@ -91,6 +99,7 @@ jobs:
       uses: actions/cache/save@v4
       with:
         path: ${{ env.CHOCO_TEMP }}
+        # TODO: Pretty sure I'm misunderstanding the point of hashFiles here.
         key: choco-${{ github.job }}-${{ hashFiles(format('{0}\**\*', env.CHOCO_TEMP)) }}
 
     - uses: Swatinem/rust-cache@v2
@@ -115,6 +124,9 @@ jobs:
 
     - name: Package Windows binary
       if: ${{ github.ref_type == 'tag' }}
+      # Some things to note:
+      # - Robocopy has a non-zero exit code even when successful. We therefore clear it to 0 so that Actions doesn't
+      #   fail.
       run: |
         mkdir ntsc-rs-windows-standalone
         cd ntsc-rs-windows-standalone

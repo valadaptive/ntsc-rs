@@ -8,6 +8,7 @@ use std::{
 
 static WORKSPACE_DIR: OnceLock<PathBuf> = OnceLock::new();
 
+/// Return the path to the root Cargo workspace, even if we're in a subcrate.
 pub fn workspace_dir() -> &'static Path {
     return WORKSPACE_DIR.get_or_init(|| {
         let output = std::process::Command::new(env!("CARGO"))
@@ -23,7 +24,9 @@ pub fn workspace_dir() -> &'static Path {
 }
 
 pub trait PathBufExt {
+    /// Chainably append another segment to the given path, returning the result as a new path.
     fn plus<T: AsRef<Path>>(&self, additional: T) -> PathBuf;
+    /// Chainably append many segments to the given path, returning the result as a new path.
     fn plus_iter<T: AsRef<Path>, I: IntoIterator<Item = T>>(&self, additional: I) -> PathBuf;
 }
 
@@ -42,6 +45,8 @@ impl<P: AsRef<Path>> PathBufExt for P {
 }
 
 pub trait StatusExt {
+    /// Converts a non-zero exit status when running a command into an error.
+    /// In lieu of https://github.com/rust-lang/rfcs/pull/3362.
     fn expect_success(self) -> std::io::Result<()>;
 }
 
