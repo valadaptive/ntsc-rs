@@ -5,8 +5,6 @@ edition = "2021"
 license = "MIT OR ISC OR Apache-2.0"
 repository = "https://github.com/valadaptive/ntsc-rs/tree/main/crates/ntscrs"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 glam = "0.24.2"
 rand = { version = "0.8.5", default-features = false }

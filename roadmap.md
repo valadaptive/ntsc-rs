@@ -7,6 +7,4 @@
   effects and multiplexing them, as seen in e.g. [this video](https://www.youtube.com/watch?v=eQHocOLTxnw).
 - Blender plugin
 - Wave digital filters to more accurately model analog circuitry?
-- Look into replacing Meson with build.rs and https://crates.io/crates/cc
-- Handle downsampling properly
-- Luma smear
+- Some sort of test suite so I don't have to test everything manually every time I touch the blitting code
