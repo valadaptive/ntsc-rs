@@ -426,9 +426,7 @@ pub enum SettingKind {
         default_value: f32,
     },
     /// Boolean/checkbox.
-    Boolean {
-        default_value: bool,
-    },
+    Boolean { default_value: bool },
     /// Group of settings, which contains an "enable/disable" checkbox and child settings.
     Group {
         children: Vec<SettingDescriptor>,
@@ -755,8 +753,17 @@ pub enum SetFieldIntError {
 impl Display for SetFieldIntError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SetFieldIntError::NegativeValue { setting_id } => write!(f, "Negative value passed for setting ID {}", setting_id.name()),
-            SetFieldIntError::NotAnInt { setting_id } => write!(f, "Tried to set an integer value for setting {}, but {} is not an integer", setting_id.name(), setting_id.name()),
+            SetFieldIntError::NegativeValue { setting_id } => write!(
+                f,
+                "Negative value passed for setting ID {}",
+                setting_id.name()
+            ),
+            SetFieldIntError::NotAnInt { setting_id } => write!(
+                f,
+                "Tried to set an integer value for setting {}, but {} is not an integer",
+                setting_id.name(),
+                setting_id.name()
+            ),
         }
     }
 }
