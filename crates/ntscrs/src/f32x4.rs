@@ -4,9 +4,14 @@ use std::{
     sync::OnceLock,
 };
 
-/// A trait for 4-wide single-precision floating point SIMD vectors, for both NEON and AVX.
-/// Only contains the ops that I need to implement the IIR filter.
-/// Soundness is upheld by making all ways to construct a SIMD vector (e.g. load, set1) unsafe.
+/// A trait for 4-wide single-precision floating point SIMD vectors, abstracting over different architectures and
+/// intrinsics. This is implemented for NEON, SSE4.1, and AVX2. It only contains the ops that I need to implement the
+/// IIR filter.
+///
+/// Soundness is upheld by making all ways to *construct* a SIMD vector (e.g. load, set1) unsafe. SIMD operations are
+/// unsafe because the intrinsics are bogus instructions with undefined behavior on platforms that don't support
+/// them--therefore, we treat the creation of a SIMD vector for a given instruction set as an "assertion" that the CPU
+/// supports said instruction set.
 #[allow(dead_code)]
 pub trait F32x4:
     Sized
@@ -71,7 +76,11 @@ pub mod x86_64 {
 
     use super::F32x4;
 
+    // Most intrinsics can be shared between the AVX2 and SSE4.1 implementations, and they both operate on the __m128
+    // type. We can reuse most of the code, and just check `if USE_AVX2` on those ops which differ (mostly fused
+    // multiply-add, with load and swizzle as well).
     #[derive(Clone, Copy, Debug)]
+    #[repr(transparent)]
     pub struct IntelF32x4<const USE_AVX2: bool>(__m128);
 
     pub type AvxF32x4 = IntelF32x4<true>;
@@ -296,6 +305,7 @@ pub mod aarch64 {
     use super::F32x4;
 
     #[derive(Clone, Copy, Debug)]
+    #[repr(transparent)]
     pub struct ArmF32x4(float32x4_t);
 
     impl From<float32x4_t> for ArmF32x4 {
@@ -380,7 +390,7 @@ pub mod aarch64 {
         #[inline(always)]
         unsafe fn load(src: &[f32]) -> Self {
             // SAFETY: the range operator ensures that the slice is at least 4 elements long
-            unsafe { vld1q_f32(src.as_ptr()).into() }
+            unsafe { vld1q_f32(src[0..4].as_ptr()).into() }
         }
 
         #[inline(always)]

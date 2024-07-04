@@ -1,14 +1,10 @@
-use core::fmt::Debug;
 use std::mem::MaybeUninit;
 
 use crate::f32x4::{get_supported_simd_type, F32x4, SupportedSimdType};
 
-const fn _mm_shuffle(d: i32, c: i32, b: i32, a: i32) -> i32 {
-    (d << 6) | (c << 4) | (b << 2) | a
-}
-
 /// Multiplies two polynomials (lowest coefficients first).
 /// Note that this function does not trim trailing zero coefficients--see below for that.
+/// This is how filters are multiplied--a transfer function is a fraction of polynomials.
 pub fn polynomial_multiply(a: &[f32], b: &[f32]) -> Vec<f32> {
     let degree = a.len() + b.len() - 1;
 
@@ -32,8 +28,8 @@ fn trim_zeros(input: &[f32]) -> &[f32] {
     &input[0..=end]
 }
 
-// TODO: this is a copy of Rust's each_mut, which will be stabilized in the next Rust version.
-// Just use that function when the next Rust version is released.
+// TODO: this is a copy of Rust's each_mut, which was stabilized in 1.77.
+// We should probably just use that function.
 fn each_mut<T, const N: usize>(arr: &mut [T; N]) -> [&mut T; N] {
     // Unlike in `map`, we don't need a guard here, as dropping a reference
     // is a noop.
@@ -70,7 +66,8 @@ impl TransferFunction {
             panic!("Numerator length exceeds denominator length.");
         }
 
-        // Resize to 4 so we can use the SIMD implementation
+        // Resize to 4 so we can use the SIMD implementation. This is faster than the scalar implementation, even if
+        // we only use 2 coefficients.
         if den.len() == 2 || den.len() == 3 {
             den.resize(4, 0.0);
         }
@@ -81,6 +78,8 @@ impl TransferFunction {
         TransferFunction { num, den }
     }
 
+    /// Chain this filter into itself `n` times. This multiplies the filter's coefficients (see polynomial_multiply
+    /// above), which produces the same result as running a signal through the filter three times but is faster.
     pub fn cascade_self(&self, n: usize) -> Self {
         let mut filt = self.clone();
         for _ in 1..n {
@@ -212,6 +211,8 @@ impl TransferFunction {
         }
     }
 
+    /// Scalar implementation of a linear filter.
+    /// Adapted from https://github.com/scipy/scipy/blob/da82ac849a4ccade2d954a0998067e6aa706dd70/scipy/signal/_lfilter.c.in#L543
     #[inline(always)]
     fn filter_signal_in_place_impl<const ROWS: usize>(
         signal: &mut [&mut [f32]; ROWS],
@@ -238,8 +239,9 @@ impl TransferFunction {
         }
     }
 
-    /// Specialized version of filter_signal_in_place for fixed-size arrays. About 15% faster than the dynamic-size
-    /// version. All we need to do is specify the size as a const generic param--the compiler specializes the rest.
+    /// Specialized version of filter_signal_in_place for a fixed number of filter coefficients. About 15% faster than
+    /// the dynamic-size version. All we need to do is specify the size as a const generic param--the compiler
+    /// specializes the rest.
     #[inline(never)]
     fn filter_signal_in_place_fixed_size<const SIZE: usize, const ROWS: usize>(
         &self,
@@ -259,6 +261,18 @@ impl TransferFunction {
         );
     }
 
+    /// SIMD implementation of a linear filter. This isn't row-parallel--the architecture is a bit more complex.
+    /// The filter coefficients are stored in a single SIMD register, meaning this works for filters with up to 4
+    /// coefficients. This allows for easy updating of the filter state--we can do it for all the coefficients at once.
+    /// However, this adds a long data dependency--sure, we're doing all these SIMD operations on the coefficients, but
+    /// we have to wait for them all to make it through the pipeline before we can repeat it on the next pixel, because
+    /// IIR filters are based on a feedback loop and therefore inherently serial. This is where looping over multiple
+    /// rows at a time comes in--after we finish processing a sample on one row, we start in on the next. This scheme,
+    /// in my testing, is faster than the naive SIMD translation of just doing the scalar approach (one coefficient at
+    /// a time) on multiple rows.
+    ///
+    /// Note that this is `inline(always)` so that the dispatch functions below will actually compile this with the
+    /// correct architecture-specific SIMD features enabled.
     #[inline(always)]
     unsafe fn filter_signal_in_place_fixed_size_simdx4<S: F32x4, const ROWS: usize>(
         &self,
@@ -317,6 +331,7 @@ impl TransferFunction {
 
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "sse4.1")]
+    /// Process the signal using SSE4.1 intrinsics.
     unsafe fn filter_signal_dispatch_sse41<const ROWS: usize>(
         &self,
         signal: &mut [&mut [f32]; ROWS],
@@ -334,6 +349,7 @@ impl TransferFunction {
 
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "avx2", enable = "fma")]
+    /// Process the signal using AVX2 intrinsics.
     unsafe fn filter_signal_dispatch_avx2<const ROWS: usize>(
         &self,
         signal: &mut [&mut [f32]; ROWS],
@@ -351,6 +367,7 @@ impl TransferFunction {
 
     #[cfg(target_arch = "aarch64")]
     #[target_feature(enable = "neon")]
+    /// Process the signal using NEON intrinsics.
     unsafe fn filter_signal_dispatch_neon<const ROWS: usize>(
         &self,
         signal: &mut [&mut [f32]; ROWS],
@@ -439,6 +456,7 @@ impl TransferFunction {
                     self.filter_signal_in_place_fixed_size::<8, ROWS>(signal, initial, scale, delay)
                 }
                 _ => {
+                    // Fall back to the general-length implementation
                     let mut z: [Vec<f32>; ROWS] = initial
                         .into_iter()
                         .map(|init| self.initial_condition(init))
