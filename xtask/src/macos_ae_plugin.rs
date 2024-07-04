@@ -1,6 +1,8 @@
 //! Builds and bundles the After Effects plugin for macOS.
 //! Adapted from https://github.com/AdrianEddy/after-effects/blob/cbcaf4b/AdobePlugin.just.
 
+use clap::builder::PathBufValueParser;
+
 use crate::util::targets::{Target, MACOS_AARCH64, MACOS_X86_64, TARGETS};
 use crate::util::{workspace_dir, PathBufExt, StatusExt};
 
@@ -38,6 +40,17 @@ pub fn command() -> clap::Command {
                 .help("Build a macOS universal library (x86_64 and aarch64)")
                 .action(clap::ArgAction::SetTrue)
                 .conflicts_with("target"),
+        )
+        .arg(
+            clap::Arg::new("destdir")
+                .long("destdir")
+                .help("The directory that the After Effects plugin bundle will be output to")
+                .value_parser(PathBufValueParser::new())
+                .default_value(
+                    workspace_dir().plus("build")
+                        .as_os_str()
+                        .to_owned(),
+                ),
         )
 }
 
@@ -89,7 +102,7 @@ fn build_plugin_for_target(
 pub fn main(args: &clap::ArgMatches) -> std::io::Result<()> {
     let release_mode = args.get_flag("release");
 
-    let build_dir_path = workspace_dir().plus("build");
+    let build_dir_path = args.get_one::<PathBuf>("destdir").unwrap();
     let plugin_dir_path = build_dir_path.plus("ntsc-rs.plugin");
 
     // Clean up the previous build. If there is no previous build, this will fail; that's OK.

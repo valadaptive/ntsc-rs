@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 current_platform = "0.2.0"
-clap = {version = "4.5.4", features = ["cargo"] }
+clap = {version = "4.5.4", features = ["cargo", "string"] }
 cargo_toml = "0.20.2"
 walkdir = "2.5.0"
 

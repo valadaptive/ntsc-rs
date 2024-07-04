@@ -179,15 +179,28 @@ jobs:
     - uses: Swatinem/rust-cache@v2
 
     - name: Build standalone app
-      run: cargo xtask macos-bundle --release
+      run: cargo xtask macos-bundle --release --destdir=build/ntsc-rs-standalone
 
     - name: Build OpenFX plugin
-      run: cargo xtask build-ofx-plugin --macos-universal --release
+      run: cargo xtask build-ofx-plugin --macos-universal --release --destdir=build/ntsc-rs-openfx
 
     - name: Build After Effects plugin
-      run: cargo xtask macos-ae-plugin --macos-universal --release
+      run: cargo xtask macos-ae-plugin --macos-universal --release --destdir=build/ntsc-rs-afterfx
 
-    # TODO: sign bundles (necessary for AE)
+    - name: Create .dmg images for bundles
+      run: |
+        hdiutil create -srcfolder build/ntsc-rs-standalone -volname "NTSC-rs (App)" -fs HFS+ build/ntsc-rs-standalone.dmg
+        hdiutil create -srcfolder build/ntsc-rs-openfx -volname "NTSC-rs (OpenFX)" -fs HFS+ build/ntsc-rs-openfx.dmg
+        hdiutil create -srcfolder build/ntsc-rs-afterfx -volname "NTSC-rs (After Effects)" -fs HFS+ build/ntsc-rs-afterfx.dmg
+
+    - name: Archive .dmg bundles
+      uses: actions/upload-artifact@v4
+      # if: ${{ github.ref_type == 'tag' }}
+      with:
+        name: ntsc-rs-macos
+        path: build/ntsc-rs-*.dmg
+
+    # TODO: sign bundles (necessary for AE?)
 
   release:
     runs-on: ubuntu-latest
@@ -218,5 +231,5 @@ jobs:
     - name: Create release
       uses: ncipollo/release-action@v1
       with:
-        artifacts: "./artifacts/ntsc-rs-*-standalone.zip,./artifacts/ntsc-rs-*-openfx.zip,./artifacts/ntsc-rs-*-afterfx.zip"
+        artifacts: "./artifacts/ntsc-rs-*-standalone.zip,./artifacts/ntsc-rs-*-openfx.zip,./artifacts/ntsc-rs-*-afterfx.zip,./artifacts/ntsc-rs-*.dmg"
         draft: true
