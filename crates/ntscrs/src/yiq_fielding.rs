@@ -28,16 +28,24 @@ pub fn yiq_to_rgb([y, i, q]: [f32; 3]) -> [f32; 3] {
     (RGB_MATRIX * Vec3A::new(y, i, q)).into()
 }
 
+/// How are the fields being stored? This is similar to the `UseField` enum in the settings module, but doesn't include
+/// `Alternating`--that is turned into either `Upper` or `Lower` depending on the frame number.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum YiqField {
+    /// Use the upper (even-numbered, when indexing from 0) fields from the frame.
     Upper,
+    /// Use the lower (odd-numbered, when indexing from 0) fields from the frame.
     Lower,
+    /// Use both fields from the frame--somewhat inaccurate due to the lack of interlacing but may look nicer.
     Both,
+    /// Use the upper fields and then the lower fields, in effect interlacing then combining them.
     InterleavedUpper,
+    /// Use the lower fields and then the upper fields, in effect interlacing then combining them.
     InterleavedLower,
 }
 
 impl YiqField {
+    /// The number of rows needed in the YIQ buffer to store data for a given field setting.
     pub fn num_image_rows(&self, image_height: usize) -> usize {
         // On an image with an odd input height, we do ceiling division if we render upper-field-first
         // (take an image 3 pixels tall. it goes render, skip, render--that's 2 renders) but floor division if we
@@ -49,6 +57,7 @@ impl YiqField {
         }
     }
 
+    /// Flips the field parity--upper becomes lower and vice versa.
     pub fn flip(&self) -> Self {
         match self {
             Self::Upper => Self::Lower,
@@ -60,6 +69,7 @@ impl YiqField {
     }
 }
 
+/// Trait for converting various pixel formats to and from the f32 representation used when processing the image.
 pub trait Normalize: Sized + Copy + Send + Sync {
     fn from_norm(value: f32) -> Self;
     fn to_norm(self) -> f32;
@@ -134,6 +144,7 @@ impl Normalize for u8 {
     }
 }
 
+/// Order in which the pixels are laid out for a given pixel buffer format.
 pub enum SwizzleOrder {
     Rgbx,
     Xrgb,
@@ -165,10 +176,12 @@ impl SwizzleOrder {
     }
 }
 
+/// The data format of a given pixel buffer.
 pub trait PixelFormat {
     const ORDER: SwizzleOrder;
     type DataFormat: Normalize;
 
+    /// Number of bytes that a single pixel in this format takes up.
     fn pixel_bytes() -> usize {
         Self::ORDER.num_components() * std::mem::size_of::<Self::DataFormat>()
     }
@@ -214,6 +227,7 @@ impl_pix_fmt!(Bgr32f, SwizzleOrder::Bgr, f32);
 
 impl_pix_fmt!(Xrgb16AE, SwizzleOrder::Xrgb, AfterEffectsU16);
 
+/// How to handle writing back fields that we *didn't* process if we used YiqField::Upper or YiqField::Lower.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeinterlaceMode {
     /// Interpolate between the given fields.
@@ -222,6 +236,8 @@ pub enum DeinterlaceMode {
     Skip,
 }
 
+/// Clip rectangle for copying to/from the YIQ buffer. Cannot be negative, and must be in bounds of both the source and
+/// destination--you'll need to do some clamping and coordinate-space transforms yourself. Sorry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Rect {
@@ -263,11 +279,13 @@ impl Rect {
     }
 }
 
+/// Settings for how to copy the image to and from the YIQ buffer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlitInfo {
     /// The rectangular area which will be read out of or written into the other buffer.
     pub rect: Rect,
-    /// The coordinates at which to place the image.
+    /// The coordinates at which to place the image in the buffer being written to, whether the YIQ buffer or output
+    /// buffer.
     pub destination: (usize, usize),
     /// Number of bytes per pixel row in the other buffer. May include padding.
     pub row_bytes: usize,
@@ -278,6 +296,8 @@ pub struct BlitInfo {
 }
 
 impl BlitInfo {
+    /// When you don't need to process a specific rectangle of pixels, you can just use this to process the entire
+    /// frame at once.
     pub fn from_full_frame(width: usize, height: usize, row_bytes: usize) -> Self {
         BlitInfo {
             rect: Rect::new(0, 0, height, width),
@@ -309,10 +329,16 @@ impl BlitInfo {
 /// Each plane is densely packed with regards to rows--if we skip fields, we just leave them out of these planes, which
 /// squashes them vertically.
 pub struct YiqView<'a> {
+    /// Y (luma) plane.
     pub y: &'a mut [f32],
+    /// I (in-phase chroma) plane.
     pub i: &'a mut [f32],
+    /// Q (quadrature chroma) plane.
     pub q: &'a mut [f32],
+    /// Scratch buffer; used to accelerate some operations which would be much slower in-place.
     pub scratch: &'a mut [f32],
+    /// Logical dimensions of the image, counting skipped fields. This does *not* depend on the field setting, and will
+    /// *not* tell you how many rows of pixels are being stored in the buffers (use the `num_rows` method instead).
     pub dimensions: (usize, usize),
     /// The source field that this data is for.
     pub field: YiqField,
@@ -332,6 +358,7 @@ pub trait PixelTransform: Fn([f32; 3]) -> [f32; 3] + Send + Sync + Copy {}
 impl<T: Fn([f32; 3]) -> [f32; 3] + Send + Sync + Copy> PixelTransform for T {}
 
 impl<'a> YiqView<'a> {
+    /// Split this `YiqView` into two `YiqView`s vertically at a given row.
     pub fn split_at_row(&mut self, idx: usize) -> (YiqView<'_>, YiqView<'_>) {
         let (y1, y2) = self.y.split_at_mut(idx * self.dimensions.0);
         let (i1, i2) = self.i.split_at_mut(idx * self.dimensions.0);
@@ -357,10 +384,16 @@ impl<'a> YiqView<'a> {
         )
     }
 
+    /// Number of actual rows of pixels being stored in this view. This will be smaller than `dimensions.1` if some
+    /// fields are being skipped.
     pub fn num_rows(&self) -> usize {
         self.field.num_image_rows(self.dimensions.1)
     }
 
+    /// Convert (a given part of) the input pixel buffer into YIQ planar format, and optionally apply a color transform
+    /// to the pixels beforehand. This method allows padding bytes of the source buffer to be uninitialized, which *may*
+    /// be the case for effect plugin APIs (OpenFX and After Effects, which both leave it ambiguous).
+    ///
     /// Safety:
     /// - `buf` must be a valid pointer to a buffer of length `len`.
     /// - All data within the portions of `buf` within each row, as specified by `row_bytes` and this view's dimensions,
@@ -492,6 +525,8 @@ impl<'a> YiqView<'a> {
         }
     }
 
+    /// Convert (a given part of) the input pixel buffer into YIQ planar format, and optionally apply a color transform
+    /// to the pixels beforehand.
     pub fn set_from_strided_buffer<S: PixelFormat, F: PixelTransform>(
         &mut self,
         buf: &[S::DataFormat],
@@ -508,6 +543,9 @@ impl<'a> YiqView<'a> {
         }
     }
 
+    /// Convert (a given part of) the YIQ planar data back into the given pixel fornat, and optionally apply a color
+    /// transform to the pixels, before writing it into the destination buffer. This method allows you to write into a
+    /// buffer which may not be initialized beforehand.
     pub fn write_to_strided_buffer_maybe_uninit<S: PixelFormat, F: PixelTransform>(
         &self,
         dst: &mut [MaybeUninit<S::DataFormat>],
@@ -520,6 +558,10 @@ impl<'a> YiqView<'a> {
         let (r_idx, g_idx, b_idx, a_idx) = S::ORDER.rgba_indices();
         let a_idx = a_idx.unwrap_or(0);
 
+        // If we flip the Y coordinate, we need to flip the blit rectangle and destination coords as well. If we were
+        // doing "for each source pixel, write to the destination", we could just flip the coordinate of the pixel we
+        // write to, but we want to do this in parallel which requires "for each destination pixel, *read* from the
+        // source".
         if blit_info.flip_y {
             blit_info.rect.top = blit_info.other_buffer_height - blit_info.rect.top;
             blit_info.rect.bottom = blit_info.other_buffer_height - blit_info.rect.bottom;
@@ -761,7 +803,7 @@ impl<'a> YiqView<'a> {
     }
 }
 
-/// Owned YIQ data.
+/// Owned YIQ data. If you bring your own buffer, you probably don't need this.
 pub struct YiqOwned {
     /// Densely-packed planar YUV data. The Y plane comes first in memory, then I, then Q.
     data: Box<[f32]>,

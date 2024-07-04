@@ -88,6 +88,7 @@ impl TransferFunction {
         filt
     }
 
+    /// Whether processing the rows in chunks or one-by-one is faster.
     pub fn should_use_row_chunks(&self) -> bool {
         // Row chunks are ~25% slower than processing each row one-by-one with the scalar implementation.
         // We should only process rows in chunks with the SIMD implementation.

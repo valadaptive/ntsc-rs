@@ -37,6 +37,7 @@ pub fn make_lowpass_triple(cutoff: f32, rate: f32) -> TransferFunction {
     make_lowpass(cutoff, rate).cascade_self(3)
 }
 
+/// Construct a lowpass filter of the filter type given in the settings.
 fn make_lowpass_for_type(cutoff: f32, rate: f32, filter_type: FilterType) -> TransferFunction {
     match filter_type {
         FilterType::ConstantK => make_lowpass_triple(cutoff, rate),
@@ -65,6 +66,7 @@ pub fn make_notch_filter(freq: f32, quality: f32) -> TransferFunction {
     TransferFunction::new(num, den)
 }
 
+/// Create a 2nd-order Butterworth filter.
 pub fn make_butterworth_filter(cutoff: f32, rate: f32) -> TransferFunction {
     let coeffs = biquad::Coefficients::<f32>::from_params(
         biquad::Type::LowPass,
@@ -79,7 +81,8 @@ pub fn make_butterworth_filter(cutoff: f32, rate: f32) -> TransferFunction {
     )
 }
 
-/// Filter initial condition.
+/// The (low/high/whatever)pass filter's initial condition. The filter will start out assuming this steady-state value;
+/// that is to say, they will assume that all the pixels to the left of where the image begins are set to this value.
 #[allow(dead_code)]
 enum InitialCondition {
     /// Convenience value--just use 0.
@@ -122,6 +125,9 @@ fn filter_plane_with_rows<const ROWS: usize>(
     delay: usize,
 ) {
     let mut row_chunks = plane.par_chunks_exact_mut(width * ROWS);
+
+    // Process the remainder of the rows. `for_each` consumes the iterator, so we have to at least call `take_remainder`
+    // before that. We might as well do the processing while we're at it.
     row_chunks
         .take_remainder()
         .par_chunks_exact_mut(width)
@@ -134,6 +140,7 @@ fn filter_plane_with_rows<const ROWS: usize>(
             filter.filter_signal_in_place::<1>(&mut [row], [initial], scale, delay)
         });
 
+    // Process the row in chunks, each `ROWS` rows tall.
     row_chunks.for_each(|rows| {
         let mut row_chunks: Vec<&mut [f32]> = rows.chunks_exact_mut(width).into_iter().collect();
         let rows: &mut [&mut [f32]; ROWS] = row_chunks.as_mut_slice().try_into().unwrap();
@@ -151,13 +158,19 @@ fn filter_plane_with_rows<const ROWS: usize>(
     });
 }
 
-/// Settings common to each invocation of the effect. Passed to each individual effect function.
+/// Common settings/info that many passes need to use. Passed to each individual effect function as needed.
 struct CommonInfo {
+    /// Random seed.
     seed: u64,
+    /// Current frame index.
     frame_num: usize,
+    /// The "bandwidth scale" setting, used mainly for IIR filters.
     bandwidth_scale: f32,
 }
 
+/// Apply a lowpass filter to the luminance (Y) plane before the Y, I, and Q planes are modulated together. This should
+/// reduce color fringing/rainbow artifacts, which may or may not be what you want. Note that this is *not* the "Luma
+/// smear" setting--that's its own function (`luma_smear`).
 fn luma_filter(frame: &mut YiqView, filter_mode: LumaLowpass) {
     match filter_mode {
         LumaLowpass::None => {}
@@ -194,7 +207,7 @@ fn luma_filter(frame: &mut YiqView, filter_mode: LumaLowpass) {
 
 /// Apply a lowpass filter to the input chroma, emulating broadcast NTSC's bandwidth cutoffs.
 /// (Well, almost--Wikipedia (https://en.wikipedia.org/wiki/YIQ) puts the Q bandwidth at 0.4 MHz, not 0.6. Although
-/// that statement seems unsourced and I can't find any info on it...
+/// that statement seems unsourced and I can't find any info on it...)
 fn composite_chroma_lowpass(frame: &mut YiqView, info: &CommonInfo, filter_type: FilterType) {
     let i_filter = make_lowpass_for_type(1300000.0, NTSC_RATE * info.bandwidth_scale, filter_type);
     let q_filter = make_lowpass_for_type(600000.0, NTSC_RATE * info.bandwidth_scale, filter_type);
@@ -215,7 +228,7 @@ fn composite_chroma_lowpass_lite(frame: &mut YiqView, info: &CommonInfo, filter_
     filter_plane(frame.q, width, &filter, InitialCondition::Zero, 1.0, 1);
 }
 
-/// Calculate the chroma subcarrier phase for a given row/field
+/// Calculate the chroma subcarrier phase for a given row/field.
 fn chroma_phase_shift(
     scanline_phase_shift: PhaseShift,
     offset: i32,
@@ -234,6 +247,7 @@ fn chroma_phase_shift(
 const I_MULT: [f32; 4] = [1.0, 0.0, -1.0, 0.0];
 const Q_MULT: [f32; 4] = [0.0, 1.0, 0.0, -1.0];
 
+/// Modulate a single line of the chrominance signal into the luminance signal.
 fn chroma_into_luma_line(y: &mut [f32], i: &mut [f32], q: &mut [f32], xi: usize) {
     y.iter_mut()
         .zip(i.iter_mut().zip(q))
@@ -247,7 +261,7 @@ fn chroma_into_luma_line(y: &mut [f32], i: &mut [f32], q: &mut [f32], xi: usize)
 }
 
 /// Modulate the chrominance signal (I and Q planes) into the Y (luminance) plane.
-/// TODO: sample rate
+/// TODO: Make the chroma carrier's frequency/sample rate configurable.
 fn chroma_into_luma(
     yiq: &mut YiqView,
     info: &CommonInfo,
@@ -270,6 +284,10 @@ fn chroma_into_luma(
         });
 }
 
+/// Demodulate the chrominance (I and Q) signals from a combined NTSC signal, looking at a single source pixel at the
+/// given index and writing into the destination I and Q plane pixels as well as their immediate neighbors.
+/// TODO: Accumulating the signal this way seems to add a data dependency. However, I believe doing this in a
+/// parallelizable way would require *two* scratch buffers.
 #[inline(always)]
 fn demodulate_chroma(chroma: f32, index: usize, xi: usize, i: &mut [f32], q: &mut [f32]) {
     let width = i.len();
@@ -320,7 +338,7 @@ fn luma_into_chroma_line_box(
 }
 
 /// Demodulate the chroma signal from the Y (luma) plane back into the I and Q planes.
-/// TODO: sample rate
+/// TODO: Make the chroma carrier's frequency/sample rate configurable.
 fn luma_into_chroma(
     yiq: &mut YiqView,
     info: &CommonInfo,
@@ -348,6 +366,8 @@ fn luma_into_chroma(
                 });
         }
         ChromaDemodulationFilter::Notch => {
+            // Apply a notch filter to the signal to remove the high-frequency chroma carrier, and store it in the
+            // scratch buffer. We can then get *just* the chroma by subtracting the filtered signal from the original.
             let scratch = &mut yiq.scratch;
             let filter: TransferFunction = make_notch_filter(0.5, 2.0);
             scratch.copy_from_slice(yiq.y);
@@ -373,7 +393,7 @@ fn luma_into_chroma(
         }
         ChromaDemodulationFilter::OneLineComb => {
             let delay = &mut yiq.scratch;
-            // "Reflect" line 2 to line 0, so that the chroma is properly demodulated.
+            // "Reflect" line 2 to line 0, so that the chroma is properly demodulated for line 0.
             // A comb filter requires the phase of the chroma carrier to alternate per line, so simply repeating line 1
             // wouldn't work.
             delay[0..width].copy_from_slice(&yiq.y[width..width * 2]);
@@ -413,8 +433,9 @@ fn luma_into_chroma(
                 .zip(i_lines.zip(q_lines))
                 .enumerate()
                 .for_each(|(line_index, (y, (i, q)))| {
-                    // For the first line, both prev_line and next_line point to the second line. This effecively makes it a
-                    // one-line comb filter for that line.
+                    // For the first line, both prev_line and next_line point to the second line. This effecively makes
+                    // it a one-line comb filter for that line. See the comment above in the one-line comb filter for
+                    // why we do this.
                     let prev_index = if line_index == 0 { 1 } else { line_index - 1 };
 
                     // Similar for the last line.
@@ -449,6 +470,7 @@ fn luma_into_chroma(
     };
 }
 
+/// Blur the luminance plane using a lowpass filter.
 fn luma_smear(yiq: &mut YiqView, info: &CommonInfo, amount: f32) {
     let lowpass = make_lowpass(f32::exp2(-4.0 * amount) * 0.25, info.bandwidth_scale);
     filter_plane(
@@ -507,7 +529,7 @@ fn video_noise_line(
     });
 }
 
-/// Add noise to an NTSC-encoded signal.
+/// Add gradient noise to an NTSC-encoded (composite) signal.
 fn composite_noise(yiq: &mut YiqView, info: &CommonInfo, noise_settings: &FbmNoiseSettings) {
     let width = yiq.dimensions.0;
     let seeder = Seeder::new(info.seed)
@@ -529,7 +551,7 @@ fn composite_noise(yiq: &mut YiqView, info: &CommonInfo, noise_settings: &FbmNoi
         });
 }
 
-/// Add noise to a color plane of a de-modulated signal.
+/// Add gradient noise to a single plane of a de-modulated signal.
 fn plane_noise(
     plane: &mut [f32],
     width: usize,
@@ -554,9 +576,10 @@ fn plane_noise(
         });
 }
 
+/// Emulate timing error in the chrominance carrier for a single line.
 fn chroma_phase_offset_line(i: &mut [f32], q: &mut [f32], offset: f32) {
     // Phase shift angle in radians. Mapped so that an intensity of 1.0 is a phase shift ranging from a full
-    // rotation to the left - a full rotation to the right.
+    // rotation to the left, to a full rotation to the right.
     let phase_shift = offset * PI * 2.0;
     let (sin_angle, cos_angle) = phase_shift.sin_cos();
 
@@ -570,6 +593,7 @@ fn chroma_phase_offset_line(i: &mut [f32], q: &mut [f32], offset: f32) {
     }
 }
 
+/// Emulate timing error in the chrominance carrier, which results in a hue shift.
 fn chroma_phase_error(yiq: &mut YiqView, intensity: f32) {
     let width = yiq.dimensions.0;
 
@@ -594,7 +618,7 @@ fn chroma_phase_noise(yiq: &mut YiqView, info: &CommonInfo, intensity: f32) {
         .enumerate()
         .for_each(|(index, (i, q))| {
             // Phase shift angle in radians. Mapped so that an intensity of 1.0 is a phase shift ranging from a full
-            // rotation to the left - a full rotation to the right.
+            // rotation to the left, to a full rotation to the right.
             let phase_shift = (seeder.clone().mix(index).finalize::<f32>() - 0.5) * 2.0 * intensity;
 
             chroma_phase_offset_line(i, q, phase_shift);
@@ -681,7 +705,7 @@ fn head_switching(
         });
 }
 
-/// Helper function for generating "snow".
+/// Helper function for generating "snow"/transient speckles.
 fn row_speckles(
     row: &mut [f32],
     rng: &mut Xoshiro256PlusPlus,
@@ -692,6 +716,9 @@ fn row_speckles(
     let intensity = intensity as f64;
     let anisotropy = anisotropy as f64;
 
+    // Anisotropy controls how much the snow appears "clumped" within given lines vs. appearing independently across
+    // lines.
+    //
     // Transition smoothly from a flat function that always returns `intensity`, to a step function that returns
     // 1.0 with a probability of `intensity` and 0.0 with a probability of `1.0 - intensity`. In-between states
     // look like S-curves with increasing sharpness.
@@ -700,6 +727,7 @@ fn row_speckles(
     let logistic_factor = ((rng.gen::<f64>() - intensity)
         / (intensity * (1.0 - intensity) * (1.0 - anisotropy)))
         .exp();
+    // Intensity of the "snow" for this specific line
     let mut line_snow_intensity =
         anisotropy / (1.0 + logistic_factor) + intensity * (1.0 - anisotropy);
 
@@ -712,7 +740,8 @@ fn row_speckles(
 
     // Turn each pixel into "snow" with probability snow_intensity * intensity_scale
     // We can simulate the distance between each "snow" pixel with a geometric distribution which avoids having to
-    // loop over every pixel
+    // loop over every pixel:
+    // https://en.wikipedia.org/wiki/Geometric_distribution
     let dist = Geometric::new(line_snow_intensity);
     let mut pixel_idx = 0usize;
     loop {
@@ -1263,6 +1292,7 @@ impl NtscEffect {
         };
     }
 
+    /// Apply the effect to YIQ image data.
     pub fn apply_effect_to_yiq(&self, yiq: &mut YiqView, frame_num: usize) {
         // On Windows debug builds, the stack overflows with the default stack size
         let pool = rayon::ThreadPoolBuilder::new()
@@ -1274,7 +1304,11 @@ impl NtscEffect {
                 self.apply_effect_to_yiq_field(yiq, frame_num);
             }
             YiqField::InterleavedUpper | YiqField::InterleavedLower => {
+                // "Interleaved" basically means we apply the effect to one set of fields, then apply it again to the
+                // other set of fields with an increased frame number.
                 let (mut yiq_upper, mut yiq_lower, frame_num_upper, frame_num_lower) =
+                    // With the "interleaved" field option, the image is blitted into the YIQ buffer with the even/odd
+                    // fields in the top half and the odd/even fields in the bottom half.
                     match yiq.field {
                         YiqField::InterleavedUpper => {
                             let num_upper_rows = YiqField::Upper.num_image_rows(yiq.dimensions.1);
@@ -1296,6 +1330,9 @@ impl NtscEffect {
         })
     }
 
+    /// Apply the effect to a buffer which contains pixels in the given format.
+    /// Convenience function meant mainly for tests--see the yiq_fielding module for doing things more efficiently, like
+    /// reusing the output buffer.
     pub fn apply_effect_to_buffer<S: PixelFormat>(
         &self,
         dimensions: (usize, usize),
