@@ -2,6 +2,8 @@
 //! a universal binary for macOS.
 //! For more information, see https://openfx.readthedocs.io/en/main/Reference/ofxPackaging.html.
 
+use clap::builder::PathBufValueParser;
+
 use crate::util::targets::{Target, MACOS_AARCH64, MACOS_X86_64, TARGETS};
 use crate::util::{workspace_dir, PathBufExt, StatusExt};
 
@@ -41,6 +43,18 @@ pub fn command() -> clap::Command {
                 .help("Build a macOS universal library (x86_64 and aarch64)")
                 .action(clap::ArgAction::SetTrue)
                 .conflicts_with("target"),
+        )
+        .arg(
+            clap::Arg::new("destdir")
+                .long("destdir")
+                .help("The directory that the OpenFX plugin bundle will be output to")
+                .value_parser(PathBufValueParser::new())
+                .default_value(
+                    workspace_dir()
+                        .plus_iter(&["crates", "openfx-plugin", "build"])
+                        .as_os_str()
+                        .to_owned(),
+                ),
         )
 }
 
@@ -172,8 +186,7 @@ pub fn main(args: &clap::ArgMatches) -> std::io::Result<()> {
         )
     };
 
-    let mut output_dir = workspace_dir().to_path_buf();
-    output_dir.extend(&["crates", "openfx-plugin", "build"]);
+    let output_dir = args.get_one::<PathBuf>("destdir").unwrap();
 
     let plugin_bundle_path = output_dir.plus_iter(["NtscRs.ofx.bundle", "Contents"]);
     let plugin_bin_path = plugin_bundle_path.plus_iter([ofx_architecture, "NtscRs.ofx"]);

@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use clap::builder::PathBufValueParser;
 use walkdir::WalkDir;
 
 pub fn command() -> clap::Command {
@@ -27,6 +28,13 @@ pub fn command() -> clap::Command {
                 .help("Build the software in debug mode")
                 .conflicts_with("release")
                 .action(clap::ArgAction::SetTrue),
+        )
+        .arg(
+            clap::Arg::new("destdir")
+                .long("destdir")
+                .help("The directory that the app bundle will be output to")
+                .value_parser(PathBufValueParser::new())
+                .default_value(workspace_dir().plus("build").as_os_str().to_owned()),
         )
 }
 
@@ -141,7 +149,7 @@ pub fn main(args: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
 "#
     );
 
-    let build_dir_path = workspace_dir().plus("build");
+    let build_dir_path = args.get_one::<PathBuf>("destdir").unwrap();
     let app_dir_path = build_dir_path.plus("ntsc-rs.app");
     let iconset_dir_path = build_dir_path.plus("ntsc-rs.iconset");
 
