@@ -14,8 +14,10 @@ use tinyjson::{InnerAsRef, JsonParseError, JsonValue};
 /// This is used to dynamically inform API consumers of the settings that can be passed to ntsc-rs. This lets various
 /// UIs and effect plugins to query this set of settings and display them in their preferred format without having to
 /// duplicate a bunch of code.
-
 // TODO: replace with a bunch of metaprogramming macro magic?
+
+// These are the individual setting definitions. The descriptions of what they do are included below, so I mostly won't
+// repeat them here.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
 pub enum UseField {
@@ -252,6 +254,7 @@ pub struct FbmNoiseSettings {
     pub detail: u32,
 }
 
+/// The "full settings" equivalent of an Option<T> for an optionally-disabled section of the settings.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SettingsBlock<T> {
     pub enabled: bool,
@@ -389,6 +392,7 @@ impl Default for NtscEffect {
     }
 }
 
+/// Menu item for a SettingKind::Enumeration.
 #[derive(Debug)]
 pub struct MenuItem {
     pub label: &'static str,
@@ -396,34 +400,44 @@ pub struct MenuItem {
     pub index: u32,
 }
 
+/// All of the types a setting can take. API consumers can map this to the UI elements available in whatever they're
+/// porting ntsc-rs to.
 #[derive(Debug)]
 pub enum SettingKind {
+    /// Selection of specific options, preferably in a specific order.
     Enumeration {
         options: Vec<MenuItem>,
         default_value: u32,
     },
+    /// Range from 0% to 100%.
     Percentage {
         logarithmic: bool,
         default_value: f32,
     },
+    /// Inclusive discrete (integer) range.
     IntRange {
         range: RangeInclusive<i32>,
         default_value: i32,
     },
+    /// Inclusive continuous range.
     FloatRange {
         range: RangeInclusive<f32>,
         logarithmic: bool,
         default_value: f32,
     },
+    /// Boolean/checkbox.
     Boolean {
         default_value: bool,
     },
+    /// Group of settings, which contains an "enable/disable" checkbox and child settings.
     Group {
         children: Vec<SettingDescriptor>,
         default_value: bool,
     },
 }
 
+/// A single setting, which includes the data common to all settings (its name, optional description/tooltip, and ID)
+/// along with a SettingKind which contains data specific to the type of setting.
 #[derive(Debug)]
 pub struct SettingDescriptor {
     pub label: &'static str,
@@ -432,7 +446,8 @@ pub struct SettingDescriptor {
     pub id: SettingID,
 }
 
-/// These setting IDs uniquely identify each setting. They are all unique and cannot be reused.
+/// An ID which uniquely identifies a single setting / field in the NtscEffect struct. These IDs cannot be changed or
+/// reused if old ones are removed.
 #[allow(non_camel_case_types)]
 #[derive(Debug, FromPrimitive, ToPrimitive, Clone, Copy, Hash, PartialEq, Eq)]
 #[non_exhaustive]
@@ -515,6 +530,8 @@ pub enum SettingID {
     LUMA_NOISE_DETAIL,
 }
 
+/// Helper macro for allowing a SettingID to return a reference to the given field in the NtscEffect(FullSettings)
+/// struct.
 macro_rules! impl_get_field_ref {
     ($self:ident, $settings:ident, $borrow_op:ident) => {
         match $self {
@@ -693,51 +710,6 @@ macro_rules! impl_get_field_ref {
     };
 }
 
-#[derive(Debug)]
-pub enum ParseSettingsError {
-    InvalidJSON(JsonParseError),
-    MissingField { field: &'static str },
-    UnsupportedVersion { version: f64 },
-    InvalidSettingType { key: String, expected: &'static str },
-    InvalidEnumValue(SetFieldEnumError),
-}
-
-impl Display for ParseSettingsError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ParseSettingsError::InvalidJSON(e) => e.fmt(f),
-            ParseSettingsError::MissingField { field } => {
-                write!(f, "Missing field: {}", field)
-            }
-            ParseSettingsError::UnsupportedVersion { version } => {
-                write!(f, "Unsupported version: {}", version)
-            }
-            ParseSettingsError::InvalidSettingType { key, expected } => {
-                write!(f, "Setting {} is not a(n) {}", key, expected)
-            }
-            ParseSettingsError::InvalidEnumValue(e) => e.fmt(f),
-        }
-    }
-}
-
-impl Error for ParseSettingsError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        None
-    }
-}
-
-impl From<JsonParseError> for ParseSettingsError {
-    fn from(err: JsonParseError) -> Self {
-        Self::InvalidJSON(err)
-    }
-}
-
-impl From<SetFieldEnumError> for ParseSettingsError {
-    fn from(err: SetFieldEnumError) -> Self {
-        Self::InvalidEnumValue(err)
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub enum SetFieldEnumError {
     InvalidEnumValue { setting_id: SettingID, value: u32 },
@@ -752,12 +724,6 @@ impl SetFieldEnumError {
     pub fn not_an_enum(setting_id: SettingID) -> Self {
         Self::NotAnEnum { setting_id }
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum SetFieldIntError {
-    NegativeValue { setting_id: SettingID },
-    NotAnInt { setting_id: SettingID },
 }
 
 impl Display for SetFieldEnumError {
@@ -778,7 +744,28 @@ impl Display for SetFieldEnumError {
     }
 }
 
+impl Error for SetFieldEnumError {}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SetFieldIntError {
+    NegativeValue { setting_id: SettingID },
+    NotAnInt { setting_id: SettingID },
+}
+
+impl Display for SetFieldIntError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SetFieldIntError::NegativeValue { setting_id } => write!(f, "Negative value passed for setting ID {}", setting_id.name()),
+            SetFieldIntError::NotAnInt { setting_id } => write!(f, "Tried to set an integer value for setting {}, but {} is not an integer", setting_id.name(), setting_id.name()),
+        }
+    }
+}
+
+impl Error for SetFieldIntError {}
+
 impl SettingID {
+    /// Assuming that this setting ID refers to an enum-valued setting, set the field in the passed settings to the
+    /// given integral value (converted to an enum value).
     pub fn set_field_enum(
         &self,
         settings: &mut NtscEffectFullSettings,
@@ -825,6 +812,8 @@ impl SettingID {
         Ok(())
     }
 
+    /// Assuming that this setting ID refers to an enum-valued setting, return the integral value corresponding to the
+    /// current value of that enum in the passed settings struct.
     pub fn get_field_enum(&self, settings: &NtscEffectFullSettings) -> Option<u32> {
         // We have to handle each enum manually since FromPrimitive isn't object-safe
         match self {
@@ -845,6 +834,8 @@ impl SettingID {
         }
     }
 
+    /// Return a reference to the field that this setting ID refers to in the passed settings struct. Must be the
+    /// correct type.
     pub fn get_field_ref<'a, T: 'static>(
         &self,
         settings: &'a NtscEffectFullSettings,
@@ -854,6 +845,8 @@ impl SettingID {
         field_ref.downcast_ref::<T>()
     }
 
+    /// Return a mutable reference to the field that this setting ID refers to in the passed settings struct. Must be
+    /// the correct type.
     pub fn get_field_mut<'a, T: 'static>(
         &self,
         settings: &'a mut NtscEffectFullSettings,
@@ -882,7 +875,7 @@ impl SettingID {
         Ok(())
     }
 
-    /// Get the fixed name for a setting ID. These are unique and will not be reused, and will not change.
+    /// Get the fixed name for a setting ID. These are unique, and will not be changed or reused.
     pub fn name(&self) -> &'static str {
         match self {
             SettingID::CHROMA_LOWPASS_IN => "chroma_lowpass_in",
@@ -948,6 +941,52 @@ impl SettingID {
     }
 }
 
+#[derive(Debug)]
+pub enum ParseSettingsError {
+    InvalidJSON(JsonParseError),
+    MissingField { field: &'static str },
+    UnsupportedVersion { version: f64 },
+    InvalidSettingType { key: String, expected: &'static str },
+    InvalidEnumValue(SetFieldEnumError),
+}
+
+impl Display for ParseSettingsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParseSettingsError::InvalidJSON(e) => e.fmt(f),
+            ParseSettingsError::MissingField { field } => {
+                write!(f, "Missing field: {}", field)
+            }
+            ParseSettingsError::UnsupportedVersion { version } => {
+                write!(f, "Unsupported version: {}", version)
+            }
+            ParseSettingsError::InvalidSettingType { key, expected } => {
+                write!(f, "Setting {} is not a(n) {}", key, expected)
+            }
+            ParseSettingsError::InvalidEnumValue(e) => e.fmt(f),
+        }
+    }
+}
+
+impl Error for ParseSettingsError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        None
+    }
+}
+
+impl From<JsonParseError> for ParseSettingsError {
+    fn from(err: JsonParseError) -> Self {
+        Self::InvalidJSON(err)
+    }
+}
+
+impl From<SetFieldEnumError> for ParseSettingsError {
+    fn from(err: SetFieldEnumError) -> Self {
+        Self::InvalidEnumValue(err)
+    }
+}
+
+/// Convenience trait for asserting the "shape" of the JSON we're parsing is what we expect.
 trait GetAndExpect {
     fn get_and_expect<T: InnerAsRef + Clone>(
         &self,
@@ -973,12 +1012,15 @@ impl GetAndExpect for HashMap<String, JsonValue> {
     }
 }
 
+/// Introspectable list of settings and their types and ranges.
 pub struct SettingsList {
     pub settings: Box<[SettingDescriptor]>,
     pub by_id: Box<[Option<Box<[usize]>>]>,
 }
 
 impl SettingsList {
+    /// Construct a map of setting IDs to their paths by index. Used only by the C API.
+    /// TODO: perhaps find another way to do this, given that we don't really use the C API anymore?
     fn construct_id_map(
         settings: &[SettingDescriptor],
         map: &mut Vec<Option<Box<[usize]>>>,
@@ -1000,6 +1042,8 @@ impl SettingsList {
         }
     }
 
+    /// Construct a list of all the effect settings. This isn't meant to be mutated--you should just create one instance
+    /// of this to use for your entire application/plugin.
     pub fn new() -> SettingsList {
         let default_settings = NtscEffectFullSettings::default();
 
@@ -1608,6 +1652,8 @@ impl SettingsList {
         }
     }
 
+    /// Recursive method for writing the settings within a given list of descriptors (either top-level or within a
+    /// group) to a given JSON map.
     fn settings_to_json(
         dst: &mut HashMap<String, JsonValue>,
         descriptors: &[SettingDescriptor],
@@ -1643,6 +1689,7 @@ impl SettingsList {
         }
     }
 
+    /// Convert the settings in the given settings struct to JSON.
     pub fn to_json(&self, settings: &NtscEffectFullSettings) -> JsonValue {
         let mut dst_map = HashMap::<String, JsonValue>::new();
         Self::settings_to_json(&mut dst_map, &self.settings, settings);
@@ -1652,6 +1699,8 @@ impl SettingsList {
         JsonValue::Object(dst_map)
     }
 
+    /// Recursive method for reading the settings within a given list of descriptors (either top-level or within a
+    /// group) from a given JSON map and using them to update the given settings struct.
     fn settings_from_json(
         json: &HashMap<String, JsonValue>,
         descriptors: &[SettingDescriptor],
@@ -1696,6 +1745,7 @@ impl SettingsList {
         Ok(())
     }
 
+    /// Parse settings from a given string of JSON and return a new settings struct.
     pub fn from_json(&self, json: &str) -> Result<NtscEffectFullSettings, ParseSettingsError> {
         let parsed = json.parse::<JsonValue>()?;
 
@@ -1724,6 +1774,7 @@ impl SettingsList {
     }
 }
 
+/// Iterator over all setting descriptors (nested or not) within a given settings list in depth-first order.
 pub struct SettingDescriptors<'a> {
     path: Vec<(&'a [SettingDescriptor], usize)>,
 }
@@ -1739,12 +1790,16 @@ impl<'a> Iterator for SettingDescriptors<'a> {
             match setting {
                 Some(desc) => {
                     *index += 1;
+                    // Increment the index of the *current* path node and then recurse into the group. This means that
+                    // it'll point to the node after the group once we're finished processing the group.
                     if let SettingKind::Group { children, .. } = &desc.kind {
                         self.path.push((children.as_slice(), 0));
                     }
                     return Some(desc);
                 }
                 None => {
+                    // If the index is pointing one past the end of the list, we traverse upwards (and do so until we
+                    // reach the next setting or the end of the top-level list).
                     self.path.pop();
                 }
             }
