@@ -159,6 +159,9 @@ jobs:
       with:
         submodules: recursive
 
+    - name: Set deployment target
+      run: echo 'MACOSX_DEPLOYMENT_TARGET="10.12"' >> $GITHUB_ENV
+
     - name: Add x86_64 target
       run: |
         rustup target add x86_64-apple-darwin
