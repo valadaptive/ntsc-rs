@@ -1922,6 +1922,18 @@ impl NtscApp {
     }
 
     fn show_app(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        if self.credits_dialog_open {
+            self.show_credits_dialog(ctx);
+        }
+
+        if self.third_party_licenses_dialog_open {
+            self.show_third_party_licenses_dialog(ctx);
+        }
+
+        if self.license_dialog_open {
+            self.show_license_dialog(ctx);
+        }
+
         egui::TopBottomPanel::top("menu_bar")
             .interact_height(ctx)
             .show(ctx, |ui| {
@@ -2109,18 +2121,6 @@ impl NtscApp {
                 ui.visuals_mut().clip_rect_margin = 0.0;
                 self.show_video_pane(ui);
             });
-
-        if self.credits_dialog_open {
-            self.show_credits_dialog(ctx);
-        }
-
-        if self.third_party_licenses_dialog_open {
-            self.show_third_party_licenses_dialog(ctx);
-        }
-
-        if self.license_dialog_open {
-            self.show_license_dialog(ctx);
-        }
     }
 
     fn show_loading_screen(&mut self, ctx: &egui::Context) {
