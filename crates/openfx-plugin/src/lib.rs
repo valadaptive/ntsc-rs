@@ -5,7 +5,7 @@
 use core::slice;
 use std::{
     convert::identity,
-    ffi::{c_char, c_int, c_void, CStr, CString, FromBytesWithNulError},
+    ffi::{c_char, c_int, c_void, CStr, CString},
     mem::{self, MaybeUninit},
     ptr::{self, NonNull},
     sync::{OnceLock, RwLock},
@@ -35,12 +35,6 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 macro_rules! static_cstr {
     ($l:expr) => {
         unsafe { ::std::ffi::CStr::from_bytes_with_nul_unchecked(concat!($l, "\0").as_bytes()) }
-    };
-}
-
-macro_rules! ofx_str {
-    ($l:expr) => {
-        $l.as_ptr() as *const i8
     };
 }
 
@@ -100,22 +94,22 @@ impl SharedData {
     pub unsafe fn new(host_info: HostInfo) -> OfxResult<Self> {
         let property_suite = (host_info.fetchSuite)(
             host_info.host as *const _ as *mut _,
-            ofx_str!(kOfxPropertySuite),
+            kOfxPropertySuite.as_ptr(),
             1,
         ) as *const OfxPropertySuiteV1;
         let image_effect_suite = (host_info.fetchSuite)(
             host_info.host as *const _ as *mut _,
-            ofx_str!(kOfxImageEffectSuite),
+            kOfxImageEffectSuite.as_ptr(),
             1,
         ) as *const OfxImageEffectSuiteV1;
         let memory_suite = (host_info.fetchSuite)(
             host_info.host as *const _ as *mut _,
-            ofx_str!(kOfxMemorySuite),
+            kOfxMemorySuite.as_ptr(),
             1,
         ) as *const OfxMemorySuiteV1;
         let parameter_suite = (host_info.fetchSuite)(
             host_info.host as *const _ as *mut _,
-            ofx_str!(kOfxParameterSuite),
+            kOfxParameterSuite.as_ptr(),
             1,
         ) as *const OfxParameterSuiteV1;
 
@@ -166,7 +160,7 @@ unsafe fn action_load() -> OfxResult<()> {
     let mut supports_multiple_clip_depths: c_int = 0;
     propGetInt(
         data.host_info.host as *const _ as *mut _,
-        ofx_str!(kOfxImageEffectPropSupportsMultipleClipDepths),
+        kOfxImageEffectPropSupportsMultipleClipDepths.as_ptr(),
         0,
         &mut supports_multiple_clip_depths,
     );
@@ -195,72 +189,67 @@ unsafe fn action_describe(descriptor: OfxImageEffectHandle) -> OfxResult<()> {
 
     propSetString(
         effectProps,
-        ofx_str!(kOfxPropLabel),
+        kOfxPropLabel.as_ptr(),
         0,
         static_cstr!("NTSC-rs").as_ptr(),
     );
 
     propSetString(
         effectProps,
-        ofx_str!(kOfxImageEffectPluginPropGrouping),
+        kOfxImageEffectPluginPropGrouping.as_ptr(),
         0,
         static_cstr!("Filter").as_ptr(),
     );
 
     propSetString(
         effectProps,
-        ofx_str!(kOfxImageEffectPropSupportedContexts),
+        kOfxImageEffectPropSupportedContexts.as_ptr(),
         0,
-        ofx_str!(kOfxImageEffectContextFilter),
+        kOfxImageEffectContextFilter.as_ptr(),
     );
     // TODO needed for resolve support(?)
     propSetString(
         effectProps,
-        ofx_str!(kOfxImageEffectPropSupportedContexts),
+        kOfxImageEffectPropSupportedContexts.as_ptr(),
         1,
-        ofx_str!(kOfxImageEffectContextGeneral),
+        kOfxImageEffectContextGeneral.as_ptr(),
     );
 
     propSetString(
         effectProps,
-        ofx_str!(kOfxImageEffectPropSupportedPixelDepths),
+        kOfxImageEffectPropSupportedPixelDepths.as_ptr(),
         0,
-        ofx_str!(kOfxBitDepthFloat),
+        kOfxBitDepthFloat.as_ptr(),
     );
     propSetString(
         effectProps,
-        ofx_str!(kOfxImageEffectPropSupportedPixelDepths),
+        kOfxImageEffectPropSupportedPixelDepths.as_ptr(),
         1,
-        ofx_str!(kOfxBitDepthShort),
+        kOfxBitDepthShort.as_ptr(),
     );
     propSetString(
         effectProps,
-        ofx_str!(kOfxImageEffectPropSupportedPixelDepths),
+        kOfxImageEffectPropSupportedPixelDepths.as_ptr(),
         2,
-        ofx_str!(kOfxBitDepthByte),
+        kOfxBitDepthByte.as_ptr(),
     );
 
     // TODO: is this wrong?
     propSetString(
         effectProps,
-        ofx_str!(kOfxImageEffectPluginRenderThreadSafety),
+        kOfxImageEffectPluginRenderThreadSafety.as_ptr(),
         0,
-        ofx_str!(kOfxImageEffectRenderFullySafe),
+        kOfxImageEffectRenderFullySafe.as_ptr(),
     );
     // We'll manage threading ourselves
     propSetInt(
         effectProps,
-        ofx_str!(kOfxImageEffectPluginPropHostFrameThreading),
+        kOfxImageEffectPluginPropHostFrameThreading.as_ptr(),
         0,
         0,
     );
     // We need to operate on the whole image at once
-    propSetInt(
-        effectProps,
-        ofx_str!(kOfxImageEffectPropSupportsTiles),
-        0,
-        0,
-    );
+    propSetInt(effectProps, kOfxImageEffectPropSupportsTiles.as_ptr(), 0, 0);
 
     Ok(())
 }
@@ -302,7 +291,7 @@ unsafe fn setup_params(
             } => {
                 ofx_err(paramDefine(
                     param_set,
-                    ofx_str!(kOfxParamTypeChoice),
+                    kOfxParamTypeChoice.as_ptr(),
                     descriptor_id_cstr.as_ptr(),
                     &mut paramProps,
                 ))?;
@@ -311,7 +300,7 @@ unsafe fn setup_params(
                     let item_label_cstr = CString::new(menu_item.label).unwrap();
                     ofx_err(propSetString(
                         paramProps,
-                        ofx_str!(kOfxParamPropChoiceOption),
+                        kOfxParamPropChoiceOption.as_ptr(),
                         i as i32,
                         item_label_cstr.as_ptr(),
                     ))?;
@@ -322,7 +311,7 @@ unsafe fn setup_params(
                 }
                 ofx_err(propSetInt(
                     paramProps,
-                    ofx_str!(kOfxParamPropDefault),
+                    kOfxParamPropDefault.as_ptr(),
                     0,
                     default_idx as i32,
                 ))?;
@@ -330,43 +319,33 @@ unsafe fn setup_params(
             SettingKind::Percentage { default_value, .. } => {
                 ofx_err(paramDefine(
                     param_set,
-                    ofx_str!(kOfxParamTypeDouble),
+                    kOfxParamTypeDouble.as_ptr(),
                     descriptor_id_cstr.as_ptr(),
                     &mut paramProps,
                 ))?;
                 ofx_err(propSetString(
                     paramProps,
-                    ofx_str!(kOfxParamPropDoubleType),
+                    kOfxParamPropDoubleType.as_ptr(),
                     0,
-                    ofx_str!(kOfxParamDoubleTypeScale),
+                    kOfxParamDoubleTypeScale.as_ptr(),
                 ))?;
                 ofx_err(propSetDouble(
                     paramProps,
-                    ofx_str!(kOfxParamPropDefault),
+                    kOfxParamPropDefault.as_ptr(),
                     0,
                     *default_value as f64,
                 ))?;
+                ofx_err(propSetDouble(paramProps, kOfxParamPropMin.as_ptr(), 0, 0.0))?;
                 ofx_err(propSetDouble(
                     paramProps,
-                    ofx_str!(kOfxParamPropMin),
+                    kOfxParamPropDisplayMin.as_ptr(),
                     0,
                     0.0,
                 ))?;
+                ofx_err(propSetDouble(paramProps, kOfxParamPropMax.as_ptr(), 0, 1.0))?;
                 ofx_err(propSetDouble(
                     paramProps,
-                    ofx_str!(kOfxParamPropDisplayMin),
-                    0,
-                    0.0,
-                ))?;
-                ofx_err(propSetDouble(
-                    paramProps,
-                    ofx_str!(kOfxParamPropMax),
-                    0,
-                    1.0,
-                ))?;
-                ofx_err(propSetDouble(
-                    paramProps,
-                    ofx_str!(kOfxParamPropDisplayMax),
+                    kOfxParamPropDisplayMax.as_ptr(),
                     0,
                     1.0,
                 ))?;
@@ -377,37 +356,37 @@ unsafe fn setup_params(
             } => {
                 ofx_err(paramDefine(
                     param_set,
-                    ofx_str!(kOfxParamTypeInteger),
+                    kOfxParamTypeInteger.as_ptr(),
                     descriptor_id_cstr.as_ptr(),
                     &mut paramProps,
                 ))?;
                 ofx_err(propSetInt(
                     paramProps,
-                    ofx_str!(kOfxParamPropDefault),
+                    kOfxParamPropDefault.as_ptr(),
                     0,
                     *default_value,
                 ))?;
                 ofx_err(propSetInt(
                     paramProps,
-                    ofx_str!(kOfxParamPropMin),
+                    kOfxParamPropMin.as_ptr(),
                     0,
                     *range.start(),
                 ))?;
                 ofx_err(propSetInt(
                     paramProps,
-                    ofx_str!(kOfxParamPropDisplayMin),
+                    kOfxParamPropDisplayMin.as_ptr(),
                     0,
                     *range.start(),
                 ))?;
                 ofx_err(propSetInt(
                     paramProps,
-                    ofx_str!(kOfxParamPropMax),
+                    kOfxParamPropMax.as_ptr(),
                     0,
                     *range.end(),
                 ))?;
                 ofx_err(propSetInt(
                     paramProps,
-                    ofx_str!(kOfxParamPropDisplayMax),
+                    kOfxParamPropDisplayMax.as_ptr(),
                     0,
                     *range.end(),
                 ))?;
@@ -419,37 +398,37 @@ unsafe fn setup_params(
             } => {
                 ofx_err(paramDefine(
                     param_set,
-                    ofx_str!(kOfxParamTypeDouble),
+                    kOfxParamTypeDouble.as_ptr(),
                     descriptor_id_cstr.as_ptr(),
                     &mut paramProps,
                 ))?;
                 ofx_err(propSetDouble(
                     paramProps,
-                    ofx_str!(kOfxParamPropDefault),
+                    kOfxParamPropDefault.as_ptr(),
                     0,
                     *default_value as f64,
                 ))?;
                 ofx_err(propSetDouble(
                     paramProps,
-                    ofx_str!(kOfxParamPropMin),
+                    kOfxParamPropMin.as_ptr(),
                     0,
                     *range.start() as f64,
                 ))?;
                 ofx_err(propSetDouble(
                     paramProps,
-                    ofx_str!(kOfxParamPropDisplayMin),
+                    kOfxParamPropDisplayMin.as_ptr(),
                     0,
                     *range.start() as f64,
                 ))?;
                 ofx_err(propSetDouble(
                     paramProps,
-                    ofx_str!(kOfxParamPropMax),
+                    kOfxParamPropMax.as_ptr(),
                     0,
                     *range.end() as f64,
                 ))?;
                 ofx_err(propSetDouble(
                     paramProps,
-                    ofx_str!(kOfxParamPropDisplayMax),
+                    kOfxParamPropDisplayMax.as_ptr(),
                     0,
                     *range.end() as f64,
                 ))?;
@@ -457,13 +436,13 @@ unsafe fn setup_params(
             SettingKind::Boolean { default_value } => {
                 ofx_err(paramDefine(
                     param_set,
-                    ofx_str!(kOfxParamTypeBoolean),
+                    kOfxParamTypeBoolean.as_ptr(),
                     descriptor_id_cstr.as_ptr(),
                     &mut paramProps,
                 ))?;
                 ofx_err(propSetInt(
                     paramProps,
-                    ofx_str!(kOfxParamPropDefault),
+                    kOfxParamPropDefault.as_ptr(),
                     0,
                     *default_value as i32,
                 ))?;
@@ -476,7 +455,7 @@ unsafe fn setup_params(
                 let group_name_cstr = CString::new(group_name).unwrap();
                 ofx_err(paramDefine(
                     param_set,
-                    ofx_str!(kOfxParamTypeGroup),
+                    kOfxParamTypeGroup.as_ptr(),
                     group_name_cstr.as_ptr(),
                     &mut paramProps,
                 ))?;
@@ -484,32 +463,32 @@ unsafe fn setup_params(
                 let mut checkboxProps: OfxPropertySetHandle = ptr::null_mut();
                 ofx_err(paramDefine(
                     param_set,
-                    ofx_str!(kOfxParamTypeBoolean),
+                    kOfxParamTypeBoolean.as_ptr(),
                     descriptor_id_cstr.as_ptr(),
                     &mut checkboxProps,
                 ))?;
                 ofx_err(propSetString(
                     checkboxProps,
-                    ofx_str!(kOfxPropLabel),
+                    kOfxPropLabel.as_ptr(),
                     0,
                     static_cstr!("Enabled").as_ptr(),
                 ))?;
                 ofx_err(propSetInt(
                     checkboxProps,
-                    ofx_str!(kOfxParamPropDefault),
+                    kOfxParamPropDefault.as_ptr(),
                     0,
                     *default_value as i32,
                 ))?;
                 ofx_err(propSetString(
                     checkboxProps,
-                    ofx_str!(kOfxParamPropParent),
+                    kOfxParamPropParent.as_ptr(),
                     0,
                     group_name_cstr.as_ptr(),
                 ))?;
 
                 ofx_err(propSetInt(
                     checkboxProps,
-                    ofx_str!(kOfxParamPropAnimates),
+                    kOfxParamPropAnimates.as_ptr(),
                     0,
                     0,
                 ))?;
@@ -527,7 +506,7 @@ unsafe fn setup_params(
             let descriptor_label_cstr = CString::new(descriptor.label).unwrap();
             ofx_err(propSetString(
                 paramProps,
-                ofx_str!(kOfxPropLabel),
+                kOfxPropLabel.as_ptr(),
                 0,
                 descriptor_label_cstr.as_ptr(),
             ))?;
@@ -535,14 +514,14 @@ unsafe fn setup_params(
                 let descriptor_desc_cstr = CString::new(description).unwrap();
                 ofx_err(propSetString(
                     paramProps,
-                    ofx_str!(kOfxParamPropHint),
+                    kOfxParamPropHint.as_ptr(),
                     0,
                     descriptor_desc_cstr.as_ptr(),
                 ))?;
             }
             ofx_err(propSetString(
                 paramProps,
-                ofx_str!(kOfxParamPropParent),
+                kOfxParamPropParent.as_ptr(),
                 0,
                 parent.as_ptr(),
             ))?;
@@ -663,15 +642,15 @@ unsafe fn action_describe_in_context(descriptor: OfxImageEffectHandle) -> OfxRes
     }
     ofx_err(propSetString(
         props,
-        ofx_str!(kOfxImageEffectPropSupportedComponents),
+        kOfxImageEffectPropSupportedComponents.as_ptr(),
         0,
-        ofx_str!(kOfxImageComponentRGBA),
+        kOfxImageComponentRGBA.as_ptr(),
     ))?;
     ofx_err(propSetString(
         props,
-        ofx_str!(kOfxImageEffectPropSupportedComponents),
+        kOfxImageEffectPropSupportedComponents.as_ptr(),
         1,
-        ofx_str!(kOfxImageComponentRGB),
+        kOfxImageComponentRGB.as_ptr(),
     ))?;
 
     clipDefine(descriptor, static_cstr!("Source").as_ptr(), &mut props);
@@ -680,15 +659,15 @@ unsafe fn action_describe_in_context(descriptor: OfxImageEffectHandle) -> OfxRes
     }
     ofx_err(propSetString(
         props,
-        ofx_str!(kOfxImageEffectPropSupportedComponents),
+        kOfxImageEffectPropSupportedComponents.as_ptr(),
         0,
-        ofx_str!(kOfxImageComponentRGBA),
+        kOfxImageComponentRGBA.as_ptr(),
     ))?;
     ofx_err(propSetString(
         props,
-        ofx_str!(kOfxImageEffectPropSupportedComponents),
+        kOfxImageEffectPropSupportedComponents.as_ptr(),
         1,
-        ofx_str!(kOfxImageComponentRGB),
+        kOfxImageComponentRGB.as_ptr(),
     ))?;
 
     let mut param_set: OfxParamSetHandle = ptr::null_mut();
@@ -705,13 +684,13 @@ unsafe fn action_describe_in_context(descriptor: OfxImageEffectHandle) -> OfxRes
     let mut checkboxProps: OfxPropertySetHandle = ptr::null_mut();
     ofx_err(paramDefine(
         param_set,
-        ofx_str!(kOfxParamTypeBoolean),
+        kOfxParamTypeBoolean.as_ptr(),
         SRGB_GAMMA_NAME.as_ptr(),
         &mut checkboxProps,
     ))?;
     ofx_err(propSetString(
         checkboxProps,
-        ofx_str!(kOfxPropLabel),
+        kOfxPropLabel.as_ptr(),
         0,
         static_cstr!("Apply sRGB gamma").as_ptr(),
     ))?;
@@ -757,7 +736,7 @@ unsafe fn action_get_regions_of_interest(
         y2: 0.0,
     };
     let mut time: OfxTime = 0.0;
-    propGetDouble(inArgs, ofx_str!(kOfxPropTime), 0, &mut time);
+    propGetDouble(inArgs, kOfxPropTime.as_ptr(), 0, &mut time);
     clipGetRegionOfDefinition(sourceClip, time, &mut sourceRoD);
 
     propSetDoubleN(
@@ -782,12 +761,12 @@ unsafe fn action_get_clip_preferences(outArgs: OfxPropertySetHandle) -> OfxResul
         .propSetString
         .ok_or(OfxStat::kOfxStatFailed)?;
 
-    propSetInt(outArgs, ofx_str!(kOfxImageEffectFrameVarying), 0, 1);
+    propSetInt(outArgs, kOfxImageEffectFrameVarying.as_ptr(), 0, 1);
     propSetString(
         outArgs,
-        ofx_str!(kOfxImageEffectPropPreMultiplication),
+        kOfxImageEffectPropPreMultiplication.as_ptr(),
         0,
-        ofx_str!(kOfxImageOpaque),
+        kOfxImageOpaque.as_ptr(),
     );
 
     Ok(())
@@ -839,7 +818,7 @@ unsafe fn update_controls_disabled(
         }
         let mut prop_set: OfxPropertySetHandle = ptr::null_mut();
         ofx_err(paramGetPropertySet(param, &mut prop_set))?;
-        propSetInt(prop_set, ofx_str!(kOfxParamPropEnabled), 0, enabled as i32);
+        propSetInt(prop_set, kOfxParamPropEnabled.as_ptr(), 0, enabled as i32);
     }
 
     Ok(())
@@ -864,7 +843,7 @@ unsafe fn action_instance_changed(
     ofx_err(getParamSet(descriptor, &mut param_set))?;
 
     let mut time: f64 = 0.0;
-    propGetDouble(inArgs, ofx_str!(kOfxPropTime), 0, &mut time);
+    propGetDouble(inArgs, kOfxPropTime.as_ptr(), 0, &mut time);
 
     update_controls_disabled(data, param_set, &data.settings_list.settings, time, true)?;
 
@@ -1198,13 +1177,6 @@ impl<'a> EffectStorageParams<'a> {
     }
 }
 
-const PIXEL_DEPTH_BYTE: Result<&'static CStr, FromBytesWithNulError> =
-    CStr::from_bytes_with_nul(kOfxBitDepthByte);
-const PIXEL_DEPTH_SHORT: Result<&'static CStr, FromBytesWithNulError> =
-    CStr::from_bytes_with_nul(kOfxBitDepthShort);
-const PIXEL_DEPTH_FLOAT: Result<&'static CStr, FromBytesWithNulError> =
-    CStr::from_bytes_with_nul(kOfxBitDepthFloat);
-
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum SupportedPixelDepth {
     Byte,
@@ -1216,11 +1188,11 @@ impl TryFrom<&CStr> for SupportedPixelDepth {
     type Error = OfxStatus;
 
     fn try_from(value: &CStr) -> OfxResult<Self> {
-        if value == PIXEL_DEPTH_BYTE.unwrap() {
+        if value == kOfxBitDepthByte {
             Ok(Self::Byte)
-        } else if value == PIXEL_DEPTH_SHORT.unwrap() {
+        } else if value == kOfxBitDepthShort {
             Ok(Self::Short)
-        } else if value == PIXEL_DEPTH_FLOAT.unwrap() {
+        } else if value == kOfxBitDepthFloat {
             Ok(Self::Float)
         } else {
             Err(OfxStat::kOfxStatErrUnsupported)
@@ -1234,18 +1206,13 @@ enum SupportedImageComponents {
     Rgba,
 }
 
-const IMAGE_COMPONENTS_RGB: Result<&'static CStr, FromBytesWithNulError> =
-    CStr::from_bytes_with_nul(kOfxImageComponentRGB);
-const IMAGE_COMPONENTS_RGBA: Result<&'static CStr, FromBytesWithNulError> =
-    CStr::from_bytes_with_nul(kOfxImageComponentRGBA);
-
 impl TryFrom<&CStr> for SupportedImageComponents {
     type Error = OfxStatus;
 
     fn try_from(value: &CStr) -> OfxResult<Self> {
-        if value == IMAGE_COMPONENTS_RGB.unwrap() {
+        if value == kOfxImageComponentRGB {
             Ok(Self::Rgb)
-        } else if value == IMAGE_COMPONENTS_RGBA.unwrap() {
+        } else if value == kOfxImageComponentRGBA {
             Ok(Self::Rgba)
         } else {
             Err(OfxStat::kOfxStatErrUnsupported)
@@ -1331,11 +1298,11 @@ unsafe fn action_render(
         y2: 0,
     };
 
-    propGetDouble(inArgs, ofx_str!(kOfxPropTime), 0, &mut time);
+    propGetDouble(inArgs, kOfxPropTime.as_ptr(), 0, &mut time);
     // I'm sure nothing bad will happen here as a result of propGetIntN writing past the pointer it was given
     propGetIntN(
         inArgs,
-        ofx_str!(kOfxImageEffectPropRenderWindow),
+        kOfxImageEffectPropRenderWindow.as_ptr(),
         4,
         ptr::addr_of_mut!(renderWindow) as *mut _,
     );
@@ -1366,7 +1333,7 @@ unsafe fn action_render(
         let mut cstr: *mut c_char = ptr::null_mut();
         propGetString(
             sourceImg.0,
-            ofx_str!(kOfxImageEffectPropComponents),
+            kOfxImageEffectPropComponents.as_ptr(),
             0,
             &mut cstr,
         );
@@ -1377,7 +1344,7 @@ unsafe fn action_render(
         let mut cstr: *mut c_char = ptr::null_mut();
         propGetString(
             outputImg.0,
-            ofx_str!(kOfxImageEffectPropComponents),
+            kOfxImageEffectPropComponents.as_ptr(),
             0,
             &mut cstr,
         );
@@ -1388,7 +1355,7 @@ unsafe fn action_render(
         let mut cstr: *mut c_char = ptr::null_mut();
         propGetString(
             sourceImg.0,
-            ofx_str!(kOfxImageEffectPropPixelDepth),
+            kOfxImageEffectPropPixelDepth.as_ptr(),
             0,
             &mut cstr,
         );
@@ -1399,7 +1366,7 @@ unsafe fn action_render(
         let mut cstr: *mut c_char = ptr::null_mut();
         propGetString(
             outputImg.0,
-            ofx_str!(kOfxImageEffectPropPixelDepth),
+            kOfxImageEffectPropPixelDepth.as_ptr(),
             0,
             &mut cstr,
         );
@@ -1416,17 +1383,17 @@ unsafe fn action_render(
     let mut dstPtr: *mut c_void = ptr::null_mut();
     propGetInt(
         outputImg.0,
-        ofx_str!(kOfxImagePropRowBytes),
+        kOfxImagePropRowBytes.as_ptr(),
         0,
         &mut dstRowBytes,
     );
     propGetIntN(
         outputImg.0,
-        ofx_str!(kOfxImagePropBounds),
+        kOfxImagePropBounds.as_ptr(),
         4,
         ptr::addr_of_mut!(dstBounds) as *mut _,
     );
-    propGetPointer(outputImg.0, ofx_str!(kOfxImagePropData), 0, &mut dstPtr);
+    propGetPointer(outputImg.0, kOfxImagePropData.as_ptr(), 0, &mut dstPtr);
 
     let mut srcRowBytes: c_int = 0;
     let mut srcBounds = OfxRectI {
@@ -1438,17 +1405,17 @@ unsafe fn action_render(
     let mut srcPtr: *mut c_void = ptr::null_mut();
     propGetInt(
         sourceImg.0,
-        ofx_str!(kOfxImagePropRowBytes),
+        kOfxImagePropRowBytes.as_ptr(),
         0,
         &mut srcRowBytes,
     );
     propGetIntN(
         sourceImg.0,
-        ofx_str!(kOfxImagePropBounds),
+        kOfxImagePropBounds.as_ptr(),
         4,
         ptr::addr_of_mut!(srcBounds) as *mut _,
     );
-    propGetPointer(sourceImg.0, ofx_str!(kOfxImagePropData), 0, &mut srcPtr);
+    propGetPointer(sourceImg.0, kOfxImagePropData.as_ptr(), 0, &mut srcPtr);
 
     let mut param_set: OfxParamSetHandle = ptr::null_mut();
     ofx_err(getParamSet(descriptor, &mut param_set))?;
@@ -1511,26 +1478,6 @@ unsafe fn action_render(
     Ok(())
 }
 
-const OFX_ACTION_LOAD: Result<&'static CStr, FromBytesWithNulError> =
-    CStr::from_bytes_with_nul(kOfxActionLoad);
-const OFX_ACTION_DESCRIBE: Result<&'static CStr, FromBytesWithNulError> =
-    CStr::from_bytes_with_nul(kOfxActionDescribe);
-const OFX_ACTION_DESCRIBE_IN_CONTEXT: Result<&'static CStr, FromBytesWithNulError> =
-    CStr::from_bytes_with_nul(kOfxImageEffectActionDescribeInContext);
-const OFX_ACTION_GET_REGIONS_OF_INTEREST: Result<&'static CStr, FromBytesWithNulError> =
-    CStr::from_bytes_with_nul(kOfxImageEffectActionGetRegionsOfInterest);
-const OFX_ACTION_GET_CLIP_PREFERENCES: Result<&'static CStr, FromBytesWithNulError> =
-    CStr::from_bytes_with_nul(kOfxImageEffectActionGetClipPreferences);
-const OFX_ACTION_INSTANCE_CHANGED: Result<&'static CStr, FromBytesWithNulError> =
-    CStr::from_bytes_with_nul(kOfxActionInstanceChanged);
-const OFX_ACTION_RENDER: Result<&'static CStr, FromBytesWithNulError> =
-    CStr::from_bytes_with_nul(kOfxImageEffectActionRender);
-
-const OFX_ACTION_CREATE_INSTANCE: Result<&'static CStr, FromBytesWithNulError> =
-    CStr::from_bytes_with_nul(kOfxActionCreateInstance);
-const OFX_ACTION_DESTROY_INSTANCE: Result<&'static CStr, FromBytesWithNulError> =
-    CStr::from_bytes_with_nul(kOfxActionDestroyInstance);
-
 unsafe extern "C" fn main_entry(
     action: *const c_char,
     handle: *const c_void,
@@ -1545,23 +1492,21 @@ unsafe extern "C" fn main_entry(
         println!("{:?}", info);
     }));
 
-    let return_status = if action == OFX_ACTION_LOAD.unwrap() {
+    let return_status = if action == kOfxActionLoad {
         action_load()
-    } else if action == OFX_ACTION_DESCRIBE.unwrap() {
+    } else if action == kOfxActionDescribe {
         action_describe(effect)
-    } else if action == OFX_ACTION_DESCRIBE_IN_CONTEXT.unwrap() {
+    } else if action == kOfxImageEffectActionDescribeInContext {
         action_describe_in_context(effect)
-    } else if action == OFX_ACTION_GET_REGIONS_OF_INTEREST.unwrap() {
+    } else if action == kOfxImageEffectActionGetRegionsOfInterest {
         action_get_regions_of_interest(effect, inArgs, outArgs)
-    } else if action == OFX_ACTION_GET_CLIP_PREFERENCES.unwrap() {
+    } else if action == kOfxImageEffectActionGetClipPreferences {
         action_get_clip_preferences(outArgs)
-    } else if action == OFX_ACTION_INSTANCE_CHANGED.unwrap() {
+    } else if action == kOfxActionInstanceChanged {
         action_instance_changed(effect, inArgs)
-    } else if action == OFX_ACTION_RENDER.unwrap() {
+    } else if action == kOfxImageEffectActionRender {
         action_render(effect, inArgs)
-    } else if action == OFX_ACTION_CREATE_INSTANCE.unwrap()
-        || action == OFX_ACTION_DESTROY_INSTANCE.unwrap()
-    {
+    } else if action == kOfxActionCreateInstance || action == kOfxActionDestroyInstance {
         // We need to handle these actions (even if it's just a no-op) for DaVinci resolve to properly load our plugin
         // If not handled, it'll load the plugin but will never show the controls or actually render anything
         // TODO: try to preallocate buffer here
@@ -1590,7 +1535,7 @@ pub extern "C" fn OfxGetPlugin(nth: c_int) -> *const OfxPlugin {
     let plugin_info: &'static OfxPlugin = PLUGIN_INFO.get_or_init(|| {
         OfxPlugin {
             // I think this cast is OK?
-            pluginApi: ofx_str!(kOfxImageEffectPluginApi),
+            pluginApi: kOfxImageEffectPluginApi.as_ptr(),
             apiVersion: 1,
             pluginIdentifier: static_cstr!("wtf.vala:NtscRs").as_ptr(),
             pluginVersionMajor: 1,
