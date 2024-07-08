@@ -301,11 +301,11 @@ impl TransferFunction {
 
         for i in 0..(width + delay) {
             for j in 0..ROWS {
-                let mut zmm = S::load4(z.get_unchecked(j));
+                let mut zmm = S::load4(&z[j]);
                 // Either the loop bound extending past items.len() or the min() call seems to prevent the optimizer from
                 // determining that we're in-bounds here. Since i.min(items.len() - 1) never exceeds items.len() - 1 by
                 // definition, this is safe.
-                let sample = S::load1(signal.get_unchecked(j).get_unchecked(i.min(width - 1)));
+                let sample = S::load1(signal[j].get_unchecked(i.min(width - 1)));
                 let filt_sample = num.mul_add(sample, zmm).swizzle(0, 0, 0, 0);
 
                 // Add the sample * the numerator, subtract the filtered sample * the denominator
@@ -318,13 +318,12 @@ impl TransferFunction {
                 // Zero out the last element
                 zmm = zmm.insert::<3>(0.0);
 
-                let zj = z.get_unchecked_mut(j);
-                zmm.store(zj);
+                zmm.store(&mut z[j]);
 
                 if i >= delay {
                     let samp_diff = filt_sample - sample;
                     let final_samp = samp_diff.mul_add(scale_b, sample);
-                    final_samp.store1(signal.get_unchecked_mut(j).get_unchecked_mut(i - delay));
+                    final_samp.store1(signal[j].get_unchecked_mut(i - delay));
                 }
             }
         }
