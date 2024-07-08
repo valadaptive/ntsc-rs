@@ -40,11 +40,15 @@ macro_rules! static_cstr {
 
 macro_rules! ofx_str {
     ($l:expr) => {
-        $l as *const u8 as *const i8
+        $l.as_ptr() as *const i8
     };
 }
 
-static mut PLUGIN_INFO: OnceLock<OfxPlugin> = OnceLock::new();
+// SAFETY: The host promises not to mess with the raw string pointers in this struct
+unsafe impl Send for OfxPlugin {}
+unsafe impl Sync for OfxPlugin {}
+
+static PLUGIN_INFO: OnceLock<OfxPlugin> = OnceLock::new();
 static shared_data: RwLock<Option<SharedData>> = RwLock::new(None);
 
 struct HostInfo {
@@ -1583,23 +1587,17 @@ pub extern "C" fn OfxGetPlugin(nth: c_int) -> *const OfxPlugin {
         return ptr::null();
     }
 
-    // Safety: We're synchronizing access to the OfxPlugin using a OnceLock, and I *think* the reason it has to be
-    // `static mut` is that some fields in it are raw pointers, which could theoretically be messed with in an
-    // unsynchronized manner, which OFX hosts probably shouldn't do?
-    #[allow(unused_unsafe)]
-    let plugin_info: &'static OfxPlugin = unsafe {
-        PLUGIN_INFO.get_or_init(|| {
-            OfxPlugin {
-                // I think this cast is OK?
-                pluginApi: ofx_str!(kOfxImageEffectPluginApi),
-                apiVersion: 1,
-                pluginIdentifier: static_cstr!("wtf.vala:NtscRs").as_ptr(),
-                pluginVersionMajor: 1,
-                pluginVersionMinor: 4,
-                setHost: Some(set_host_info),
-                mainEntry: Some(main_entry),
-            }
-        })
-    };
+    let plugin_info: &'static OfxPlugin = PLUGIN_INFO.get_or_init(|| {
+        OfxPlugin {
+            // I think this cast is OK?
+            pluginApi: ofx_str!(kOfxImageEffectPluginApi),
+            apiVersion: 1,
+            pluginIdentifier: static_cstr!("wtf.vala:NtscRs").as_ptr(),
+            pluginVersionMajor: 1,
+            pluginVersionMinor: 4,
+            setHost: Some(set_host_info),
+            mainEntry: Some(main_entry),
+        }
+    });
     plugin_info as *const _
 }

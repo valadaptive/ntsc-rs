@@ -2,7 +2,7 @@
 
 1. Bump the version of the `gui` crate. I don't update the version numbers of some other crates, even if maybe I should. This should be done even if there are no changes to the GUI itself--it's considered the "canonical" version number that shows up on the releases page.
 2. Update the third-party credits and licenses for the GUI. Instructions for this are in that crate's README.
-3. If you make changes to the OpenFX plugin, After Effects plugin, or effect settings, bump those versions as well. The plugin versions are taken from the code (src/lib.rs for OpenFX and build.rs for AE) and not the Cargo.toml.
+3. If you make changes to the OpenFX plugin, After Effects plugin, or effect settings, bump those versions as well. For the AE plugin, the plugin version is taken from the PiPL in build.rs and not the Cargo.toml.
 4. Commit the changes and tag them. The tag will trigger a CI build that produces artifacts.
 5. Once the CI build finishes, there will be a draft release on the Releases page. You'll need to provide a summary of the changes since last version, and then you can publish the release.
 
