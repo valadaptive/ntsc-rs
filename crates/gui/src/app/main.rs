@@ -7,10 +7,7 @@ use std::{
     io::Read,
     ops::RangeInclusive,
     path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
+    sync::{Arc, Mutex},
     thread,
 };
 
@@ -43,8 +40,8 @@ use log::debug;
 
 use super::{
     app_state::{
-        AudioVolume, ColorTheme, EffectPreviewMode, EffectPreviewSettings, LeftPanelState,
-        VideoScale, VideoZoom,
+        AudioVolume, ColorTheme, EffectPreviewMode, EffectPreviewSettings, GstreamerInitState,
+        LeftPanelState, VideoScale, VideoZoom,
     },
     error::{ApplicationError, JSONParseSnafu, JSONReadSnafu, JSONSaveSnafu, LoadVideoSnafu},
     executor::AppExecutor,
@@ -133,12 +130,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         Box::new(|cc| {
             // GStreamer can be slow to initialize (on the order of minutes). Do it off-thread so we can display a
             // loading screen in the meantime. Thanks for being thread-safe, unlike GTK!
-            let gstreamer_initialized = Arc::new(AtomicBool::new(false));
-            let gstreamer_initialized_for_thread = Arc::clone(&gstreamer_initialized);
-            thread::spawn(move || {
-                initialize_gstreamer().unwrap();
-                gstreamer_initialized_for_thread.store(true, Ordering::Release);
-            });
+            let handle = thread::spawn(initialize_gstreamer);
+            let init_state = GstreamerInitState::Initializing(Some(handle));
 
             let settings_list = SettingsList::new();
             let (settings, theme) = if let Some(storage) = cc.storage {
@@ -166,7 +159,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 settings_list,
                 settings,
                 theme,
-                gstreamer_initialized,
+                init_state,
             )))
         }),
     )?)
@@ -180,10 +173,10 @@ impl NtscApp {
         settings_list: SettingsList,
         effect_settings: NtscEffectFullSettings,
         color_theme: ColorTheme,
-        gstreamer_initialized: Arc<AtomicBool>,
+        gstreamer_init: GstreamerInitState,
     ) -> Self {
         Self {
-            gstreamer_initialized,
+            gstreamer_init,
             settings_list,
             pipeline: None,
             undoer: Undoer::default(),
@@ -2123,10 +2116,19 @@ impl NtscApp {
             });
     }
 
-    fn show_loading_screen(&mut self, ctx: &egui::Context) {
+    fn show_loading_screen(ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.centered_and_justified(|ui| {
                 ui.add(egui::Spinner::new().size(128.0));
+            });
+        });
+    }
+
+    fn show_error_screen(ctx: &egui::Context, error: &ApplicationError) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.vertical(|ui| {
+                ui.heading("An error occurred while loading");
+                ui.label(error.to_string());
             });
         });
     }
@@ -2157,9 +2159,16 @@ impl eframe::App for NtscApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.tick();
 
-        if !self.gstreamer_initialized.load(Ordering::Acquire) {
-            self.show_loading_screen(ctx);
-            return;
+        match self.gstreamer_init.check() {
+            GstreamerInitState::Initializing(..) => {
+                Self::show_loading_screen(ctx);
+                return;
+            }
+            GstreamerInitState::Initialized(Err(error)) => {
+                Self::show_error_screen(ctx, error);
+                return;
+            }
+            _ => {}
         }
 
         let mut pipeline_error = None::<PipelineError>;

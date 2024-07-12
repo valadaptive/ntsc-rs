@@ -6,6 +6,9 @@ use crate::gst_utils::{gstreamer_error::GstreamerError, pipeline_utils::Pipeline
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub(crate)))]
 pub enum ApplicationError {
+    #[snafu(display("Error initializing GStreamer: {source}"))]
+    GstreamerInit { source: GstreamerError },
+
     #[snafu(display("Error loading video: {source}"))]
     LoadVideo { source: GstreamerError },
 

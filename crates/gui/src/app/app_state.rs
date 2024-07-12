@@ -1,4 +1,11 @@
+use std::thread::JoinHandle;
+
 use eframe::egui::{self, pos2, Rect};
+use snafu::ResultExt;
+
+use crate::gst_utils::gstreamer_error::GstreamerError;
+
+use super::error::{ApplicationError, GstreamerInitSnafu};
 
 #[derive(Debug)]
 pub struct VideoZoom {
@@ -104,5 +111,33 @@ impl TryFrom<&str> for ColorTheme {
             "System" => Ok(ColorTheme::System),
             _ => Err(()),
         }
+    }
+}
+
+/// Used for the loading screen (and error screen if GStreamer fails to initialize). We initialize GStreamer on its own
+/// thread, and return the result via a JoinHandle.
+#[derive(Debug)]
+pub enum GstreamerInitState {
+    Initializing(Option<JoinHandle<Result<(), GstreamerError>>>),
+    Initialized(Result<(), ApplicationError>),
+}
+
+impl GstreamerInitState {
+    pub fn check(&mut self) -> &mut Self {
+        if let Self::Initializing(handle) = self {
+            if handle.as_ref().is_some_and(|h| h.is_finished()) {
+                // In order to be able to "move" the error between enum variants, we need to be able to mem::take the
+                // join handle.
+                let res = handle
+                    .take()
+                    .unwrap()
+                    .join()
+                    .unwrap()
+                    .context(GstreamerInitSnafu);
+                *self = Self::Initialized(res);
+            }
+        }
+
+        self
     }
 }

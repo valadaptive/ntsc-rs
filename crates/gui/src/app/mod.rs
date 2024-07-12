@@ -1,8 +1,6 @@
-use std::{
-    cell::RefCell,
-    sync::{atomic::AtomicBool, Arc},
-};
+use std::cell::RefCell;
 
+use app_state::GstreamerInitState;
 use eframe::egui::util::undoer::Undoer;
 use ntscrs::ntsc::{NtscEffectFullSettings, SettingsList};
 use presets::PresetsState;
@@ -21,7 +19,7 @@ pub mod render_settings;
 pub type AppFn = Box<dyn FnOnce(&mut NtscApp) -> Result<(), error::ApplicationError> + Send>;
 
 pub struct NtscApp {
-    pub gstreamer_initialized: Arc<AtomicBool>,
+    pub gstreamer_init: GstreamerInitState,
     pub settings_list: SettingsList,
     pub executor: executor::AppExecutor,
     pub pipeline: Option<pipeline_info::PipelineInfo>,
