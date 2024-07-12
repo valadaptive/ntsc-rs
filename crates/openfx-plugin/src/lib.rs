@@ -18,11 +18,11 @@ use allocator_api2::{
 
 use ntscrs::{
     ntsc::NtscEffect,
-    yiq_fielding::{yiq_to_rgb, YiqField, YiqView},
+    yiq_fielding::{DeinterlaceMode, YiqView},
 };
 use ntscrs::{
     settings::{NtscEffectFullSettings, SettingDescriptor, SettingKind, SettingsList},
-    yiq_fielding::{Normalize, PixelFormat, Rgb16, Rgb32f, Rgb8, Rgbx16, Rgbx32f, Rgbx8},
+    yiq_fielding::{PixelFormat, Rgb16, Rgb32f, Rgb8, Rgbx16, Rgbx32f, Rgbx8},
 };
 use ntscrs::{
     yiq_fielding::{BlitInfo, Rect},
@@ -932,58 +932,6 @@ unsafe impl Allocator for OfxAllocator {
     }
 }
 
-struct RowInfo {
-    row_lshift: usize,
-    row_offset: usize,
-    num_rows: usize,
-}
-
-fn getRowInfo(cur_field: YiqField, src_height: usize) -> RowInfo {
-    // Always be sure to render at least 1 row
-    if src_height == 1 {
-        return RowInfo {
-            row_lshift: 0,
-            row_offset: 0,
-            num_rows: 1,
-        };
-    }
-
-    // We write into the destination array differently depending on whether we're using the upper field, lower
-    // field, or both. row_lshift determines whether we left-shift the source row index (doubling it). When we use
-    // only one of the fields, the source row index needs to be double the destination row index so we take every
-    // other row. When we use both fields, we just use the source row index as-is.
-    // The row_offset determines whether we skip the first row (when using the lower field).
-    let row_lshift: usize = match cur_field {
-        YiqField::Upper => 1,
-        YiqField::Lower => 1,
-        YiqField::Both | YiqField::InterleavedUpper | YiqField::InterleavedLower => 0,
-    };
-
-    let row_offset: usize = match (src_height & 1, cur_field) {
-        (0, YiqField::Upper) => 1,
-        (1, YiqField::Upper) => 0,
-        (0, YiqField::Lower) => 0,
-        (1, YiqField::Lower) => 1,
-        (_, YiqField::Both | YiqField::InterleavedUpper | YiqField::InterleavedLower) => 0,
-        _ => unreachable!(),
-    };
-
-    // On an image with an odd input height, we do ceiling division if we render upper-field-first
-    // (take an image 3 pixels tall. it goes render, skip, render--that's 2 renders) but floor division if we
-    // render lower-field-first (skip, render, skip--only 1 render).
-    let numRows = match cur_field {
-        YiqField::Upper => (src_height + 1) / 2,
-        YiqField::Lower => src_height / 2,
-        YiqField::Both | YiqField::InterleavedUpper | YiqField::InterleavedLower => src_height,
-    };
-
-    RowInfo {
-        row_lshift,
-        row_offset,
-        num_rows: numRows,
-    }
-}
-
 struct EffectApplicationParams<'a> {
     src_ptr: *mut c_void,
     src_row_bytes: i32,
@@ -1071,106 +1019,52 @@ impl<'a> EffectApplicationParams<'a> {
 
 impl<'a> EffectStorageParams<'a> {
     unsafe fn write_to_output<D: PixelFormat>(mut self) -> OfxResult<()> {
-        let dstWidth = (self.dst_bounds.x2 - self.dst_bounds.x1) as usize;
         let dstHeight = (self.dst_bounds.y2 - self.dst_bounds.y1) as usize;
         let srcWidth = (self.src_bounds.x2 - self.src_bounds.x1) as usize;
         let srcHeight = (self.src_bounds.y2 - self.src_bounds.y1) as usize;
 
         let cur_field = self.effect.use_field.to_yiq_field(self.frame_num);
         let yiq_view = YiqView::from_parts(&mut self.yiq_data, (srcWidth, srcHeight), cur_field);
-        let (y, i, q) = (yiq_view.y, yiq_view.i, yiq_view.q);
 
-        let RowInfo {
-            row_lshift,
-            row_offset,
-            num_rows: numRows,
-        } = getRowInfo(cur_field, srcHeight);
+        let (dstFirstRowPtr, flip_y) = if self.dst_row_bytes < 0 {
+            // Currently untested because I can't find an OFX host that uses negative rowbytes. Fingers crossed it works!
+            let row_size = self.dst_row_bytes / mem::size_of::<D::DataFormat>() as i32;
+            (
+                self.dst_ptr.sub(-row_size as usize * (srcHeight - 1)),
+                false,
+            )
+        } else {
+            (self.dst_ptr, true)
+        };
+        let dstStride = self.dst_row_bytes.abs() as usize;
+        let dstData = slice::from_raw_parts_mut(
+            dstFirstRowPtr as *mut MaybeUninit<D::DataFormat>,
+            dstStride / std::mem::size_of::<D::DataFormat>() * dstHeight as usize,
+        );
+        let blit_info = BlitInfo {
+            rect: Rect::from_width_height(srcWidth, srcHeight),
+            destination: (0, 0),
+            row_bytes: dstStride,
+            other_buffer_height: dstHeight,
+            flip_y,
+        };
 
-        // Convert back and copy into the destination buffer
-        for yi in 0..dstHeight {
-            // We need to offset the row pointer in bytes, which is why we leave it as a *mut c_void here
-            let dstRowPtr = self
-                .dst_ptr
-                .offset((self.dst_row_bytes * yi as i32) as isize);
-            let src_y = yi as i32 + (self.dst_bounds.y1 - self.src_bounds.y1);
-
-            for x in 0..dstWidth {
-                let (r_idx, g_idx, b_idx, a_idx) = D::ORDER.rgba_indices();
-                // Now that we have the row pointer, we offset by the actual datatype to get the pixel
-                let pixPtr = (dstRowPtr as *mut D::DataFormat).add(x * D::ORDER.num_components());
-                let src_x = x as i32 + (self.dst_bounds.x1 - self.src_bounds.x1);
-                if src_x < 0 || src_x >= srcWidth as i32 || src_y < 0 || src_y >= srcHeight as i32 {
-                    pixPtr.add(0).write(D::DataFormat::from_norm(0.0));
-                    pixPtr.add(1).write(D::DataFormat::from_norm(0.0));
-                    pixPtr.add(2).write(D::DataFormat::from_norm(0.0));
-                    if let Some(a_idx) = a_idx {
-                        pixPtr.add(a_idx).write(D::DataFormat::from_norm(0.0));
-                    }
-                    continue;
-                }
-
-                let yiq = match cur_field {
-                    YiqField::Upper | YiqField::Lower => {
-                        let interp_row = cur_field != YiqField::Both
-                            && (yi & 1) != row_offset
-                            && src_y > 0
-                            && src_y < (srcHeight - 1) as i32;
-
-                        if interp_row {
-                            // This row was not processed this frame. Interpolate from the rows above and below it.
-                            let row_idx_bottom =
-                                (srcHeight as i32 - 1 - src_y + 1) as usize >> row_lshift;
-                            let row_idx_top =
-                                (srcHeight as i32 - 1 - src_y - 1) as usize >> row_lshift;
-                            let idx_top = (row_idx_top * srcWidth) + src_x as usize;
-                            let idx_bottom = (row_idx_bottom * srcWidth) + src_x as usize;
-                            [
-                                (y[idx_top] + y[idx_bottom]) * 0.5,
-                                (i[idx_top] + i[idx_bottom]) * 0.5,
-                                (q[idx_top] + q[idx_bottom]) * 0.5,
-                            ]
-                        } else {
-                            let row_idx = ((srcHeight as i32 - 1 - src_y) as usize >> row_lshift)
-                                .min(numRows - 1);
-                            let idx = (row_idx * srcWidth) + src_x as usize;
-                            [y[idx], i[idx], q[idx]]
-                        }
-                    }
-                    YiqField::Both => {
-                        let row_idx = (srcHeight as i32 - 1 - src_y) as usize;
-                        let idx = (row_idx * srcWidth) + src_x as usize;
-                        [y[idx], i[idx], q[idx]]
-                    }
-                    YiqField::InterleavedUpper | YiqField::InterleavedLower => {
-                        let row_idx = (srcHeight as i32 - 1 - src_y) as usize;
-
-                        let row_offset = match cur_field {
-                            YiqField::InterleavedUpper => {
-                                YiqField::Upper.num_image_rows(srcHeight) * (row_idx & 1)
-                            }
-                            YiqField::InterleavedLower => {
-                                YiqField::Lower.num_image_rows(srcHeight) * (1 - (row_idx & 1))
-                            }
-                            _ => unreachable!(),
-                        };
-                        let interleaved_row_idx = ((row_idx >> 1) + row_offset).min(srcHeight - 1);
-
-                        let idx = (interleaved_row_idx * srcWidth) + src_x as usize;
-                        [y[idx], i[idx], q[idx]]
-                    }
-                };
-
-                let mut rgb = yiq_to_rgb(yiq);
-                if self.apply_srgb_gamma {
-                    rgb = srgb_gamma_inv(rgb);
-                }
-                pixPtr.add(r_idx).write(D::DataFormat::from_norm(rgb[0]));
-                pixPtr.add(g_idx).write(D::DataFormat::from_norm(rgb[1]));
-                pixPtr.add(b_idx).write(D::DataFormat::from_norm(rgb[2]));
-                if let Some(a_idx) = a_idx {
-                    pixPtr.add(a_idx).write(D::DataFormat::from_norm(1.0));
-                }
-            }
+        if self.apply_srgb_gamma {
+            yiq_view.write_to_strided_buffer_maybe_uninit::<D, _>(
+                dstData,
+                blit_info,
+                DeinterlaceMode::Bob,
+                true,
+                srgb_gamma_inv,
+            )
+        } else {
+            yiq_view.write_to_strided_buffer_maybe_uninit::<D, _>(
+                dstData,
+                blit_info,
+                DeinterlaceMode::Bob,
+                true,
+                identity,
+            )
         }
 
         Ok(())
