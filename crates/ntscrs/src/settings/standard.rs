@@ -1061,7 +1061,7 @@ impl SettingsList<NtscEffectFullSettings> {
                                         index: 0,
                                     },
                                 ],
-                                default_value: default_settings.chroma_lowpass_in.to_u32().unwrap(),
+                                default_value: default_settings.vhs_settings.settings.tape_speed.to_u32().unwrap(),
                             },
                             id: setting_id::VHS_TAPE_SPEED
                         },

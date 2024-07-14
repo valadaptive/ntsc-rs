@@ -29,7 +29,7 @@ struct Plugin {
 impl Default for Plugin {
     fn default() -> Self {
         Self {
-            settings: SettingsList::new(),
+            settings: SettingsList::<NtscEffectFullSettings>::new(),
         }
     }
 }

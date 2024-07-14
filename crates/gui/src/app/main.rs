@@ -32,6 +32,7 @@ use crate::{
 };
 
 use ntscrs::settings::{
+    easy::{self, EasyModeFullSettings},
     standard::{setting_id, NtscEffectFullSettings, UseField},
     SettingDescriptor, SettingKind, Settings, SettingsList,
 };
@@ -135,11 +136,22 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             let init_state = GstreamerInitState::Initializing(Some(handle));
 
             let settings_list = SettingsList::<NtscEffectFullSettings>::new();
-            let (settings, theme) = if let Some(storage) = cc.storage {
+            let settings_list_easy = SettingsList::<EasyModeFullSettings>::new();
+            let (settings, easy_mode_settings, easy_mode_enabled, theme) = if let Some(storage) =
+                cc.storage
+            {
                 // Load previous effect settings from storage
                 let settings = storage
                     .get_string("effect_settings")
                     .and_then(|saved_settings| settings_list.from_json(&saved_settings).ok())
+                    .unwrap_or_default();
+                let easy_mode_settings = storage
+                    .get_string("easy_mode_settings")
+                    .and_then(|saved_settings| settings_list_easy.from_json(&saved_settings).ok())
+                    .unwrap_or_default();
+                let easy_mode_enabled = storage
+                    .get_string("easy_mode_enabled")
+                    .map(|saved_enabled| saved_enabled == "true")
                     .unwrap_or_default();
 
                 let theme = storage
@@ -147,9 +159,14 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     .and_then(|color_theme| ColorTheme::try_from(color_theme.as_str()).ok())
                     .unwrap_or_default();
 
-                (settings, theme)
+                (settings, easy_mode_settings, easy_mode_enabled, theme)
             } else {
-                (NtscEffectFullSettings::default(), ColorTheme::default())
+                (
+                    NtscEffectFullSettings::default(),
+                    EasyModeFullSettings::default(),
+                    true,
+                    ColorTheme::default(),
+                )
             };
 
             let ctx = cc.egui_ctx.clone();
@@ -158,7 +175,10 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             Ok(Box::new(NtscApp::new(
                 ctx,
                 settings_list,
+                settings_list_easy,
                 settings,
+                easy_mode_settings,
+                easy_mode_enabled,
                 theme,
                 init_state,
             )))
@@ -172,13 +192,17 @@ impl NtscApp {
     fn new(
         ctx: egui::Context,
         settings_list: SettingsList<NtscEffectFullSettings>,
+        settings_list_easy: SettingsList<EasyModeFullSettings>,
         effect_settings: NtscEffectFullSettings,
+        easy_mode_settings: EasyModeFullSettings,
+        easy_mode_enabled: bool,
         color_theme: ColorTheme,
         gstreamer_init: GstreamerInitState,
     ) -> Self {
         Self {
             gstreamer_init,
             settings_list,
+            settings_list_easy,
             pipeline: None,
             undoer: Undoer::default(),
             executor: AppExecutor::new(ctx.clone()),
@@ -193,7 +217,9 @@ impl NtscApp {
             audio_volume: AudioVolume::default(),
             effect_preview: EffectPreviewSettings::default(),
             left_panel_state: LeftPanelState::default(),
+            easy_mode_enabled,
             effect_settings,
+            easy_mode_settings,
             presets_state: PresetsState::default(),
             render_settings: RenderSettings::default(),
             render_jobs: Vec::new(),
@@ -550,10 +576,12 @@ impl NtscApp {
 
     fn update_effect(&self) {
         if let Some(PipelineInfo { egui_sink, .. }) = &self.pipeline {
-            egui_sink.set_property(
-                "settings",
-                NtscFilterSettings((&self.effect_settings).into()),
-            );
+            let effect_settings = if self.easy_mode_enabled {
+                (&self.easy_mode_settings).into()
+            } else {
+                self.effect_settings.clone()
+            };
+            egui_sink.set_property("settings", NtscFilterSettings(effect_settings.into()));
         }
     }
 
@@ -595,19 +623,19 @@ fn parse_expression_string(input: &str) -> Option<f64> {
 }
 
 impl NtscApp {
-    fn setting_from_descriptor(
+    fn setting_from_descriptor<T: Settings>(
         ui: &mut egui::Ui,
-        effect_settings: &mut NtscEffectFullSettings,
-        descriptor: &SettingDescriptor<NtscEffectFullSettings>,
+        effect_settings: &mut T,
+        descriptor: &SettingDescriptor<T>,
         interlace_mode: VideoInterlaceMode,
     ) -> (Response, bool) {
         let mut changed = false;
-        let resp = match &descriptor {
-            SettingDescriptor {
-                id: setting_id::RANDOM_SEED,
-                ..
-            } => {
-                ui.horizontal(|ui| {
+        if descriptor.id.id == setting_id::RANDOM_SEED.id
+            || descriptor.id.id == easy::setting_id::RANDOM_SEED.id
+        {
+            let resp = ui
+                .horizontal(|ui| {
+                    let mut value = effect_settings.get_field_int(&descriptor.id).unwrap();
                     let rand_btn_width = ui.spacing().interact_size.y + 4.0;
                     let resp = ui.add_sized(
                         egui::vec2(
@@ -615,8 +643,7 @@ impl NtscApp {
                                 - rand_btn_width,
                             ui.spacing().interact_size.y,
                         ),
-                        egui::DragValue::new(&mut effect_settings.random_seed)
-                            .range(i32::MIN..=i32::MAX),
+                        egui::DragValue::new(&mut value).range(i32::MIN..=i32::MAX),
                     );
 
                     if ui
@@ -627,20 +654,32 @@ impl NtscApp {
                         .on_hover_text("Randomize seed")
                         .clicked()
                     {
-                        effect_settings.random_seed = rand::random::<i32>();
+                        value = rand::random::<i32>();
                         changed = true;
                     }
+
+                    changed |= resp.changed();
 
                     let label = ui.add(egui::Label::new(descriptor.label).truncate());
                     if let Some(description) = descriptor.description {
                         label.on_hover_text(description);
                     }
 
+                    if changed {
+                        effect_settings
+                            .set_field_int(&descriptor.id, value)
+                            .unwrap();
+                    }
+
                     // Return the DragValue response because that's what we want to add the tooltip to
                     resp
                 })
-                .response
-            }
+                .response;
+
+            return (resp, changed);
+        }
+
+        let resp = match &descriptor {
             SettingDescriptor {
                 kind: SettingKind::Enumeration { options, .. },
                 ..
@@ -814,17 +853,18 @@ impl NtscApp {
         (resp, changed)
     }
 
-    fn settings_from_descriptors(
-        effect_settings: &mut NtscEffectFullSettings,
+    fn settings_from_descriptors<T: Settings>(
+        effect_settings: &mut T,
         ui: &mut egui::Ui,
-        descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
+        descriptors: &[SettingDescriptor<T>],
         interlace_mode: VideoInterlaceMode,
     ) -> bool {
         let mut changed = false;
         for descriptor in descriptors {
             // The "Use field" setting has no effect on interlaced video.
-            let (response, setting_changed) = if descriptor.id == setting_id::USE_FIELD
-                && interlace_mode != VideoInterlaceMode::Progressive
+            let (response, setting_changed) = if descriptor.id.id == setting_id::USE_FIELD.id
+                || descriptor.id.id == easy::setting_id::USE_FIELD.id
+                    && interlace_mode != VideoInterlaceMode::Progressive
             {
                 let resp = ui.add_enabled_ui(false, |ui| {
                     Self::setting_from_descriptor(
@@ -1031,6 +1071,8 @@ impl NtscApp {
                     let Self {
                         settings_list,
                         effect_settings,
+                        settings_list_easy,
+                        easy_mode_settings,
                         pipeline,
                         ..
                     } = self;
@@ -1038,12 +1080,26 @@ impl NtscApp {
                         .as_ref()
                         .and_then(|pipeline| pipeline.metadata.lock().unwrap().interlace_mode)
                         .unwrap_or(VideoInterlaceMode::Progressive);
-                    let settings_changed = Self::settings_from_descriptors(
-                        effect_settings,
-                        ui,
-                        &settings_list.settings,
-                        interlace_mode,
-                    );
+
+                    let mut settings_changed = ui
+                        .checkbox(&mut self.easy_mode_enabled, "Easy mode")
+                        .changed();
+
+                    if self.easy_mode_enabled {
+                        settings_changed |= Self::settings_from_descriptors(
+                            easy_mode_settings,
+                            ui,
+                            &settings_list_easy.settings,
+                            interlace_mode,
+                        );
+                    } else {
+                        settings_changed |= Self::settings_from_descriptors(
+                            effect_settings,
+                            ui,
+                            &settings_list.settings,
+                            interlace_mode,
+                        );
+                    }
                     if settings_changed {
                         self.update_effect();
                     }
@@ -2209,9 +2265,19 @@ impl eframe::App for NtscApp {
             storage.set_string("effect_settings", settings_json);
         }
 
+        if let Ok(settings_json) = self
+            .settings_list_easy
+            .to_json(&self.easy_mode_settings)
+            .stringify()
+        {
+            storage.set_string("easy_mode_settings", settings_json);
+        }
+
         storage.set_string(
             "color_theme",
             <&ColorTheme as Into<&str>>::into(&self.color_theme).to_owned(),
         );
+
+        storage.set_string("easy_mode_enabled", self.easy_mode_enabled.to_string())
     }
 }

@@ -126,7 +126,7 @@ impl SharedData {
             parameter_suite: parameter_suite
                 .as_ref()
                 .ok_or(OfxStat::kOfxStatErrMissingHostFeature)?,
-            settings_list: SettingsList::new(),
+            settings_list: SettingsList::<NtscEffectFullSettings>::new(),
             supports_multiple_clip_depths: false,
         })
     }
