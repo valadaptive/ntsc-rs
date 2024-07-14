@@ -867,9 +867,9 @@ impl NtscApp {
         let mut changed = false;
         for descriptor in descriptors {
             // The "Use field" setting has no effect on interlaced video.
-            let (response, setting_changed) = if descriptor.id.id == setting_id::USE_FIELD.id
-                || descriptor.id.id == easy::setting_id::USE_FIELD.id
-                    && interlace_mode != VideoInterlaceMode::Progressive
+            let (response, setting_changed) = if (descriptor.id.id == setting_id::USE_FIELD.id
+                || descriptor.id.id == easy::setting_id::USE_FIELD.id)
+                && interlace_mode != VideoInterlaceMode::Progressive
             {
                 let resp = ui.add_enabled_ui(false, |ui| {
                     Self::setting_from_descriptor(
