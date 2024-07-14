@@ -914,6 +914,7 @@ pub struct SettingDescriptor<T: Settings> {
 pub enum ParseSettingsError {
     InvalidJSON(JsonParseError),
     MissingField { field: &'static str },
+    WrongApplication,
     UnsupportedVersion { version: f64 },
     InvalidSettingType { key: String, expected: &'static str },
     GetSetField(GetSetFieldError),
@@ -925,6 +926,9 @@ impl Display for ParseSettingsError {
             ParseSettingsError::InvalidJSON(e) => e.fmt(f),
             ParseSettingsError::MissingField { field } => {
                 write!(f, "Missing field: {}", field)
+            }
+            ParseSettingsError::WrongApplication => {
+                write!(f, "ntscQT presets are not supported")
             }
             ParseSettingsError::UnsupportedVersion { version } => {
                 write!(f, "Unsupported version: {}", version)
@@ -1118,7 +1122,14 @@ impl<T: Settings> SettingsList<T> {
 
         let version = parsed_map
             .get_and_expect::<f64>("version")?
-            .ok_or_else(|| ParseSettingsError::MissingField { field: "version" })?;
+            .ok_or_else(|| {
+                // Detect if the user is trying to import an ntscQT preset, and display a specific error if so
+                if parsed_map.contains_key("_composite_preemphasis") {
+                    ParseSettingsError::WrongApplication
+                } else {
+                    ParseSettingsError::MissingField { field: "version" }
+                }
+            })?;
         if version != 1.0 {
             return Err(ParseSettingsError::UnsupportedVersion { version });
         }
