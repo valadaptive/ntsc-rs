@@ -1,9 +1,9 @@
 use std::{
-    any::Any,
-    borrow::{Borrow, BorrowMut},
+    any::{self, Any},
     collections::HashMap,
     error::Error,
     fmt::Display,
+    marker::PhantomData,
     ops::RangeInclusive,
 };
 
@@ -71,7 +71,8 @@ pub enum PhaseShift {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
 pub enum VHSTapeSpeed {
-    SP = 1,
+    NONE,
+    SP,
     LP,
     EP,
 }
@@ -83,23 +84,24 @@ pub(crate) struct VHSTapeParams {
 }
 
 impl VHSTapeSpeed {
-    pub(crate) fn filter_params(&self) -> VHSTapeParams {
+    pub(crate) fn filter_params(&self) -> Option<VHSTapeParams> {
         match self {
-            VHSTapeSpeed::SP => VHSTapeParams {
+            Self::NONE => None,
+            Self::SP => Some(VHSTapeParams {
                 luma_cut: 2400000.0,
                 chroma_cut: 320000.0,
                 chroma_delay: 4,
-            },
-            VHSTapeSpeed::LP => VHSTapeParams {
+            }),
+            Self::LP => Some(VHSTapeParams {
                 luma_cut: 1900000.0,
                 chroma_cut: 300000.0,
                 chroma_delay: 5,
-            },
-            VHSTapeSpeed::EP => VHSTapeParams {
+            }),
+            Self::EP => Some(VHSTapeParams {
                 luma_cut: 1400000.0,
                 chroma_cut: 280000.0,
                 chroma_delay: 6,
-            },
+            }),
         }
     }
 }
@@ -140,7 +142,7 @@ impl Default for VHSEdgeWaveSettings {
 
 #[derive(FullSettings, Debug, Clone, PartialEq)]
 pub struct VHSSettings {
-    pub tape_speed: Option<VHSTapeSpeed>,
+    pub tape_speed: VHSTapeSpeed,
     pub chroma_loss: f32,
     #[settings_block]
     pub sharpen: Option<VHSSharpenSettings>,
@@ -151,7 +153,7 @@ pub struct VHSSettings {
 impl Default for VHSSettings {
     fn default() -> Self {
         Self {
-            tape_speed: Some(VHSTapeSpeed::LP),
+            tape_speed: VHSTapeSpeed::LP,
             chroma_loss: 0.0,
             sharpen: Some(VHSSharpenSettings::default()),
             edge_wave: Some(VHSEdgeWaveSettings::default()),
@@ -311,6 +313,109 @@ impl<T: Default> Default for SettingsBlock<T> {
     }
 }
 
+/// A fixed identifier that points to a given setting. The id and name cannot be changed or reused once created.
+#[derive(Debug, PartialEq, Eq)]
+pub struct SettingID<T: Settings + ?Sized> {
+    pub id: u32,
+    pub name: &'static str,
+    settings: PhantomData<fn(&()) -> &T>,
+}
+
+// We can't use derive here because of the type parameter:
+// https://github.com/rust-lang/rust/issues/26925
+impl<T: Settings + ?Sized> std::hash::Hash for SettingID<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+        self.name.hash(state);
+    }
+}
+impl<T: Settings + ?Sized> Clone for SettingID<T> {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            name: self.name,
+            settings: self.settings.clone(),
+        }
+    }
+}
+impl<T: Settings + ?Sized> Copy for SettingID<T> {}
+
+impl<T: Settings> SettingID<T> {
+    pub const fn new(id: u32, name: &'static str) -> Self {
+        Self {
+            id,
+            name,
+            settings: PhantomData,
+        }
+    }
+}
+
+#[rustfmt::skip]
+pub mod setting_id {
+    use super::{SettingID, NtscEffectFullSettings};
+    type NtscSettingID = SettingID<NtscEffectFullSettings>;
+
+    pub const CHROMA_LOWPASS_IN: NtscSettingID = SettingID::new(0, "chroma_lowpass_in");
+    pub const COMPOSITE_PREEMPHASIS: NtscSettingID = SettingID::new(1, "composite_preemphasis");
+    pub const VIDEO_SCANLINE_PHASE_SHIFT: NtscSettingID = SettingID::new(2, "video_scanline_phase_shift");
+    pub const VIDEO_SCANLINE_PHASE_SHIFT_OFFSET: NtscSettingID = SettingID::new(3, "video_scanline_phase_shift_offset");
+    pub const COMPOSITE_NOISE_INTENSITY: NtscSettingID = SettingID::new(4, "composite_noise_intensity");
+    pub const CHROMA_NOISE_INTENSITY: NtscSettingID = SettingID::new(5, "chroma_noise_intensity");
+    pub const SNOW_INTENSITY: NtscSettingID = SettingID::new(6, "snow_intensity");
+    pub const CHROMA_PHASE_NOISE_INTENSITY: NtscSettingID = SettingID::new(7, "chroma_phase_noise_intensity");
+    pub const CHROMA_DELAY_HORIZONTAL: NtscSettingID = SettingID::new(8, "chroma_delay_horizontal");
+    pub const CHROMA_DELAY_VERTICAL: NtscSettingID = SettingID::new(9, "chroma_delay_vertical");
+    pub const CHROMA_LOWPASS_OUT: NtscSettingID = SettingID::new(10, "chroma_lowpass_out");
+    pub const HEAD_SWITCHING: NtscSettingID = SettingID::new(11, "head_switching");
+    pub const HEAD_SWITCHING_HEIGHT: NtscSettingID = SettingID::new(12, "head_switching_height");
+    pub const HEAD_SWITCHING_OFFSET: NtscSettingID = SettingID::new(13, "head_switching_offset");
+    pub const HEAD_SWITCHING_HORIZONTAL_SHIFT: NtscSettingID = SettingID::new(14, "head_switching_horizontal_shift");
+    pub const TRACKING_NOISE: NtscSettingID = SettingID::new(15, "tracking_noise");
+    pub const TRACKING_NOISE_HEIGHT: NtscSettingID = SettingID::new(16, "tracking_noise_height");
+    pub const TRACKING_NOISE_WAVE_INTENSITY: NtscSettingID = SettingID::new(17, "tracking_noise_wave_intensity");
+    pub const TRACKING_NOISE_SNOW_INTENSITY: NtscSettingID = SettingID::new(18, "tracking_noise_snow_intensity");
+    pub const RINGING: NtscSettingID = SettingID::new(19, "ringing");
+    pub const RINGING_FREQUENCY: NtscSettingID = SettingID::new(20, "ringing_frequency");
+    pub const RINGING_POWER: NtscSettingID = SettingID::new(21, "ringing_power");
+    pub const RINGING_SCALE: NtscSettingID = SettingID::new(22, "ringing_scale");
+    pub const VHS_SETTINGS: NtscSettingID = SettingID::new(23, "vhs_settings");
+    pub const VHS_TAPE_SPEED: NtscSettingID = SettingID::new(24, "vhs_tape_speed");
+    pub const CHROMA_VERT_BLEND: NtscSettingID = SettingID::new(25, "vhs_chroma_vert_blend");
+    pub const VHS_CHROMA_LOSS: NtscSettingID = SettingID::new(26, "vhs_chroma_loss");
+    pub const VHS_SHARPEN_INTENSITY: NtscSettingID = SettingID::new(27, "vhs_sharpen");
+    pub const VHS_EDGE_WAVE_INTENSITY: NtscSettingID = SettingID::new(28, "vhs_edge_wave");
+    pub const VHS_EDGE_WAVE_SPEED: NtscSettingID = SettingID::new(29, "vhs_edge_wave_speed");
+    pub const USE_FIELD: NtscSettingID = SettingID::new(30, "use_field");
+    pub const TRACKING_NOISE_NOISE_INTENSITY: NtscSettingID = SettingID::new(31, "tracking_noise_noise_intensity");
+    pub const BANDWIDTH_SCALE: NtscSettingID = SettingID::new(32, "bandwidth_scale");
+    pub const CHROMA_DEMODULATION: NtscSettingID = SettingID::new(33, "chroma_demodulation");
+    pub const SNOW_ANISOTROPY: NtscSettingID = SettingID::new(34, "snow_anisotropy");
+    pub const TRACKING_NOISE_SNOW_ANISOTROPY: NtscSettingID = SettingID::new(35, "tracking_noise_snow_anisotropy");
+    pub const RANDOM_SEED: NtscSettingID = SettingID::new(36, "random_seed");
+    pub const CHROMA_PHASE_ERROR: NtscSettingID = SettingID::new(37, "chroma_phase_error");
+    pub const INPUT_LUMA_FILTER: NtscSettingID = SettingID::new(38, "input_luma_filter");
+    pub const VHS_EDGE_WAVE_ENABLED: NtscSettingID = SettingID::new(39, "vhs_edge_wave_enabled");
+    pub const VHS_EDGE_WAVE_FREQUENCY: NtscSettingID = SettingID::new(40, "vhs_edge_wave_frequency");
+    pub const VHS_EDGE_WAVE_DETAIL: NtscSettingID = SettingID::new(41, "vhs_edge_wave_detail");
+    pub const CHROMA_NOISE: NtscSettingID = SettingID::new(42, "chroma_noise");
+    pub const CHROMA_NOISE_FREQUENCY: NtscSettingID = SettingID::new(43, "chroma_noise_frequency");
+    pub const CHROMA_NOISE_DETAIL: NtscSettingID = SettingID::new(44, "chroma_noise_detail");
+    pub const LUMA_SMEAR: NtscSettingID = SettingID::new(45, "luma_smear");
+    pub const FILTER_TYPE: NtscSettingID = SettingID::new(46, "filter_type");
+    pub const VHS_SHARPEN_ENABLED: NtscSettingID = SettingID::new(47, "vhs_sharpen_enabled");
+    pub const VHS_SHARPEN_FREQUENCY: NtscSettingID = SettingID::new(48, "vhs_sharpen_frequency");
+    pub const HEAD_SWITCHING_START_MID_LINE: NtscSettingID = SettingID::new(49, "head_switching_start_mid_line");
+    pub const HEAD_SWITCHING_MID_LINE_POSITION: NtscSettingID = SettingID::new(50, "head_switching_mid_line_position");
+    pub const HEAD_SWITCHING_MID_LINE_JITTER: NtscSettingID = SettingID::new(51, "head_switching_mid_line_jitter");
+    pub const COMPOSITE_NOISE: NtscSettingID = SettingID::new(52, "composite_noise");
+    pub const COMPOSITE_NOISE_FREQUENCY: NtscSettingID = SettingID::new(53, "composite_noise_frequency");
+    pub const COMPOSITE_NOISE_DETAIL: NtscSettingID = SettingID::new(54, "composite_noise_detail");
+    pub const LUMA_NOISE: NtscSettingID = SettingID::new(55, "luma_noise");
+    pub const LUMA_NOISE_FREQUENCY: NtscSettingID = SettingID::new(56, "luma_noise_frequency");
+    pub const LUMA_NOISE_INTENSITY: NtscSettingID = SettingID::new(57, "luma_noise_intensity");
+    pub const LUMA_NOISE_DETAIL: NtscSettingID = SettingID::new(58, "luma_noise_detail");
+}
+
 #[derive(FullSettings, Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct NtscEffect {
@@ -340,7 +445,8 @@ pub struct NtscEffect {
     pub snow_anisotropy: f32,
     pub chroma_phase_noise_intensity: f32,
     pub chroma_phase_error: f32,
-    pub chroma_delay: (f32, i32),
+    pub chroma_delay_horizontal: f32,
+    pub chroma_delay_vertical: i32,
     #[settings_block(nested)]
     pub vhs_settings: Option<VHSSettings>,
     pub chroma_vert_blend: bool,
@@ -384,13 +490,295 @@ impl Default for NtscEffect {
             }),
             chroma_phase_noise_intensity: 0.001,
             chroma_phase_error: 0.0,
-            chroma_delay: (0.0, 0),
+            chroma_delay_horizontal: 0.0,
+            chroma_delay_vertical: 0,
             vhs_settings: Some(VHSSettings::default()),
             chroma_vert_blend: true,
             bandwidth_scale: 1.0,
         }
     }
 }
+
+// These macros are used to implement getting and setting various fields on the settings struct based on `SettingID`s.
+// Enums require special handling because ToPrimitive and FromPrimitive are used for conversion there, and those traits
+// are not object-safe (or otherwise have various ?Sized issues). For all other setting types, we can just use Any to
+// do dynamic typing.
+
+macro_rules! get_field_ref_impl {
+    ($($field_path:ident).+) => {
+        {
+            let type_name = any::type_name_of_val(&$($field_path).+);
+            (&$($field_path).+ as &dyn Any)
+                .downcast_ref()
+                .ok_or_else(|| GetSetFieldError::TypeMismatch {
+                    actual_type: type_name,
+                    requested_type: any::type_name::<T>()
+                })
+        }
+    };
+
+    ($($field_path:ident).+, IS_AN_ENUM) => {
+        Err(GetSetFieldError::TypeMismatch {
+            actual_type: any::type_name_of_val(&$($field_path).+),
+            requested_type: any::type_name::<T>()
+        })
+    };
+}
+
+macro_rules! get_field_mut_impl {
+    ($($field_path:ident).+) => {
+        {
+            let type_name = any::type_name_of_val(&$($field_path).+);
+            (&mut $($field_path).+ as &mut dyn Any)
+                .downcast_mut()
+                .ok_or_else(|| GetSetFieldError::TypeMismatch {
+                    actual_type: type_name,
+                    requested_type: any::type_name::<T>()
+                })
+        }
+    };
+
+    ($($field_path:ident).+, IS_AN_ENUM) => {
+        {
+            Err(GetSetFieldError::TypeMismatch {
+                actual_type: any::type_name_of_val(&$($field_path).+),
+                requested_type: any::type_name::<T>()
+            })
+        }
+    };
+}
+
+macro_rules! get_field_enum_impl {
+    ($($field_path:ident).+) => {
+        {
+            let type_name = any::type_name_of_val(&$($field_path).+);
+            Err(GetSetFieldError::TypeMismatch { actual_type: type_name, requested_type: "enum" })
+        }
+    };
+
+    ($($field_path:ident).+, IS_AN_ENUM) => {
+        Ok($($field_path).+.to_u32().expect("enum fields should be representable as u32"))
+    };
+}
+
+macro_rules! set_field_enum_impl {
+    ($value:ident, $($field_path:ident).+) => {
+        {
+            let type_name = any::type_name_of_val(&$($field_path).+);
+            Err(GetSetFieldError::TypeMismatch { actual_type: type_name, requested_type: "enum" })
+        }
+    };
+
+    ($value:ident, $($field_path:ident).+, IS_AN_ENUM) => {
+        {
+            $($field_path).+ = FromPrimitive::from_u32($value).expect("enum fields should be representable as u32");
+            Ok(())
+        }
+    };
+}
+
+macro_rules! impl_settings_for {
+    ($item:ty, $(($field_setting_id:path, $($field_path:ident).+$(, $is_enum:tt)?)),+$(,)?) => {
+        impl Settings for $item {
+            fn get_field_mut<T: 'static>(&mut self, id: &SettingID<Self>) -> Result<&mut T, GetSetFieldError> {
+                match id {
+                    $(&$field_setting_id => get_field_mut_impl!(self.$($field_path).+$(, $is_enum)?),)+
+                    _ => Err(GetSetFieldError::NoSuchID(id.name))
+                }
+            }
+
+            fn get_field_ref<T: 'static>(&self, id: &SettingID<Self>) -> Result<&T, GetSetFieldError> {
+                match id {
+                    $(&$field_setting_id => get_field_ref_impl!(self.$($field_path).+$(, $is_enum)?),)+
+                    _ => Err(GetSetFieldError::NoSuchID(id.name))
+                }
+            }
+
+            fn get_field_enum(&self, id: &SettingID<Self>) -> Result<u32, GetSetFieldError> {
+                match id {
+                    $(&$field_setting_id => get_field_enum_impl!(self.$($field_path).+$(, $is_enum)?),)+
+                    _ => Err(GetSetFieldError::NoSuchID(id.name))
+                }
+            }
+
+            fn set_field_enum(&mut self, id: &SettingID<Self>, value: u32) -> Result<(), GetSetFieldError> {
+                match id {
+                    $(&$field_setting_id => set_field_enum_impl!(value, self.$($field_path).+$(, $is_enum)?),)+
+                    _ => Err(GetSetFieldError::NoSuchID(id.name))
+                }
+            }
+        }
+    }
+}
+
+impl_settings_for!(
+    NtscEffectFullSettings,
+    (setting_id::CHROMA_LOWPASS_IN, chroma_lowpass_in, IS_AN_ENUM),
+    (setting_id::COMPOSITE_PREEMPHASIS, composite_preemphasis),
+    (
+        setting_id::VIDEO_SCANLINE_PHASE_SHIFT,
+        video_scanline_phase_shift,
+        IS_AN_ENUM
+    ),
+    (
+        setting_id::VIDEO_SCANLINE_PHASE_SHIFT_OFFSET,
+        video_scanline_phase_shift_offset
+    ),
+    (
+        setting_id::COMPOSITE_NOISE_INTENSITY,
+        composite_noise.settings.intensity
+    ),
+    (
+        setting_id::CHROMA_NOISE_INTENSITY,
+        chroma_noise.settings.intensity
+    ),
+    (setting_id::SNOW_INTENSITY, snow_intensity),
+    (
+        setting_id::CHROMA_PHASE_NOISE_INTENSITY,
+        chroma_phase_noise_intensity
+    ),
+    (setting_id::CHROMA_DELAY_HORIZONTAL, chroma_delay_horizontal),
+    (setting_id::CHROMA_DELAY_VERTICAL, chroma_delay_vertical),
+    (
+        setting_id::CHROMA_LOWPASS_OUT,
+        chroma_lowpass_out,
+        IS_AN_ENUM
+    ),
+    (setting_id::HEAD_SWITCHING, head_switching.enabled),
+    (
+        setting_id::HEAD_SWITCHING_HEIGHT,
+        head_switching.settings.height
+    ),
+    (
+        setting_id::HEAD_SWITCHING_OFFSET,
+        head_switching.settings.offset
+    ),
+    (
+        setting_id::HEAD_SWITCHING_HORIZONTAL_SHIFT,
+        head_switching.settings.horiz_shift
+    ),
+    (setting_id::TRACKING_NOISE, tracking_noise.enabled),
+    (
+        setting_id::TRACKING_NOISE_HEIGHT,
+        tracking_noise.settings.height
+    ),
+    (
+        setting_id::TRACKING_NOISE_WAVE_INTENSITY,
+        tracking_noise.settings.wave_intensity
+    ),
+    (
+        setting_id::TRACKING_NOISE_SNOW_INTENSITY,
+        tracking_noise.settings.snow_intensity
+    ),
+    (setting_id::RINGING, ringing.enabled),
+    (setting_id::RINGING_FREQUENCY, ringing.settings.frequency),
+    (setting_id::RINGING_POWER, ringing.settings.power),
+    (setting_id::RINGING_SCALE, ringing.settings.intensity),
+    (setting_id::VHS_SETTINGS, vhs_settings.enabled),
+    (
+        setting_id::VHS_TAPE_SPEED,
+        vhs_settings.settings.tape_speed,
+        IS_AN_ENUM
+    ),
+    (setting_id::CHROMA_VERT_BLEND, chroma_vert_blend),
+    (
+        setting_id::VHS_CHROMA_LOSS,
+        vhs_settings.settings.chroma_loss
+    ),
+    (
+        setting_id::VHS_SHARPEN_INTENSITY,
+        vhs_settings.settings.sharpen.settings.intensity
+    ),
+    (
+        setting_id::VHS_EDGE_WAVE_INTENSITY,
+        vhs_settings.settings.edge_wave.settings.intensity
+    ),
+    (
+        setting_id::VHS_EDGE_WAVE_SPEED,
+        vhs_settings.settings.edge_wave.settings.speed
+    ),
+    (setting_id::USE_FIELD, use_field, IS_AN_ENUM),
+    (
+        setting_id::TRACKING_NOISE_NOISE_INTENSITY,
+        tracking_noise.settings.noise_intensity
+    ),
+    (setting_id::BANDWIDTH_SCALE, bandwidth_scale),
+    (
+        setting_id::CHROMA_DEMODULATION,
+        chroma_demodulation,
+        IS_AN_ENUM
+    ),
+    (setting_id::SNOW_ANISOTROPY, snow_anisotropy),
+    (
+        setting_id::TRACKING_NOISE_SNOW_ANISOTROPY,
+        tracking_noise.settings.snow_anisotropy
+    ),
+    (setting_id::RANDOM_SEED, random_seed),
+    (setting_id::CHROMA_PHASE_ERROR, chroma_phase_error),
+    (setting_id::INPUT_LUMA_FILTER, input_luma_filter, IS_AN_ENUM),
+    (
+        setting_id::VHS_EDGE_WAVE_ENABLED,
+        vhs_settings.settings.edge_wave.enabled
+    ),
+    (
+        setting_id::VHS_EDGE_WAVE_FREQUENCY,
+        vhs_settings.settings.edge_wave.settings.frequency
+    ),
+    (
+        setting_id::VHS_EDGE_WAVE_DETAIL,
+        vhs_settings.settings.edge_wave.settings.detail
+    ),
+    (setting_id::CHROMA_NOISE, chroma_noise.enabled),
+    (
+        setting_id::CHROMA_NOISE_FREQUENCY,
+        chroma_noise.settings.frequency
+    ),
+    (
+        setting_id::CHROMA_NOISE_DETAIL,
+        chroma_noise.settings.detail
+    ),
+    (setting_id::LUMA_SMEAR, luma_smear),
+    (setting_id::FILTER_TYPE, filter_type, IS_AN_ENUM),
+    (
+        setting_id::VHS_SHARPEN_ENABLED,
+        vhs_settings.settings.sharpen.enabled
+    ),
+    (
+        setting_id::VHS_SHARPEN_FREQUENCY,
+        vhs_settings.settings.sharpen.settings.frequency
+    ),
+    (
+        setting_id::HEAD_SWITCHING_START_MID_LINE,
+        head_switching.settings.mid_line.enabled
+    ),
+    (
+        setting_id::HEAD_SWITCHING_MID_LINE_POSITION,
+        head_switching.settings.mid_line.settings.position
+    ),
+    (
+        setting_id::HEAD_SWITCHING_MID_LINE_JITTER,
+        head_switching.settings.mid_line.settings.jitter
+    ),
+    (setting_id::COMPOSITE_NOISE, composite_noise.enabled),
+    (
+        setting_id::COMPOSITE_NOISE_FREQUENCY,
+        composite_noise.settings.frequency
+    ),
+    (
+        setting_id::COMPOSITE_NOISE_DETAIL,
+        composite_noise.settings.detail
+    ),
+    (setting_id::LUMA_NOISE, luma_noise.enabled),
+    (
+        setting_id::LUMA_NOISE_FREQUENCY,
+        luma_noise.settings.frequency
+    ),
+    (
+        setting_id::LUMA_NOISE_INTENSITY,
+        luma_noise.settings.intensity
+    ),
+    (setting_id::LUMA_NOISE_DETAIL, luma_noise.settings.detail),
+);
 
 /// Menu item for a SettingKind::Enumeration.
 #[derive(Debug)]
@@ -403,7 +791,7 @@ pub struct MenuItem {
 /// All of the types a setting can take. API consumers can map this to the UI elements available in whatever they're
 /// porting ntsc-rs to.
 #[derive(Debug)]
-pub enum SettingKind {
+pub enum SettingKind<T: Settings> {
     /// Selection of specific options, preferably in a specific order.
     Enumeration {
         options: Vec<MenuItem>,
@@ -429,523 +817,97 @@ pub enum SettingKind {
     Boolean { default_value: bool },
     /// Group of settings, which contains an "enable/disable" checkbox and child settings.
     Group {
-        children: Vec<SettingDescriptor>,
+        children: Vec<SettingDescriptor<T>>,
         default_value: bool,
     },
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum GetSetFieldError {
+    TypeMismatch {
+        actual_type: &'static str,
+        requested_type: &'static str,
+    },
+    NoSuchID(&'static str),
+}
+
+impl Display for GetSetFieldError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GetSetFieldError::TypeMismatch { actual_type, requested_type } => write!(f, "Tried to get or set field with type {requested_type}, but actual type is {actual_type}"),
+            GetSetFieldError::NoSuchID(id) => write!(f, "No such field with ID {id}"),
+        }
+    }
+}
+
+pub trait Settings: Default {
+    fn get_field_bool(&self, id: &SettingID<Self>) -> Result<bool, GetSetFieldError> {
+        self.get_field_ref(id).copied()
+    }
+    fn set_field_bool(
+        &mut self,
+        id: &SettingID<Self>,
+        value: bool,
+    ) -> Result<(), GetSetFieldError> {
+        *self.get_field_mut(id)? = value;
+        Ok(())
+    }
+    fn get_field_float(&self, id: &SettingID<Self>) -> Result<f32, GetSetFieldError> {
+        self.get_field_ref(id).copied()
+    }
+    fn set_field_float(
+        &mut self,
+        id: &SettingID<Self>,
+        value: f32,
+    ) -> Result<(), GetSetFieldError> {
+        *self.get_field_mut(id)? = value;
+        Ok(())
+    }
+    fn get_field_int(&self, id: &SettingID<Self>) -> Result<i32, GetSetFieldError> {
+        self.get_field_ref::<i32>(id)
+            .copied()
+            .or_else(|_| self.get_field_ref::<u32>(id).copied().map(|v| v as i32))
+    }
+    fn set_field_int(&mut self, id: &SettingID<Self>, value: i32) -> Result<(), GetSetFieldError> {
+        if let Ok(field) = self.get_field_mut::<i32>(id) {
+            *field = value;
+            return Ok(());
+        }
+
+        match self.get_field_mut::<u32>(id) {
+            Ok(field) => {
+                *field = value as u32;
+                Ok(())
+            }
+
+            Err(GetSetFieldError::TypeMismatch { actual_type, .. }) => {
+                Err(GetSetFieldError::TypeMismatch {
+                    actual_type,
+                    requested_type: "i32 or u32",
+                })
+            }
+
+            Err(e) => Err(e),
+        }
+    }
+    fn get_field_enum(&self, id: &SettingID<Self>) -> Result<u32, GetSetFieldError>;
+    fn set_field_enum(&mut self, id: &SettingID<Self>, value: u32) -> Result<(), GetSetFieldError>;
+
+    fn get_field_ref<T: 'static>(&self, id: &SettingID<Self>) -> Result<&T, GetSetFieldError>;
+    fn get_field_mut<T: 'static>(
+        &mut self,
+        id: &SettingID<Self>,
+    ) -> Result<&mut T, GetSetFieldError>;
 }
 
 /// A single setting, which includes the data common to all settings (its name, optional description/tooltip, and ID)
 /// along with a SettingKind which contains data specific to the type of setting.
 #[derive(Debug)]
-pub struct SettingDescriptor {
+pub struct SettingDescriptor<T: Settings> {
     pub label: &'static str,
     pub description: Option<&'static str>,
-    pub kind: SettingKind,
-    pub id: SettingID,
-}
-
-/// An ID which uniquely identifies a single setting / field in the NtscEffect struct. These IDs cannot be changed or
-/// reused if old ones are removed.
-#[allow(non_camel_case_types)]
-#[derive(Debug, FromPrimitive, ToPrimitive, Clone, Copy, Hash, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum SettingID {
-    CHROMA_LOWPASS_IN,
-    COMPOSITE_PREEMPHASIS,
-    VIDEO_SCANLINE_PHASE_SHIFT,
-    VIDEO_SCANLINE_PHASE_SHIFT_OFFSET,
-    COMPOSITE_NOISE_INTENSITY,
-    CHROMA_NOISE_INTENSITY,
-    SNOW_INTENSITY,
-    CHROMA_PHASE_NOISE_INTENSITY,
-    CHROMA_DELAY_HORIZONTAL,
-    CHROMA_DELAY_VERTICAL,
-    CHROMA_LOWPASS_OUT,
-
-    HEAD_SWITCHING,
-    HEAD_SWITCHING_HEIGHT,
-    HEAD_SWITCHING_OFFSET,
-    HEAD_SWITCHING_HORIZONTAL_SHIFT,
-
-    TRACKING_NOISE,
-    TRACKING_NOISE_HEIGHT,
-    TRACKING_NOISE_WAVE_INTENSITY,
-    TRACKING_NOISE_SNOW_INTENSITY,
-
-    RINGING,
-    RINGING_FREQUENCY,
-    RINGING_POWER,
-    RINGING_SCALE,
-
-    VHS_SETTINGS,
-    VHS_TAPE_SPEED,
-
-    CHROMA_VERT_BLEND,
-
-    VHS_CHROMA_LOSS,
-    VHS_SHARPEN_INTENSITY,
-    VHS_EDGE_WAVE_INTENSITY,
-    VHS_EDGE_WAVE_SPEED,
-
-    USE_FIELD,
-    TRACKING_NOISE_NOISE_INTENSITY,
-    BANDWIDTH_SCALE,
-    CHROMA_DEMODULATION,
-    SNOW_ANISOTROPY,
-    TRACKING_NOISE_SNOW_ANISOTROPY,
-
-    RANDOM_SEED,
-
-    CHROMA_PHASE_ERROR,
-    INPUT_LUMA_FILTER,
-
-    VHS_EDGE_WAVE_ENABLED,
-    VHS_EDGE_WAVE_FREQUENCY,
-    VHS_EDGE_WAVE_DETAIL,
-
-    CHROMA_NOISE,
-    CHROMA_NOISE_FREQUENCY,
-    CHROMA_NOISE_DETAIL,
-
-    LUMA_SMEAR,
-
-    FILTER_TYPE,
-
-    VHS_SHARPEN_ENABLED,
-    VHS_SHARPEN_FREQUENCY,
-
-    HEAD_SWITCHING_START_MID_LINE,
-    HEAD_SWITCHING_MID_LINE_POSITION,
-    HEAD_SWITCHING_MID_LINE_JITTER,
-
-    COMPOSITE_NOISE,
-    COMPOSITE_NOISE_FREQUENCY,
-    COMPOSITE_NOISE_DETAIL,
-
-    LUMA_NOISE,
-    LUMA_NOISE_FREQUENCY,
-    LUMA_NOISE_INTENSITY,
-    LUMA_NOISE_DETAIL,
-}
-
-/// Helper macro for allowing a SettingID to return a reference to the given field in the NtscEffect(FullSettings)
-/// struct.
-macro_rules! impl_get_field_ref {
-    ($self:ident, $settings:ident, $borrow_op:ident) => {
-        match $self {
-            SettingID::USE_FIELD => $settings.use_field.$borrow_op(),
-            SettingID::CHROMA_LOWPASS_IN => $settings.chroma_lowpass_in.$borrow_op(),
-            SettingID::COMPOSITE_PREEMPHASIS => $settings.composite_preemphasis.$borrow_op(),
-            SettingID::VIDEO_SCANLINE_PHASE_SHIFT => {
-                $settings.video_scanline_phase_shift.$borrow_op()
-            }
-            SettingID::VIDEO_SCANLINE_PHASE_SHIFT_OFFSET => {
-                $settings.video_scanline_phase_shift_offset.$borrow_op()
-            }
-            SettingID::COMPOSITE_NOISE_INTENSITY => {
-                $settings.composite_noise.settings.intensity.$borrow_op()
-            }
-            SettingID::CHROMA_NOISE_INTENSITY => {
-                $settings.chroma_noise.settings.intensity.$borrow_op()
-            }
-            SettingID::SNOW_INTENSITY => $settings.snow_intensity.$borrow_op(),
-            SettingID::SNOW_ANISOTROPY => $settings.snow_anisotropy.$borrow_op(),
-            SettingID::CHROMA_DEMODULATION => $settings.chroma_demodulation.$borrow_op(),
-            SettingID::CHROMA_PHASE_NOISE_INTENSITY => {
-                $settings.chroma_phase_noise_intensity.$borrow_op()
-            }
-            SettingID::CHROMA_DELAY_HORIZONTAL => $settings.chroma_delay.0.$borrow_op(),
-            SettingID::CHROMA_DELAY_VERTICAL => $settings.chroma_delay.1.$borrow_op(),
-            SettingID::CHROMA_LOWPASS_OUT => $settings.chroma_lowpass_out.$borrow_op(),
-
-            SettingID::HEAD_SWITCHING => $settings.head_switching.enabled.$borrow_op(),
-            SettingID::HEAD_SWITCHING_HEIGHT => {
-                $settings.head_switching.settings.height.$borrow_op()
-            }
-            SettingID::HEAD_SWITCHING_OFFSET => {
-                $settings.head_switching.settings.offset.$borrow_op()
-            }
-            SettingID::HEAD_SWITCHING_HORIZONTAL_SHIFT => {
-                $settings.head_switching.settings.horiz_shift.$borrow_op()
-            }
-
-            SettingID::TRACKING_NOISE => $settings.tracking_noise.enabled.$borrow_op(),
-            SettingID::TRACKING_NOISE_HEIGHT => {
-                $settings.tracking_noise.settings.height.$borrow_op()
-            }
-            SettingID::TRACKING_NOISE_WAVE_INTENSITY => $settings
-                .tracking_noise
-                .settings
-                .wave_intensity
-                .$borrow_op(),
-            SettingID::TRACKING_NOISE_SNOW_INTENSITY => $settings
-                .tracking_noise
-                .settings
-                .snow_intensity
-                .$borrow_op(),
-            SettingID::TRACKING_NOISE_SNOW_ANISOTROPY => $settings
-                .tracking_noise
-                .settings
-                .snow_anisotropy
-                .$borrow_op(),
-            SettingID::TRACKING_NOISE_NOISE_INTENSITY => $settings
-                .tracking_noise
-                .settings
-                .noise_intensity
-                .$borrow_op(),
-
-            SettingID::RINGING => $settings.ringing.enabled.$borrow_op(),
-            SettingID::RINGING_FREQUENCY => $settings.ringing.settings.frequency.$borrow_op(),
-            SettingID::RINGING_POWER => $settings.ringing.settings.power.$borrow_op(),
-            SettingID::RINGING_SCALE => $settings.ringing.settings.intensity.$borrow_op(),
-
-            SettingID::VHS_SETTINGS => $settings.vhs_settings.enabled.$borrow_op(),
-            SettingID::VHS_TAPE_SPEED => $settings.vhs_settings.settings.tape_speed.$borrow_op(),
-            SettingID::CHROMA_VERT_BLEND => $settings.chroma_vert_blend.$borrow_op(),
-            SettingID::VHS_CHROMA_LOSS => $settings.vhs_settings.settings.chroma_loss.$borrow_op(),
-            SettingID::VHS_SHARPEN_ENABLED => {
-                $settings.vhs_settings.settings.sharpen.enabled.$borrow_op()
-            }
-            SettingID::VHS_SHARPEN_INTENSITY => $settings
-                .vhs_settings
-                .settings
-                .sharpen
-                .settings
-                .intensity
-                .$borrow_op(),
-            SettingID::VHS_SHARPEN_FREQUENCY => $settings
-                .vhs_settings
-                .settings
-                .sharpen
-                .settings
-                .frequency
-                .$borrow_op(),
-            SettingID::VHS_EDGE_WAVE_ENABLED => $settings
-                .vhs_settings
-                .settings
-                .edge_wave
-                .enabled
-                .$borrow_op(),
-            SettingID::VHS_EDGE_WAVE_SPEED => $settings
-                .vhs_settings
-                .settings
-                .edge_wave
-                .settings
-                .speed
-                .$borrow_op(),
-            SettingID::VHS_EDGE_WAVE_INTENSITY => $settings
-                .vhs_settings
-                .settings
-                .edge_wave
-                .settings
-                .intensity
-                .$borrow_op(),
-            SettingID::VHS_EDGE_WAVE_FREQUENCY => $settings
-                .vhs_settings
-                .settings
-                .edge_wave
-                .settings
-                .frequency
-                .$borrow_op(),
-            SettingID::VHS_EDGE_WAVE_DETAIL => $settings
-                .vhs_settings
-                .settings
-                .edge_wave
-                .settings
-                .detail
-                .$borrow_op(),
-
-            SettingID::BANDWIDTH_SCALE => $settings.bandwidth_scale.$borrow_op(),
-            SettingID::RANDOM_SEED => $settings.random_seed.$borrow_op(),
-
-            SettingID::CHROMA_PHASE_ERROR => $settings.chroma_phase_error.$borrow_op(),
-            SettingID::INPUT_LUMA_FILTER => $settings.input_luma_filter.$borrow_op(),
-
-            SettingID::CHROMA_NOISE => $settings.chroma_noise.enabled.$borrow_op(),
-            SettingID::CHROMA_NOISE_FREQUENCY => {
-                $settings.chroma_noise.settings.frequency.$borrow_op()
-            }
-            SettingID::CHROMA_NOISE_DETAIL => $settings.chroma_noise.settings.detail.$borrow_op(),
-
-            SettingID::LUMA_SMEAR => $settings.luma_smear.$borrow_op(),
-
-            SettingID::FILTER_TYPE => $settings.filter_type.$borrow_op(),
-
-            SettingID::HEAD_SWITCHING_START_MID_LINE => $settings
-                .head_switching
-                .settings
-                .mid_line
-                .enabled
-                .$borrow_op(),
-            SettingID::HEAD_SWITCHING_MID_LINE_POSITION => $settings
-                .head_switching
-                .settings
-                .mid_line
-                .settings
-                .position
-                .$borrow_op(),
-            SettingID::HEAD_SWITCHING_MID_LINE_JITTER => $settings
-                .head_switching
-                .settings
-                .mid_line
-                .settings
-                .jitter
-                .$borrow_op(),
-
-            SettingID::COMPOSITE_NOISE => $settings.composite_noise.enabled.$borrow_op(),
-            SettingID::COMPOSITE_NOISE_FREQUENCY => {
-                $settings.composite_noise.settings.frequency.$borrow_op()
-            }
-            SettingID::COMPOSITE_NOISE_DETAIL => {
-                $settings.composite_noise.settings.detail.$borrow_op()
-            }
-
-            SettingID::LUMA_NOISE => $settings.luma_noise.enabled.$borrow_op(),
-            SettingID::LUMA_NOISE_FREQUENCY => $settings.luma_noise.settings.frequency.$borrow_op(),
-            SettingID::LUMA_NOISE_INTENSITY => $settings.luma_noise.settings.intensity.$borrow_op(),
-            SettingID::LUMA_NOISE_DETAIL => $settings.luma_noise.settings.detail.$borrow_op(),
-        }
-    };
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum SetFieldEnumError {
-    InvalidEnumValue { setting_id: SettingID, value: u32 },
-    NotAnEnum { setting_id: SettingID },
-}
-
-impl SetFieldEnumError {
-    pub fn invalid_enum_value(setting_id: SettingID, value: u32) -> Self {
-        Self::InvalidEnumValue { setting_id, value }
-    }
-
-    pub fn not_an_enum(setting_id: SettingID) -> Self {
-        Self::NotAnEnum { setting_id }
-    }
-}
-
-impl Display for SetFieldEnumError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SetFieldEnumError::InvalidEnumValue { setting_id, value } => {
-                write!(
-                    f,
-                    "Invalid enum value {} for setting ID {}",
-                    value,
-                    setting_id.name()
-                )
-            }
-            SetFieldEnumError::NotAnEnum { setting_id } => {
-                write!(f, "Setting ID {} is not an enum", setting_id.name())
-            }
-        }
-    }
-}
-
-impl Error for SetFieldEnumError {}
-
-#[derive(Debug, Clone, Copy)]
-pub enum SetFieldIntError {
-    NegativeValue { setting_id: SettingID },
-    NotAnInt { setting_id: SettingID },
-}
-
-impl Display for SetFieldIntError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SetFieldIntError::NegativeValue { setting_id } => write!(
-                f,
-                "Negative value passed for setting ID {}",
-                setting_id.name()
-            ),
-            SetFieldIntError::NotAnInt { setting_id } => write!(
-                f,
-                "Tried to set an integer value for setting {}, but {} is not an integer",
-                setting_id.name(),
-                setting_id.name()
-            ),
-        }
-    }
-}
-
-impl Error for SetFieldIntError {}
-
-impl SettingID {
-    /// Assuming that this setting ID refers to an enum-valued setting, set the field in the passed settings to the
-    /// given integral value (converted to an enum value).
-    pub fn set_field_enum(
-        &self,
-        settings: &mut NtscEffectFullSettings,
-        value: u32,
-    ) -> Result<(), SetFieldEnumError> {
-        // We have to handle each enum manually since FromPrimitive isn't object-safe
-        let err = || SetFieldEnumError::invalid_enum_value(*self, value);
-        match self {
-            SettingID::INPUT_LUMA_FILTER => {
-                settings.input_luma_filter = LumaLowpass::from_u32(value).ok_or_else(err)?;
-            }
-            SettingID::CHROMA_LOWPASS_IN => {
-                settings.chroma_lowpass_in = ChromaLowpass::from_u32(value).ok_or_else(err)?;
-            }
-            SettingID::VIDEO_SCANLINE_PHASE_SHIFT => {
-                settings.video_scanline_phase_shift =
-                    PhaseShift::from_u32(value).ok_or_else(err)?;
-            }
-            SettingID::CHROMA_LOWPASS_OUT => {
-                settings.chroma_lowpass_out = ChromaLowpass::from_u32(value).ok_or_else(err)?;
-            }
-            SettingID::VHS_TAPE_SPEED => {
-                if value == 0 {
-                    settings.vhs_settings.settings.tape_speed = None;
-                    return Ok(());
-                }
-                settings.vhs_settings.settings.tape_speed =
-                    Some(VHSTapeSpeed::from_u32(value).ok_or_else(err)?);
-            }
-            SettingID::USE_FIELD => {
-                settings.use_field = UseField::from_u32(value).ok_or_else(err)?;
-            }
-            SettingID::CHROMA_DEMODULATION => {
-                settings.chroma_demodulation =
-                    ChromaDemodulationFilter::from_u32(value).ok_or_else(err)?;
-            }
-            SettingID::FILTER_TYPE => {
-                settings.filter_type = FilterType::from_u32(value).ok_or_else(err)?;
-            }
-            _ => {
-                return Err(SetFieldEnumError::not_an_enum(*self));
-            }
-        }
-        Ok(())
-    }
-
-    /// Assuming that this setting ID refers to an enum-valued setting, return the integral value corresponding to the
-    /// current value of that enum in the passed settings struct.
-    pub fn get_field_enum(&self, settings: &NtscEffectFullSettings) -> Option<u32> {
-        // We have to handle each enum manually since FromPrimitive isn't object-safe
-        match self {
-            SettingID::INPUT_LUMA_FILTER => Some(settings.input_luma_filter.to_u32().unwrap()),
-            SettingID::CHROMA_LOWPASS_IN => Some(settings.chroma_lowpass_in.to_u32().unwrap()),
-            SettingID::VIDEO_SCANLINE_PHASE_SHIFT => {
-                Some(settings.video_scanline_phase_shift.to_u32().unwrap())
-            }
-            SettingID::CHROMA_LOWPASS_OUT => Some(settings.chroma_lowpass_out.to_u32().unwrap()),
-            SettingID::VHS_TAPE_SPEED => Some(match settings.vhs_settings.settings.tape_speed {
-                Some(tape_speed) => tape_speed.to_u32().unwrap(),
-                None => 0,
-            }),
-            SettingID::USE_FIELD => Some(settings.use_field.to_u32().unwrap()),
-            SettingID::CHROMA_DEMODULATION => Some(settings.chroma_demodulation.to_u32().unwrap()),
-            SettingID::FILTER_TYPE => Some(settings.filter_type.to_u32().unwrap()),
-            _ => None,
-        }
-    }
-
-    /// Return a reference to the field that this setting ID refers to in the passed settings struct. Must be the
-    /// correct type.
-    pub fn get_field_ref<'a, T: 'static>(
-        &self,
-        settings: &'a NtscEffectFullSettings,
-    ) -> Option<&'a T> {
-        let field_ref: &dyn Any = impl_get_field_ref!(self, settings, borrow);
-
-        field_ref.downcast_ref::<T>()
-    }
-
-    /// Return a mutable reference to the field that this setting ID refers to in the passed settings struct. Must be
-    /// the correct type.
-    pub fn get_field_mut<'a, T: 'static>(
-        &self,
-        settings: &'a mut NtscEffectFullSettings,
-    ) -> Option<&'a mut T> {
-        let field_ref: &mut dyn Any = impl_get_field_ref!(self, settings, borrow_mut);
-
-        field_ref.downcast_mut::<T>()
-    }
-
-    /// Set an integer-valued field, whether it's signed or unsigned.
-    pub fn set_field_int(
-        &self,
-        settings: &mut NtscEffectFullSettings,
-        value: i32,
-    ) -> Result<(), SetFieldIntError> {
-        if let Some(field) = self.get_field_mut::<i32>(settings) {
-            *field = value;
-        } else if let Some(field) = self.get_field_mut::<u32>(settings) {
-            *field = value
-                .try_into()
-                .map_err(|_| SetFieldIntError::NegativeValue { setting_id: *self })?;
-        } else {
-            return Err(SetFieldIntError::NotAnInt { setting_id: *self });
-        }
-
-        Ok(())
-    }
-
-    /// Get the fixed name for a setting ID. These are unique, and will not be changed or reused.
-    pub fn name(&self) -> &'static str {
-        match self {
-            SettingID::CHROMA_LOWPASS_IN => "chroma_lowpass_in",
-            SettingID::COMPOSITE_PREEMPHASIS => "composite_preemphasis",
-            SettingID::VIDEO_SCANLINE_PHASE_SHIFT => "video_scanline_phase_shift",
-            SettingID::VIDEO_SCANLINE_PHASE_SHIFT_OFFSET => "video_scanline_phase_shift_offset",
-            SettingID::COMPOSITE_NOISE_INTENSITY => "composite_noise_intensity",
-            SettingID::CHROMA_NOISE_INTENSITY => "chroma_noise_intensity",
-            SettingID::SNOW_INTENSITY => "snow_intensity",
-            SettingID::CHROMA_PHASE_NOISE_INTENSITY => "chroma_phase_noise_intensity",
-            SettingID::CHROMA_DELAY_HORIZONTAL => "chroma_delay_horizontal",
-            SettingID::CHROMA_DELAY_VERTICAL => "chroma_delay_vertical",
-            SettingID::CHROMA_LOWPASS_OUT => "chroma_lowpass_out",
-            SettingID::HEAD_SWITCHING => "head_switching",
-            SettingID::HEAD_SWITCHING_HEIGHT => "head_switching_height",
-            SettingID::HEAD_SWITCHING_OFFSET => "head_switching_offset",
-            SettingID::HEAD_SWITCHING_HORIZONTAL_SHIFT => "head_switching_horizontal_shift",
-            SettingID::TRACKING_NOISE => "tracking_noise",
-            SettingID::TRACKING_NOISE_HEIGHT => "tracking_noise_height",
-            SettingID::TRACKING_NOISE_WAVE_INTENSITY => "tracking_noise_wave_intensity",
-            SettingID::TRACKING_NOISE_SNOW_INTENSITY => "tracking_noise_snow_intensity",
-            SettingID::RINGING => "ringing",
-            SettingID::RINGING_FREQUENCY => "ringing_frequency",
-            SettingID::RINGING_POWER => "ringing_power",
-            SettingID::RINGING_SCALE => "ringing_scale",
-            SettingID::VHS_SETTINGS => "vhs_settings",
-            SettingID::VHS_TAPE_SPEED => "vhs_tape_speed",
-            SettingID::CHROMA_VERT_BLEND => "vhs_chroma_vert_blend",
-            SettingID::VHS_CHROMA_LOSS => "vhs_chroma_loss",
-            SettingID::VHS_SHARPEN_ENABLED => "vhs_sharpen_enabled",
-            SettingID::VHS_SHARPEN_INTENSITY => "vhs_sharpen",
-            SettingID::VHS_SHARPEN_FREQUENCY => "vhs_sharpen_frequency",
-            SettingID::VHS_EDGE_WAVE_ENABLED => "vhs_edge_wave_enabled",
-            SettingID::VHS_EDGE_WAVE_INTENSITY => "vhs_edge_wave",
-            SettingID::VHS_EDGE_WAVE_SPEED => "vhs_edge_wave_speed",
-            SettingID::VHS_EDGE_WAVE_FREQUENCY => "vhs_edge_wave_frequency",
-            SettingID::VHS_EDGE_WAVE_DETAIL => "vhs_edge_wave_detail",
-            SettingID::USE_FIELD => "use_field",
-            SettingID::TRACKING_NOISE_NOISE_INTENSITY => "tracking_noise_noise_intensity",
-            SettingID::BANDWIDTH_SCALE => "bandwidth_scale",
-            SettingID::CHROMA_DEMODULATION => "chroma_demodulation",
-            SettingID::SNOW_ANISOTROPY => "snow_anisotropy",
-            SettingID::TRACKING_NOISE_SNOW_ANISOTROPY => "tracking_noise_snow_anisotropy",
-            SettingID::RANDOM_SEED => "random_seed",
-            SettingID::CHROMA_PHASE_ERROR => "chroma_phase_error",
-            SettingID::INPUT_LUMA_FILTER => "input_luma_filter",
-            SettingID::CHROMA_NOISE => "chroma_noise",
-            SettingID::CHROMA_NOISE_FREQUENCY => "chroma_noise_frequency",
-            SettingID::CHROMA_NOISE_DETAIL => "chroma_noise_detail",
-            SettingID::LUMA_SMEAR => "luma_smear",
-            SettingID::FILTER_TYPE => "filter_type",
-            SettingID::HEAD_SWITCHING_START_MID_LINE => "head_switching_start_mid_line",
-            SettingID::HEAD_SWITCHING_MID_LINE_POSITION => "head_switching_mid_line_position",
-            SettingID::HEAD_SWITCHING_MID_LINE_JITTER => "head_switching_mid_line_jitter",
-            SettingID::COMPOSITE_NOISE => "composite_noise",
-            SettingID::COMPOSITE_NOISE_FREQUENCY => "composite_noise_frequency",
-            SettingID::COMPOSITE_NOISE_DETAIL => "composite_noise_detail",
-            SettingID::LUMA_NOISE => "luma_noise",
-            SettingID::LUMA_NOISE_FREQUENCY => "luma_noise_frequency",
-            SettingID::LUMA_NOISE_INTENSITY => "luma_noise_intensity",
-            SettingID::LUMA_NOISE_DETAIL => "luma_noise_detail",
-        }
-    }
+    pub kind: SettingKind<T>,
+    pub id: SettingID<T>,
 }
 
 #[derive(Debug)]
@@ -954,7 +916,7 @@ pub enum ParseSettingsError {
     MissingField { field: &'static str },
     UnsupportedVersion { version: f64 },
     InvalidSettingType { key: String, expected: &'static str },
-    InvalidEnumValue(SetFieldEnumError),
+    GetSetField(GetSetFieldError),
 }
 
 impl Display for ParseSettingsError {
@@ -970,7 +932,9 @@ impl Display for ParseSettingsError {
             ParseSettingsError::InvalidSettingType { key, expected } => {
                 write!(f, "Setting {} is not a(n) {}", key, expected)
             }
-            ParseSettingsError::InvalidEnumValue(e) => e.fmt(f),
+            ParseSettingsError::GetSetField(e) => {
+                write!(f, "Error getting or setting field: {}", e)
+            }
         }
     }
 }
@@ -987,9 +951,9 @@ impl From<JsonParseError> for ParseSettingsError {
     }
 }
 
-impl From<SetFieldEnumError> for ParseSettingsError {
-    fn from(err: SetFieldEnumError) -> Self {
-        Self::InvalidEnumValue(err)
+impl From<GetSetFieldError> for ParseSettingsError {
+    fn from(err: GetSetFieldError) -> Self {
+        Self::GetSetField(err)
     }
 }
 
@@ -1020,21 +984,21 @@ impl GetAndExpect for HashMap<String, JsonValue> {
 }
 
 /// Introspectable list of settings and their types and ranges.
-pub struct SettingsList {
-    pub settings: Box<[SettingDescriptor]>,
+pub struct SettingsList<T: Settings> {
+    pub settings: Box<[SettingDescriptor<T>]>,
     pub by_id: Box<[Option<Box<[usize]>>]>,
 }
 
-impl SettingsList {
+impl<T: Settings> SettingsList<T> {
     /// Construct a map of setting IDs to their paths by index. Used only by the C API.
     /// TODO: perhaps find another way to do this, given that we don't really use the C API anymore?
     fn construct_id_map(
-        settings: &[SettingDescriptor],
+        settings: &[SettingDescriptor<T>],
         map: &mut Vec<Option<Box<[usize]>>>,
         parent_path: &[usize],
     ) {
         for (index, descriptor) in settings.iter().enumerate() {
-            let id = descriptor.id as usize;
+            let id = descriptor.id.id as usize;
             if id >= map.len() {
                 map.resize(id + 1, None);
             }
@@ -1049,9 +1013,131 @@ impl SettingsList {
         }
     }
 
+    /// Recursive method for writing the settings within a given list of descriptors (either top-level or within a
+    /// group) to a given JSON map.
+    fn settings_to_json(
+        dst: &mut HashMap<String, JsonValue>,
+        descriptors: &[SettingDescriptor<T>],
+        settings: &T,
+    ) {
+        for descriptor in descriptors {
+            let value = match &descriptor.kind {
+                SettingKind::Enumeration { .. } => {
+                    JsonValue::Number(settings.get_field_enum(&descriptor.id).unwrap() as f64)
+                }
+                SettingKind::Percentage { .. } | SettingKind::FloatRange { .. } => {
+                    JsonValue::Number(settings.get_field_float(&descriptor.id).unwrap() as f64)
+                }
+                SettingKind::IntRange { .. } => {
+                    JsonValue::Number(settings.get_field_int(&descriptor.id).unwrap() as f64)
+                }
+                SettingKind::Boolean { .. } => {
+                    JsonValue::Boolean(settings.get_field_bool(&descriptor.id).unwrap())
+                }
+                SettingKind::Group { children, .. } => {
+                    Self::settings_to_json(dst, children, settings);
+                    JsonValue::Boolean(settings.get_field_bool(&descriptor.id).unwrap())
+                }
+            };
+
+            dst.insert(descriptor.id.name.to_string(), value);
+        }
+    }
+
+    /// Convert the settings in the given settings struct to JSON.
+    pub fn to_json(&self, settings: &T) -> JsonValue {
+        let mut dst_map = HashMap::<String, JsonValue>::new();
+        Self::settings_to_json(&mut dst_map, &self.settings, settings);
+
+        dst_map.insert("version".to_string(), JsonValue::Number(1.0));
+
+        JsonValue::Object(dst_map)
+    }
+
+    /// Recursive method for reading the settings within a given list of descriptors (either top-level or within a
+    /// group) from a given JSON map and using them to update the given settings struct.
+    fn settings_from_json(
+        json: &HashMap<String, JsonValue>,
+        descriptors: &[SettingDescriptor<T>],
+        settings: &mut T,
+    ) -> Result<(), ParseSettingsError> {
+        for descriptor in descriptors {
+            let key = descriptor.id.name;
+            match &descriptor.kind {
+                SettingKind::Enumeration { .. } => {
+                    json.get_and_expect::<f64>(key)?
+                        .map(|n| settings.set_field_enum(&descriptor.id, n as u32))
+                        .transpose()?;
+                }
+                SettingKind::FloatRange { range, .. } => {
+                    json.get_and_expect::<f64>(key)?.map(|n| {
+                        settings.set_field_float(
+                            &descriptor.id,
+                            (n as f32).clamp(*range.start(), *range.end()),
+                        )
+                    });
+                }
+                SettingKind::Percentage { .. } => {
+                    json.get_and_expect::<f64>(key)?.map(|n| {
+                        settings.set_field_float(&descriptor.id, (n as f32).clamp(0.0, 1.0))
+                    });
+                }
+                SettingKind::IntRange { range, .. } => {
+                    json.get_and_expect::<f64>(key)?.map(|n| {
+                        settings.set_field_int(
+                            &descriptor.id,
+                            (n as i32).clamp(*range.start(), *range.end()),
+                        )
+                    });
+                }
+                SettingKind::Boolean { .. } => {
+                    json.get_and_expect::<bool>(key)?
+                        .map(|b| settings.set_field_bool(&descriptor.id, b));
+                }
+                SettingKind::Group { children, .. } => {
+                    json.get_and_expect::<bool>(key)?
+                        .map(|b| settings.set_field_bool(&descriptor.id, b));
+                    Self::settings_from_json(json, children, settings)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Parse settings from a given string of JSON and return a new settings struct.
+    pub fn from_json(&self, json: &str) -> Result<T, ParseSettingsError> {
+        let parsed = json.parse::<JsonValue>()?;
+
+        let parsed_map = parsed.get::<HashMap<_, _>>().ok_or_else(|| {
+            ParseSettingsError::InvalidSettingType {
+                key: "<root>".to_string(),
+                expected: "object",
+            }
+        })?;
+
+        let version = parsed_map
+            .get_and_expect::<f64>("version")?
+            .ok_or_else(|| ParseSettingsError::MissingField { field: "version" })?;
+        if version != 1.0 {
+            return Err(ParseSettingsError::UnsupportedVersion { version });
+        }
+
+        let mut dst_settings = T::default();
+        Self::settings_from_json(parsed_map, &self.settings, &mut dst_settings)?;
+
+        Ok(dst_settings)
+    }
+
+    pub fn all_descriptors(&self) -> SettingDescriptors<T> {
+        SettingDescriptors::new(self)
+    }
+}
+
+impl SettingsList<NtscEffectFullSettings> {
     /// Construct a list of all the effect settings. This isn't meant to be mutated--you should just create one instance
     /// of this to use for your entire application/plugin.
-    pub fn new() -> SettingsList {
+    pub fn new() -> Self {
         let default_settings = NtscEffectFullSettings::default();
 
         let v = vec![
@@ -1059,13 +1145,13 @@ impl SettingsList {
                 label: "Random seed",
                 description: None,
                 kind: SettingKind::IntRange { range: i32::MIN..=i32::MAX, default_value: default_settings.random_seed },
-                id: SettingID::RANDOM_SEED,
+                id: setting_id::RANDOM_SEED,
             },
             SettingDescriptor {
                 label: "Bandwidth scale",
                 description: Some("Horizontally scale the effect by this amount. For 480p video, leave this at 1.0 for the most physically-accurate result."),
                 kind: SettingKind::FloatRange { range: 0.125..=8.0, logarithmic: false, default_value: default_settings.bandwidth_scale },
-                id: SettingID::BANDWIDTH_SCALE,
+                id: setting_id::BANDWIDTH_SCALE,
             },
             SettingDescriptor {
                 label: "Use field",
@@ -1105,7 +1191,7 @@ impl SettingsList {
                     ],
                     default_value: default_settings.use_field.to_u32().unwrap(),
                 },
-                id: SettingID::USE_FIELD,
+                id: setting_id::USE_FIELD,
             },
             SettingDescriptor {
                 label: "Lowpass filter type",
@@ -1125,7 +1211,7 @@ impl SettingsList {
                     ],
                     default_value: default_settings.filter_type.to_u32().unwrap(),
                 },
-                id: SettingID::FILTER_TYPE,
+                id: setting_id::FILTER_TYPE,
             },
             SettingDescriptor {
                 label: "Input luma filter",
@@ -1150,7 +1236,7 @@ impl SettingsList {
                     ],
                     default_value: default_settings.input_luma_filter.to_u32().unwrap(),
                 },
-                id: SettingID::INPUT_LUMA_FILTER,
+                id: setting_id::INPUT_LUMA_FILTER,
             },
             SettingDescriptor {
                 label: "Chroma low-pass in",
@@ -1175,7 +1261,7 @@ impl SettingsList {
                     ],
                     default_value: default_settings.chroma_lowpass_in.to_u32().unwrap(),
                 },
-                id: SettingID::CHROMA_LOWPASS_IN,
+                id: setting_id::CHROMA_LOWPASS_IN,
             },
             SettingDescriptor {
                 label: "Composite preemphasis",
@@ -1185,7 +1271,7 @@ impl SettingsList {
                     logarithmic: false,
                     default_value: default_settings.composite_preemphasis,
                 },
-                id: SettingID::COMPOSITE_PREEMPHASIS,
+                id: setting_id::COMPOSITE_PREEMPHASIS,
             },
 
             SettingDescriptor {
@@ -1197,24 +1283,24 @@ impl SettingsList {
                             label: "Intensity",
                             description: Some("Intensity of the noise."),
                             kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.composite_noise.settings.intensity },
-                            id: SettingID::COMPOSITE_NOISE_INTENSITY
+                            id: setting_id::COMPOSITE_NOISE_INTENSITY
                         },
                         SettingDescriptor {
                             label: "Frequency",
                             description: Some("Base wavelength, in pixels, of the noise."),
                             kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false, default_value: default_settings.composite_noise.settings.frequency },
-                            id: SettingID::COMPOSITE_NOISE_FREQUENCY
+                            id: setting_id::COMPOSITE_NOISE_FREQUENCY
                         },
                         SettingDescriptor {
                             label: "Detail",
                             description: Some("Octaves of noise."),
                             kind: SettingKind::IntRange { range: 1..=5, default_value: default_settings.composite_noise.settings.detail as i32 },
-                            id: SettingID::COMPOSITE_NOISE_DETAIL
+                            id: setting_id::COMPOSITE_NOISE_DETAIL
                         },
                     ],
                     default_value: true,
                 },
-                id: SettingID::COMPOSITE_NOISE,
+                id: setting_id::COMPOSITE_NOISE,
             },
             SettingDescriptor {
                 label: "Snow",
@@ -1224,7 +1310,7 @@ impl SettingsList {
                     logarithmic: true,
                     default_value: default_settings.snow_intensity,
                 },
-                id: SettingID::SNOW_INTENSITY,
+                id: setting_id::SNOW_INTENSITY,
             },
             SettingDescriptor {
                 label: "Snow anisotropy",
@@ -1233,7 +1319,7 @@ impl SettingsList {
                     logarithmic: false,
                     default_value: default_settings.snow_anisotropy,
                 },
-                id: SettingID::SNOW_ANISOTROPY,
+                id: setting_id::SNOW_ANISOTROPY,
             },
             SettingDescriptor {
                 label: "Scanline phase shift",
@@ -1263,7 +1349,7 @@ impl SettingsList {
                     ],
                     default_value: default_settings.video_scanline_phase_shift.to_u32().unwrap(),
                 },
-                id: SettingID::VIDEO_SCANLINE_PHASE_SHIFT,
+                id: setting_id::VIDEO_SCANLINE_PHASE_SHIFT,
             },
             SettingDescriptor {
                 label: "Scanline phase shift offset",
@@ -1272,7 +1358,7 @@ impl SettingsList {
                     range: 0..=4,
                     default_value: default_settings.video_scanline_phase_shift_offset,
                 },
-                id: SettingID::VIDEO_SCANLINE_PHASE_SHIFT_OFFSET,
+                id: setting_id::VIDEO_SCANLINE_PHASE_SHIFT_OFFSET,
             },
             SettingDescriptor {
                 label: "Chroma demodulation filter",
@@ -1302,13 +1388,13 @@ impl SettingsList {
                     ],
                     default_value: default_settings.chroma_demodulation.to_u32().unwrap(),
                 },
-                id: SettingID::CHROMA_DEMODULATION,
+                id: setting_id::CHROMA_DEMODULATION,
             },
             SettingDescriptor {
                 label: "Luma smear",
                 description: None,
                 kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false, default_value: default_settings.luma_smear },
-                id: SettingID::LUMA_SMEAR
+                id: setting_id::LUMA_SMEAR
             },
             SettingDescriptor {
                 label: "Head switching",
@@ -1319,19 +1405,19 @@ impl SettingsList {
                             label: "Height",
                             description: Some("Total height of the head-switching artifact."),
                             kind: SettingKind::IntRange { range: 0..=24, default_value: default_settings.head_switching.settings.height as i32 },
-                            id: SettingID::HEAD_SWITCHING_HEIGHT
+                            id: setting_id::HEAD_SWITCHING_HEIGHT
                         },
                         SettingDescriptor {
                             label: "Offset",
                             description: Some("How much of the head-switching artifact is off-screen."),
                             kind: SettingKind::IntRange { range: 0..=24, default_value: default_settings.head_switching.settings.offset as i32 },
-                            id: SettingID::HEAD_SWITCHING_OFFSET
+                            id: setting_id::HEAD_SWITCHING_OFFSET
                         },
                         SettingDescriptor {
                             label: "Horizontal shift",
                             description: Some("How much the head-switching artifact shifts rows horizontally."),
                             kind: SettingKind::FloatRange { range: -100.0..=100.0, logarithmic: false, default_value: default_settings.head_switching.settings.horiz_shift },
-                            id: SettingID::HEAD_SWITCHING_HORIZONTAL_SHIFT
+                            id: setting_id::HEAD_SWITCHING_HORIZONTAL_SHIFT
                         },
                         SettingDescriptor {
                             label: "Start mid-line",
@@ -1341,21 +1427,21 @@ impl SettingsList {
                                     label: "Position",
                                     description: Some("Horizontal position at which the head-switching starts."),
                                     kind: SettingKind::Percentage { logarithmic: false, default_value: default_settings.head_switching.settings.mid_line.settings.position },
-                                    id: SettingID::HEAD_SWITCHING_MID_LINE_POSITION
+                                    id: setting_id::HEAD_SWITCHING_MID_LINE_POSITION
                                 },
                                 SettingDescriptor {
                                     label: "Jitter",
                                     description: Some("How much the head-switching artifact \"jitters\" horizontally."),
                                     kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.head_switching.settings.mid_line.settings.jitter },
-                                    id: SettingID::HEAD_SWITCHING_MID_LINE_JITTER
+                                    id: setting_id::HEAD_SWITCHING_MID_LINE_JITTER
                                 }
                             ], default_value: true },
-                            id: SettingID::HEAD_SWITCHING_START_MID_LINE
+                            id: setting_id::HEAD_SWITCHING_START_MID_LINE
                         }
                     ],
                     default_value: true,
                 },
-                id: SettingID::HEAD_SWITCHING,
+                id: setting_id::HEAD_SWITCHING,
             },
             SettingDescriptor {
                 label: "Tracking noise",
@@ -1366,36 +1452,36 @@ impl SettingsList {
                             label: "Height",
                             description: Some("Total height of the tracking artifacts."),
                             kind: SettingKind::IntRange { range: 0..=120, default_value: default_settings.tracking_noise.settings.height as i32 },
-                            id: SettingID::TRACKING_NOISE_HEIGHT
+                            id: setting_id::TRACKING_NOISE_HEIGHT
                         },
                         SettingDescriptor {
                             label: "Wave intensity",
                             description: Some("How much the affected scanlines \"wave\" back and forth."),
                             kind: SettingKind::FloatRange { range: -50.0..=50.0, logarithmic: false, default_value: default_settings.tracking_noise.settings.wave_intensity },
-                            id: SettingID::TRACKING_NOISE_WAVE_INTENSITY
+                            id: setting_id::TRACKING_NOISE_WAVE_INTENSITY
                         },
                         SettingDescriptor {
                             label: "Snow intensity",
                             description: Some("Frequency of speckle-type noise in the artifacts."),
                             kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: true, default_value: default_settings.tracking_noise.settings.snow_intensity },
-                            id: SettingID::TRACKING_NOISE_SNOW_INTENSITY
+                            id: setting_id::TRACKING_NOISE_SNOW_INTENSITY
                         },
                         SettingDescriptor {
                             label: "Snow anisotropy",
                             description: Some("How much the speckles are clustered by scanline."),
                             kind: SettingKind::Percentage { logarithmic: false, default_value: default_settings.tracking_noise.settings.snow_intensity },
-                            id: SettingID::TRACKING_NOISE_SNOW_ANISOTROPY
+                            id: setting_id::TRACKING_NOISE_SNOW_ANISOTROPY
                         },
                         SettingDescriptor {
                             label: "Noise intensity",
                             description: Some("Intensity of non-speckle noise."),
                             kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.tracking_noise.settings.noise_intensity },
-                            id: SettingID::TRACKING_NOISE_NOISE_INTENSITY
+                            id: setting_id::TRACKING_NOISE_NOISE_INTENSITY
                         },
                     ],
                     default_value: true,
                 },
-                id: SettingID::TRACKING_NOISE,
+                id: setting_id::TRACKING_NOISE,
             },
             SettingDescriptor {
                 label: "Ringing",
@@ -1406,24 +1492,24 @@ impl SettingsList {
                             label: "Frequency",
                             description: Some("Frequency/period of the ringing, in \"rings per pixel\"."),
                             kind: SettingKind::Percentage { logarithmic: false, default_value: default_settings.ringing.settings.frequency },
-                            id: SettingID::RINGING_FREQUENCY
+                            id: setting_id::RINGING_FREQUENCY
                         },
                         SettingDescriptor {
                             label: "Power",
                             description: Some("The power of the notch filter / how far out the ringing extends."),
                             kind: SettingKind::FloatRange { range: 1.0..=10.0, logarithmic: false, default_value: default_settings.ringing.settings.power },
-                            id: SettingID::RINGING_POWER
+                            id: setting_id::RINGING_POWER
                         },
                         SettingDescriptor {
                             label: "Scale",
                             description: Some("Intensity of the ringing."),
                             kind: SettingKind::FloatRange { range: 0.0..=10.0, logarithmic: false, default_value: default_settings.ringing.settings.intensity },
-                            id: SettingID::RINGING_SCALE
+                            id: setting_id::RINGING_SCALE
                         },
                     ],
                     default_value: true,
                 },
-                id: SettingID::RINGING,
+                id: setting_id::RINGING,
             },
             SettingDescriptor {
                 label: "Luma noise",
@@ -1434,24 +1520,24 @@ impl SettingsList {
                             label: "Intensity",
                             description: Some("Intensity of the noise."),
                             kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.luma_noise.settings.intensity },
-                            id: SettingID::LUMA_NOISE_INTENSITY
+                            id: setting_id::LUMA_NOISE_INTENSITY
                         },
                         SettingDescriptor {
                             label: "Frequency",
                             description: Some("Base wavelength, in pixels, of the noise."),
                             kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false, default_value: default_settings.luma_noise.settings.frequency },
-                            id: SettingID::LUMA_NOISE_FREQUENCY
+                            id: setting_id::LUMA_NOISE_FREQUENCY
                         },
                         SettingDescriptor {
                             label: "Detail",
                             description: Some("Octaves of noise."),
                             kind: SettingKind::IntRange { range: 1..=5, default_value: default_settings.luma_noise.settings.detail as i32 },
-                            id: SettingID::LUMA_NOISE_DETAIL
+                            id: setting_id::LUMA_NOISE_DETAIL
                         },
                     ],
                     default_value: true,
                 },
-                id: SettingID::LUMA_NOISE,
+                id: setting_id::LUMA_NOISE,
             },
             SettingDescriptor {
                 label: "Chroma noise",
@@ -1462,24 +1548,24 @@ impl SettingsList {
                             label: "Intensity",
                             description: Some("Intensity of the noise."),
                             kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.chroma_noise.settings.intensity },
-                            id: SettingID::CHROMA_NOISE_INTENSITY
+                            id: setting_id::CHROMA_NOISE_INTENSITY
                         },
                         SettingDescriptor {
                             label: "Frequency",
                             description: Some("Base wavelength, in pixels, of the noise."),
                             kind: SettingKind::FloatRange { range: 0.0..=0.5, logarithmic: false, default_value: default_settings.chroma_noise.settings.frequency },
-                            id: SettingID::CHROMA_NOISE_FREQUENCY
+                            id: setting_id::CHROMA_NOISE_FREQUENCY
                         },
                         SettingDescriptor {
                             label: "Detail",
                             description: Some("Octaves of noise."),
                             kind: SettingKind::IntRange { range: 1..=5, default_value: default_settings.chroma_noise.settings.detail as i32 },
-                            id: SettingID::CHROMA_NOISE_DETAIL
+                            id: setting_id::CHROMA_NOISE_DETAIL
                         },
                     ],
                     default_value: true,
                 },
-                id: SettingID::CHROMA_NOISE,
+                id: setting_id::CHROMA_NOISE,
             },
             SettingDescriptor {
                 label: "Chroma phase error",
@@ -1488,7 +1574,7 @@ impl SettingsList {
                     logarithmic: false,
                     default_value: default_settings.chroma_phase_error,
                 },
-                id: SettingID::CHROMA_PHASE_ERROR,
+                id: setting_id::CHROMA_PHASE_ERROR,
             },
             SettingDescriptor {
                 label: "Chroma phase noise",
@@ -1497,7 +1583,7 @@ impl SettingsList {
                     logarithmic: true,
                     default_value: default_settings.chroma_phase_noise_intensity,
                 },
-                id: SettingID::CHROMA_PHASE_NOISE_INTENSITY,
+                id: setting_id::CHROMA_PHASE_NOISE_INTENSITY,
             },
             SettingDescriptor {
                 label: "Chroma delay (horizontal)",
@@ -1505,18 +1591,18 @@ impl SettingsList {
                 kind: SettingKind::FloatRange {
                     range: -40.0..=40.0,
                     logarithmic: false,
-                    default_value: default_settings.chroma_delay.0,
+                    default_value: default_settings.chroma_delay_horizontal,
                 },
-                id: SettingID::CHROMA_DELAY_HORIZONTAL,
+                id: setting_id::CHROMA_DELAY_HORIZONTAL,
             },
             SettingDescriptor {
                 label: "Chroma delay (vertical)",
                 description: Some("Vertical offset of the chrominance signal. Usually increases with VHS generation loss."),
                 kind: SettingKind::IntRange {
                     range: -20..=20,
-                    default_value: default_settings.chroma_delay.1,
+                    default_value: default_settings.chroma_delay_vertical,
                 },
-                id: SettingID::CHROMA_DELAY_VERTICAL,
+                id: setting_id::CHROMA_DELAY_VERTICAL,
             },
             SettingDescriptor {
                 label: "VHS emulation",
@@ -1551,13 +1637,13 @@ impl SettingsList {
                                 ],
                                 default_value: default_settings.chroma_lowpass_in.to_u32().unwrap(),
                             },
-                            id: SettingID::VHS_TAPE_SPEED
+                            id: setting_id::VHS_TAPE_SPEED
                         },
                         SettingDescriptor {
                             label: "Chroma loss",
                             description: Some("Chance that the chrominance signal is completely lost in each scanline."),
                             kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.vhs_settings.settings.chroma_loss },
-                            id: SettingID::VHS_CHROMA_LOSS
+                            id: setting_id::VHS_CHROMA_LOSS
                         },
                         SettingDescriptor {
                             label: "Sharpen",
@@ -1567,16 +1653,16 @@ impl SettingsList {
                                     label: "Intensity",
                                     description: Some("Amount of sharpening to apply."),
                                     kind: SettingKind::FloatRange { range: 0.0..=5.0, logarithmic: false, default_value: default_settings.vhs_settings.settings.sharpen.settings.intensity },
-                                    id: SettingID::VHS_SHARPEN_INTENSITY
+                                    id: setting_id::VHS_SHARPEN_INTENSITY
                                 },
                                 SettingDescriptor {
                                     label: "Frequency",
                                     description: Some("Frequency / radius of the sharpening, relative to the tape speed's cutoff frequency."),
                                     kind: SettingKind::FloatRange { range: 0.5..=4.0, logarithmic: false, default_value: default_settings.vhs_settings.settings.sharpen.settings.frequency },
-                                    id: SettingID::VHS_SHARPEN_FREQUENCY
+                                    id: setting_id::VHS_SHARPEN_FREQUENCY
                                 }
                             ], default_value: true },
-                            id: SettingID::VHS_SHARPEN_ENABLED
+                            id: setting_id::VHS_SHARPEN_ENABLED
                         },
                         SettingDescriptor {
                             label: "Edge wave",
@@ -1587,41 +1673,41 @@ impl SettingsList {
                                         label: "Intensity",
                                         description: Some("Horizontal waving of the image, in pixels."),
                                         kind: SettingKind::FloatRange { range: 0.0..=20.0, logarithmic: false, default_value: default_settings.vhs_settings.settings.edge_wave.settings.intensity },
-                                        id: SettingID::VHS_EDGE_WAVE_INTENSITY
+                                        id: setting_id::VHS_EDGE_WAVE_INTENSITY
                                     },
                                     SettingDescriptor {
                                         label: "Speed",
                                         description: Some("Speed at which the horizontal waving occurs."),
                                         kind: SettingKind::FloatRange { range: 0.0..=10.0, logarithmic: false, default_value: default_settings.vhs_settings.settings.edge_wave.settings.speed },
-                                        id: SettingID::VHS_EDGE_WAVE_SPEED
+                                        id: setting_id::VHS_EDGE_WAVE_SPEED
                                     },
                                     SettingDescriptor {
                                         label: "Frequency",
                                         description: Some("Base wavelength for the horizontal waving."),
                                         kind: SettingKind::FloatRange { range: 0.0..=0.5, logarithmic: false, default_value: default_settings.vhs_settings.settings.edge_wave.settings.frequency },
-                                        id: SettingID::VHS_EDGE_WAVE_FREQUENCY
+                                        id: setting_id::VHS_EDGE_WAVE_FREQUENCY
                                     },
                                     SettingDescriptor {
                                         label: "Detail",
                                         description: Some("Octaves of noise for the waves."),
                                         kind: SettingKind::IntRange { range: 1..=5, default_value: default_settings.vhs_settings.settings.edge_wave.settings.detail },
-                                        id: SettingID::VHS_EDGE_WAVE_DETAIL
+                                        id: setting_id::VHS_EDGE_WAVE_DETAIL
                                     },
                                 ],
                                 default_value: true
                             },
-                            id: SettingID::VHS_EDGE_WAVE_ENABLED
+                            id: setting_id::VHS_EDGE_WAVE_ENABLED
                         }
                     ],
                     default_value: true,
                 },
-                id: SettingID::VHS_SETTINGS,
+                id: setting_id::VHS_SETTINGS,
             },
             SettingDescriptor {
                 label: "Vertically blend chroma",
                 description: Some("Vertically blend each scanline's chrominance with the scanline above it."),
                 kind: SettingKind::Boolean { default_value: default_settings.chroma_vert_blend },
-                id: SettingID::CHROMA_VERT_BLEND
+                id: setting_id::CHROMA_VERT_BLEND
             },
             SettingDescriptor {
                 label: "Chroma low-pass out",
@@ -1646,7 +1732,7 @@ impl SettingsList {
                     ],
                     default_value: default_settings.chroma_lowpass_out.to_u32().unwrap(),
                 },
-                id: SettingID::CHROMA_LOWPASS_OUT,
+                id: setting_id::CHROMA_LOWPASS_OUT,
             },
         ];
 
@@ -1658,136 +1744,15 @@ impl SettingsList {
             by_id: by_id.into_boxed_slice(),
         }
     }
-
-    /// Recursive method for writing the settings within a given list of descriptors (either top-level or within a
-    /// group) to a given JSON map.
-    fn settings_to_json(
-        dst: &mut HashMap<String, JsonValue>,
-        descriptors: &[SettingDescriptor],
-        settings: &NtscEffectFullSettings,
-    ) {
-        for descriptor in descriptors {
-            let value = match &descriptor.kind {
-                SettingKind::Enumeration { .. } => {
-                    JsonValue::Number(descriptor.id.get_field_enum(settings).unwrap() as f64)
-                }
-                SettingKind::Percentage { .. } | SettingKind::FloatRange { .. } => {
-                    JsonValue::Number(*descriptor.id.get_field_ref::<f32>(settings).unwrap() as f64)
-                }
-                SettingKind::IntRange { .. } => JsonValue::Number(
-                    if let Some(n) = descriptor.id.get_field_ref::<u32>(settings) {
-                        *n as f64
-                    } else if let Some(n) = descriptor.id.get_field_ref::<i32>(settings) {
-                        *n as f64
-                    } else {
-                        panic!("int setting descriptor is not an i32 or u32")
-                    },
-                ),
-                SettingKind::Boolean { .. } => {
-                    JsonValue::Boolean(*descriptor.id.get_field_ref::<bool>(settings).unwrap())
-                }
-                SettingKind::Group { children, .. } => {
-                    Self::settings_to_json(dst, children, settings);
-                    JsonValue::Boolean(*descriptor.id.get_field_ref::<bool>(settings).unwrap())
-                }
-            };
-
-            dst.insert(descriptor.id.name().to_string(), value);
-        }
-    }
-
-    /// Convert the settings in the given settings struct to JSON.
-    pub fn to_json(&self, settings: &NtscEffectFullSettings) -> JsonValue {
-        let mut dst_map = HashMap::<String, JsonValue>::new();
-        Self::settings_to_json(&mut dst_map, &self.settings, settings);
-
-        dst_map.insert("version".to_string(), JsonValue::Number(1.0));
-
-        JsonValue::Object(dst_map)
-    }
-
-    /// Recursive method for reading the settings within a given list of descriptors (either top-level or within a
-    /// group) from a given JSON map and using them to update the given settings struct.
-    fn settings_from_json(
-        json: &HashMap<String, JsonValue>,
-        descriptors: &[SettingDescriptor],
-        settings: &mut NtscEffectFullSettings,
-    ) -> Result<(), ParseSettingsError> {
-        for descriptor in descriptors {
-            let key = descriptor.id.name();
-            match &descriptor.kind {
-                SettingKind::Enumeration { .. } => {
-                    json.get_and_expect::<f64>(key)?
-                        .map(|n| descriptor.id.set_field_enum(settings, n as u32))
-                        .transpose()?;
-                }
-                SettingKind::Percentage { .. } | SettingKind::FloatRange { .. } => {
-                    json.get_and_expect::<f64>(key)?.map(|n| {
-                        *descriptor.id.get_field_mut::<f32>(settings).unwrap() = n as f32;
-                    });
-                }
-                SettingKind::IntRange { .. } => {
-                    json.get_and_expect::<f64>(key)?.map(|n| {
-                        if let Some(field) = descriptor.id.get_field_mut::<u32>(settings) {
-                            *field = n as u32;
-                        } else if let Some(field) = descriptor.id.get_field_mut::<i32>(settings) {
-                            *field = n as i32;
-                        }
-                    });
-                }
-                SettingKind::Boolean { .. } => {
-                    json.get_and_expect::<bool>(key)?.map(|b| {
-                        *descriptor.id.get_field_mut::<bool>(settings).unwrap() = b;
-                    });
-                }
-                SettingKind::Group { children, .. } => {
-                    json.get_and_expect::<bool>(key)?.map(|b| {
-                        *descriptor.id.get_field_mut::<bool>(settings).unwrap() = b;
-                    });
-                    Self::settings_from_json(json, children, settings)?;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Parse settings from a given string of JSON and return a new settings struct.
-    pub fn from_json(&self, json: &str) -> Result<NtscEffectFullSettings, ParseSettingsError> {
-        let parsed = json.parse::<JsonValue>()?;
-
-        let parsed_map = parsed.get::<HashMap<_, _>>().ok_or_else(|| {
-            ParseSettingsError::InvalidSettingType {
-                key: "<root>".to_string(),
-                expected: "object",
-            }
-        })?;
-
-        let version = parsed_map
-            .get_and_expect::<f64>("version")?
-            .ok_or_else(|| ParseSettingsError::MissingField { field: "version" })?;
-        if version != 1.0 {
-            return Err(ParseSettingsError::UnsupportedVersion { version });
-        }
-
-        let mut dst_settings = NtscEffectFullSettings::default();
-        Self::settings_from_json(parsed_map, &self.settings, &mut dst_settings)?;
-
-        Ok(dst_settings)
-    }
-
-    pub fn all_descriptors(&self) -> SettingDescriptors {
-        SettingDescriptors::new(self)
-    }
 }
 
 /// Iterator over all setting descriptors (nested or not) within a given settings list in depth-first order.
-pub struct SettingDescriptors<'a> {
-    path: Vec<(&'a [SettingDescriptor], usize)>,
+pub struct SettingDescriptors<'a, T: Settings> {
+    path: Vec<(&'a [SettingDescriptor<T>], usize)>,
 }
 
-impl<'a> Iterator for SettingDescriptors<'a> {
-    type Item = &'a SettingDescriptor;
+impl<'a, T: Settings> Iterator for SettingDescriptors<'a, T> {
+    type Item = &'a SettingDescriptor<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -1814,8 +1779,8 @@ impl<'a> Iterator for SettingDescriptors<'a> {
     }
 }
 
-impl<'a> SettingDescriptors<'a> {
-    fn new(settings_list: &'a SettingsList) -> Self {
+impl<'a, T: Settings> SettingDescriptors<'a, T> {
+    fn new(settings_list: &'a SettingsList<T>) -> Self {
         Self {
             path: vec![(&settings_list.settings, 0)],
         }

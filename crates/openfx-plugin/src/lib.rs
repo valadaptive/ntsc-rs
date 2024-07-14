@@ -16,17 +16,14 @@ use allocator_api2::{
     boxed::Box as AllocBox,
 };
 
+use ntscrs::yiq_fielding::{BlitInfo, Rect};
 use ntscrs::{
-    ntsc::NtscEffect,
+    ntsc::{NtscEffect, Settings},
     yiq_fielding::{DeinterlaceMode, YiqView},
 };
 use ntscrs::{
     settings::{NtscEffectFullSettings, SettingDescriptor, SettingKind, SettingsList},
     yiq_fielding::{PixelFormat, Rgb16, Rgb32f, Rgb8, Rgbx16, Rgbx32f, Rgbx8},
-};
-use ntscrs::{
-    yiq_fielding::{BlitInfo, Rect},
-    ToPrimitive,
 };
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
@@ -63,7 +60,7 @@ struct SharedData {
     image_effect_suite: &'static OfxImageEffectSuiteV1,
     memory_suite: &'static OfxMemorySuiteV1,
     parameter_suite: &'static OfxParameterSuiteV1,
-    settings_list: SettingsList,
+    settings_list: SettingsList<NtscEffectFullSettings>,
     supports_multiple_clip_depths: bool,
 }
 
@@ -265,7 +262,7 @@ unsafe fn setup_params(
     property_suite: &OfxPropertySuiteV1,
     param_suite: &OfxParameterSuiteV1,
     param_set: OfxParamSetHandle,
-    setting_descriptors: &[SettingDescriptor],
+    setting_descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
     parent: &CStr,
 ) -> OfxResult<()> {
     let paramDefine = param_suite.paramDefine.ok_or(OfxStat::kOfxStatFailed)?;
@@ -281,7 +278,7 @@ unsafe fn setup_params(
         // the official OFX host support library clones this string (via the std::string constructor) and I really hope
         // all other OFX hosts do too, because the documentation is silent on wtf the lifetime of these strings is
         // supposed to be
-        let descriptor_id_str = (descriptor.id.to_u32() as Option<u32>).unwrap().to_string();
+        let descriptor_id_str = descriptor.id.id.to_string();
         let descriptor_id_cstr = CString::new(descriptor_id_str.clone()).unwrap();
 
         match &descriptor.kind {
@@ -535,7 +532,7 @@ unsafe fn apply_params(
     param_suite: &OfxParameterSuiteV1,
     param_set: OfxParamSetHandle,
     time: f64,
-    setting_descriptors: &[SettingDescriptor],
+    setting_descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
     dst: &mut NtscEffectFullSettings,
 ) -> OfxResult<()> {
     let paramGetHandle = param_suite.paramGetHandle.ok_or(OfxStat::kOfxStatFailed)?;
@@ -544,7 +541,7 @@ unsafe fn apply_params(
         .ok_or(OfxStat::kOfxStatFailed)?;
 
     for descriptor in setting_descriptors {
-        let descriptor_id_str = (descriptor.id.to_u32() as Option<u32>).unwrap().to_string();
+        let descriptor_id_str = descriptor.id.id.to_string();
         let descriptor_id_cstr = CString::new(descriptor_id_str.clone()).unwrap();
 
         let mut param: OfxParamHandle = ptr::null_mut();
@@ -559,47 +556,30 @@ unsafe fn apply_params(
             SettingKind::Enumeration { options, .. } => {
                 let mut selected_idx = 0;
                 ofx_err(paramGetValueAtTime(param, time, &mut selected_idx))?;
-                descriptor
-                    .id
-                    .set_field_enum(dst, options[selected_idx as usize].index)
+                dst.set_field_enum(&descriptor.id, options[selected_idx as usize].index)
                     .unwrap();
             }
             SettingKind::IntRange { .. } => {
                 let mut int_value: i32 = 0;
                 ofx_err(paramGetValueAtTime(param, time, &mut int_value))?;
-                if let Some(field_ref) = descriptor.id.get_field_mut::<i32>(dst) {
-                    *field_ref = int_value;
-                } else if let Some(field_ref) = descriptor.id.get_field_mut::<u32>(dst) {
-                    *field_ref = int_value as u32;
-                }
+                dst.set_field_int(&descriptor.id, int_value).unwrap();
             }
             SettingKind::FloatRange { .. } | SettingKind::Percentage { .. } => {
                 let mut float_value: f64 = 0.0;
                 ofx_err(paramGetValueAtTime(param, time, &mut float_value))?;
-                let field_ref = descriptor
-                    .id
-                    .get_field_mut::<f32>(dst)
-                    .ok_or(OfxStat::kOfxStatFailed)?;
-                *field_ref = float_value as f32;
+                dst.set_field_float(&descriptor.id, float_value as f32)
+                    .unwrap();
             }
             SettingKind::Boolean { .. } => {
                 let mut bool_value: i32 = 0;
                 ofx_err(paramGetValueAtTime(param, time, &mut bool_value))?;
-                let field_ref = descriptor
-                    .id
-                    .get_field_mut::<bool>(dst)
-                    .ok_or(OfxStat::kOfxStatFailed)?;
-                *field_ref = bool_value != 0;
+                dst.set_field_bool(&descriptor.id, bool_value != 0).unwrap();
             }
             SettingKind::Group { children, .. } => {
                 // The fetched handle refers to the group's checkbox
                 let mut bool_value: i32 = 0;
                 ofx_err(paramGetValueAtTime(param, time, &mut bool_value))?;
-                let field_ref = descriptor
-                    .id
-                    .get_field_mut::<bool>(dst)
-                    .ok_or(OfxStat::kOfxStatFailed)?;
-                *field_ref = bool_value != 0;
+                dst.set_field_bool(&descriptor.id, bool_value != 0).unwrap();
 
                 apply_params(param_suite, param_set, time, children, dst)?;
             }
@@ -775,7 +755,7 @@ unsafe fn action_get_clip_preferences(outArgs: OfxPropertySetHandle) -> OfxResul
 unsafe fn update_controls_disabled(
     data: &SharedData,
     param_set: OfxParamSetHandle,
-    setting_descriptors: &[SettingDescriptor],
+    setting_descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
     time: f64,
     enabled: bool,
 ) -> OfxResult<()> {
@@ -797,7 +777,7 @@ unsafe fn update_controls_disabled(
         .ok_or(OfxStat::kOfxStatFailed)?;
 
     for descriptor in setting_descriptors {
-        let descriptor_id_str = (descriptor.id.to_u32() as Option<u32>).unwrap().to_string();
+        let descriptor_id_str = descriptor.id.id.to_string();
         let descriptor_id_cstr = CString::new(descriptor_id_str.clone()).unwrap();
 
         let mut param: OfxParamHandle = ptr::null_mut();

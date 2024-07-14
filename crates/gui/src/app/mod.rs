@@ -20,7 +20,7 @@ pub type AppFn = Box<dyn FnOnce(&mut NtscApp) -> Result<(), error::ApplicationEr
 
 pub struct NtscApp {
     pub gstreamer_init: GstreamerInitState,
-    pub settings_list: SettingsList,
+    pub settings_list: SettingsList<NtscEffectFullSettings>,
     pub executor: executor::AppExecutor,
     pub pipeline: Option<pipeline_info::PipelineInfo>,
     pub undoer: Undoer<NtscEffectFullSettings>,

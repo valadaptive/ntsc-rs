@@ -32,7 +32,8 @@ use crate::{
 };
 
 use ntscrs::settings::{
-    NtscEffectFullSettings, SettingDescriptor, SettingID, SettingKind, SettingsList, UseField,
+    setting_id, NtscEffectFullSettings, SettingDescriptor, SettingKind, Settings, SettingsList,
+    UseField,
 };
 use snafu::ResultExt;
 
@@ -133,7 +134,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             let handle = thread::spawn(initialize_gstreamer);
             let init_state = GstreamerInitState::Initializing(Some(handle));
 
-            let settings_list = SettingsList::new();
+            let settings_list = SettingsList::<NtscEffectFullSettings>::new();
             let (settings, theme) = if let Some(storage) = cc.storage {
                 // Load previous effect settings from storage
                 let settings = storage
@@ -170,7 +171,7 @@ impl NtscApp {
 
     fn new(
         ctx: egui::Context,
-        settings_list: SettingsList,
+        settings_list: SettingsList<NtscEffectFullSettings>,
         effect_settings: NtscEffectFullSettings,
         color_theme: ColorTheme,
         gstreamer_init: GstreamerInitState,
@@ -597,13 +598,13 @@ impl NtscApp {
     fn setting_from_descriptor(
         ui: &mut egui::Ui,
         effect_settings: &mut NtscEffectFullSettings,
-        descriptor: &SettingDescriptor,
+        descriptor: &SettingDescriptor<NtscEffectFullSettings>,
         interlace_mode: VideoInterlaceMode,
     ) -> (Response, bool) {
         let mut changed = false;
         let resp = match &descriptor {
             SettingDescriptor {
-                id: SettingID::RANDOM_SEED,
+                id: setting_id::RANDOM_SEED,
                 ..
             } => {
                 ui.horizontal(|ui| {
@@ -644,7 +645,7 @@ impl NtscApp {
                 kind: SettingKind::Enumeration { options, .. },
                 ..
             } => {
-                let selected_index = descriptor.id.get_field_enum(effect_settings).unwrap();
+                let selected_index = effect_settings.get_field_enum(&descriptor.id).unwrap();
                 let selected_item = options
                     .iter()
                     .find(|option| option.index == selected_index)
@@ -661,7 +662,7 @@ impl NtscApp {
                             }
 
                             if label.clicked() {
-                                let _ = descriptor.id.set_field_enum(effect_settings, item.index);
+                                let _ = effect_settings.set_field_enum(&descriptor.id, item.index);
                                 // a selectable_label being clicked doesn't set response.changed
                                 changed = true;
                             };
@@ -674,7 +675,9 @@ impl NtscApp {
                 ..
             } => ui.add(
                 egui::Slider::new(
-                    descriptor.id.get_field_mut::<f32>(effect_settings).unwrap(),
+                    effect_settings
+                        .get_field_mut::<f32>(&descriptor.id)
+                        .unwrap(),
                     0.0..=1.0,
                 )
                 .text(descriptor.label)
@@ -686,12 +689,7 @@ impl NtscApp {
                 kind: SettingKind::IntRange { range, .. },
                 ..
             } => {
-                let mut value = 0i32;
-                if let Some(v) = descriptor.id.get_field_mut::<i32>(effect_settings) {
-                    value = *v;
-                } else if let Some(v) = descriptor.id.get_field_mut::<u32>(effect_settings) {
-                    value = *v as i32;
-                }
+                let mut value = effect_settings.get_field_int(&descriptor.id).unwrap();
 
                 let slider = ui.add(
                     egui::Slider::new(&mut value, range.clone())
@@ -700,11 +698,9 @@ impl NtscApp {
                 );
 
                 if slider.changed() {
-                    if let Some(v) = descriptor.id.get_field_mut::<i32>(effect_settings) {
-                        *v = value;
-                    } else if let Some(v) = descriptor.id.get_field_mut::<u32>(effect_settings) {
-                        *v = value as u32;
-                    }
+                    effect_settings
+                        .set_field_int(&descriptor.id, value)
+                        .unwrap();
                 }
 
                 slider
@@ -717,7 +713,9 @@ impl NtscApp {
                 ..
             } => ui.add(
                 egui::Slider::new(
-                    descriptor.id.get_field_mut::<f32>(effect_settings).unwrap(),
+                    effect_settings
+                        .get_field_mut::<f32>(&descriptor.id)
+                        .unwrap(),
                     range.clone(),
                 )
                 .text(descriptor.label)
@@ -729,9 +727,8 @@ impl NtscApp {
                 ..
             } => {
                 let checkbox = ui.checkbox(
-                    descriptor
-                        .id
-                        .get_field_mut::<bool>(effect_settings)
+                    effect_settings
+                        .get_field_mut::<bool>(&descriptor.id)
                         .unwrap(),
                     descriptor.label,
                 );
@@ -747,9 +744,8 @@ impl NtscApp {
                 let resp = ui
                     .group(|ui| {
                         ui.set_width(ui.max_rect().width());
-                        let checked = descriptor
-                            .id
-                            .get_field_mut::<bool>(effect_settings)
+                        let checked = effect_settings
+                            .get_field_mut::<bool>(&descriptor.id)
                             .unwrap();
                         let was_checked = *checked;
 
@@ -821,13 +817,13 @@ impl NtscApp {
     fn settings_from_descriptors(
         effect_settings: &mut NtscEffectFullSettings,
         ui: &mut egui::Ui,
-        descriptors: &[SettingDescriptor],
+        descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
         interlace_mode: VideoInterlaceMode,
     ) -> bool {
         let mut changed = false;
         for descriptor in descriptors {
             // The "Use field" setting has no effect on interlaced video.
-            let (response, setting_changed) = if descriptor.id == SettingID::USE_FIELD
+            let (response, setting_changed) = if descriptor.id == setting_id::USE_FIELD
                 && interlace_mode != VideoInterlaceMode::Progressive
             {
                 let resp = ui.add_enabled_ui(false, |ui| {

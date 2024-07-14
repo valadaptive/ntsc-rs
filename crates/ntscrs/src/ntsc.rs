@@ -5,7 +5,7 @@ use core::f32::consts::PI;
 use rand::{Rng, RngCore, SeedableRng};
 use rand_xoshiro::Xoshiro256PlusPlus;
 use rayon::prelude::*;
-use simdnoise::{NoiseBuilder, Settings, SimplexSettings};
+use simdnoise::{NoiseBuilder, Settings as NoiseSettings, SimplexSettings};
 
 use crate::{
     filter::TransferFunction,
@@ -1181,11 +1181,14 @@ impl NtscEffect {
             chroma_phase_noise(yiq, &info, self.chroma_phase_noise_intensity);
         }
 
-        if self.chroma_delay.0 != 0.0 || self.chroma_delay.1 != 0 {
+        if self.chroma_delay_horizontal != 0.0 || self.chroma_delay_vertical != 0 {
             chroma_delay(
                 yiq,
                 &info,
-                (self.chroma_delay.0, self.chroma_delay.1 as isize),
+                (
+                    self.chroma_delay_horizontal,
+                    self.chroma_delay_vertical as isize,
+                ),
             );
         }
 
@@ -1196,13 +1199,12 @@ impl NtscEffect {
                 }
             }
 
-            if let Some(tape_speed) = &vhs_settings.tape_speed {
-                let VHSTapeParams {
-                    luma_cut,
-                    chroma_cut,
-                    chroma_delay,
-                } = tape_speed.filter_params();
-
+            if let Some(VHSTapeParams {
+                luma_cut,
+                chroma_cut,
+                chroma_delay,
+            }) = vhs_settings.tape_speed.filter_params()
+            {
                 // TODO: add an option to control whether there should be a line on the left from the filter starting
                 // at 0. it's present in both the original C++ code and Python port but probably not an actual VHS
                 // TODO: use a better filter! this effect's output looks way more smear-y than real VHS
@@ -1249,8 +1251,9 @@ impl NtscEffect {
             }
 
             if let Some(sharpen) = &vhs_settings.sharpen {
-                if let Some(tape_speed) = &vhs_settings.tape_speed {
-                    let VHSTapeParams { luma_cut, .. } = tape_speed.filter_params();
+                if let Some(VHSTapeParams { luma_cut, .. }) =
+                    vhs_settings.tape_speed.filter_params()
+                {
                     let frequency_extra_multiplier = match self.filter_type {
                         FilterType::ConstantK => 4.0,
                         FilterType::Butterworth => 1.0,

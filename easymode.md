@@ -1,0 +1,45 @@
+"Easy mode" mappings
+
+- Random seed: keep
+- Bandwidth scale: lock at 1.0
+- Use field: keep?
+- Lowpass filter type: "Softer" and "Sharper" (scale other sharpening factors to look good automatically)
+- Input luma filter: lock at ???
+- Chroma low-pass in: lock at ??? (maybe roll up with input luma into "Crosstalk Artifacts" checkbox?)
+- Composite preemphasis: keep as "Saturation"
+- Composite noise: keep? Or just replace with luma/chroma noise
+- Snow: keep
+- Snow anisotropy: lock at ???
+- Scanline phase shift: lock at 180
+- Scanline phase shift offset: lock at 0
+- Chroma demodulation filter: keep but simplify somehow?
+- Luma smear: keep
+- Head switching: keep as group?
+  - Height: keep
+  - Offset: lock to portion of height
+  - Horizontal shift: lock?
+  - Start mid-line: lock enabled
+- Tracking noise: keep as group
+  - Height: keep
+  - Wave intensity: group as "intensity"
+  - Snow intensity: group as "intensity"
+  - Snow anisotropy: lock at ???
+  - Noise intensity: group as "intensity"
+- Ringing: keep "Scale", lock others
+- Luma noise: keep
+- Chroma noise: keep
+- Chroma phase error: lock at 0
+- Chroma phase noise: keep?
+- Chroma delay (horizontal): figure out automagically
+- Chroma delay (vertical): lock at 0
+- VHS emulation
+  - Tape speed: keep
+  - Chroma loss: keep
+  - Sharpen: keep as 1 slider, scaled to lowpass filter type
+  - Edge wave
+    - Intensity: keep
+    - Speed: lock at ???
+    - Frequency: keep
+    - Detail: lock at ???
+- Vertically blend chroma: group with "Crosstalk Artifacts"?
+- Chroma lowpass out: ???
