@@ -1,5 +1,5 @@
-use std::collections::VecDeque;
 use std::convert::identity;
+use std::{collections::VecDeque, ops::RangeInclusive};
 
 use core::f32::consts::PI;
 use rand::{Rng, RngCore, SeedableRng};
@@ -715,6 +715,7 @@ fn row_speckles(
 ) {
     let intensity = intensity as f64;
     let anisotropy = anisotropy as f64;
+    const TRANSIENT_LEN_RANGE: RangeInclusive<f32> = 8.0..=64.0;
 
     // Anisotropy controls how much the snow appears "clumped" within given lines vs. appearing independently across
     // lines.
@@ -743,15 +744,18 @@ fn row_speckles(
     // loop over every pixel:
     // https://en.wikipedia.org/wiki/Geometric_distribution
     let dist = Geometric::new(line_snow_intensity);
-    let mut pixel_idx = 0usize;
+    // Start leftwards of the visible region to simulate transients that may have started before it. This avoids
+    // transients being sparser towards the leftmost edge.
+    let mut pixel_idx = (-TRANSIENT_LEN_RANGE.end()).floor() as isize;
     loop {
-        pixel_idx += rng.sample(&dist);
-        if pixel_idx >= row.len() {
+        pixel_idx += rng.sample(&dist).min(isize::MAX as usize) as isize;
+        if pixel_idx >= row.len() as isize {
             break;
         }
 
-        let transient_len: f32 = rng.gen_range(8.0..=64.0) * bandwidth_scale;
+        let transient_len: f32 = rng.gen_range(TRANSIENT_LEN_RANGE) * bandwidth_scale;
         let transient_freq = rng.gen_range(transient_len * 3.0..=transient_len * 5.0);
+        let pixel_idx_end = pixel_idx + transient_len.ceil() as isize;
 
         // Each transient gets its own RNG to determine the intensity of each pixel within it.
         // This is to prevent the length of each transient from affecting the random state of the subsequent
@@ -759,10 +763,11 @@ fn row_speckles(
         rng.jump();
         let mut transient_rng = rng.clone();
 
-        for i in pixel_idx..(pixel_idx + transient_len.ceil() as usize).min(row.len()) {
+        for i in pixel_idx.clamp(0, row.len() as isize)..pixel_idx_end.clamp(0, row.len() as isize)
+        {
             let x = (i - pixel_idx) as f32;
             // Simulate transient with sin(pi*x / 4) * (1 - x/len)^2
-            row[i] += ((x * PI) / transient_freq).cos()
+            row[i as usize] += ((x * PI) / transient_freq).cos()
                 * (1.0 - x / transient_len).powi(2)
                 * transient_rng.gen_range(-1.0..2.0);
         }
