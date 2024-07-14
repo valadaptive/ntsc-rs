@@ -3,7 +3,7 @@ use std::convert::identity;
 use gstreamer::{BufferRef, ClockTime, FlowError};
 use gstreamer_video::{VideoFormat, VideoFrameExt, VideoFrameRef, VideoInterlaceMode};
 use ntscrs::{
-    settings::NtscEffect,
+    settings::standard::NtscEffect,
     yiq_fielding::{
         Bgrx8, BlitInfo, DeinterlaceMode, PixelFormat, Rect, Rgbx8, Xbgr8, Xrgb16, Xrgb8, YiqField,
         YiqOwned, YiqView,

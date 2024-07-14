@@ -18,11 +18,13 @@ use allocator_api2::{
 
 use ntscrs::yiq_fielding::{BlitInfo, Rect};
 use ntscrs::{
-    ntsc::{NtscEffect, Settings},
+    ntsc::NtscEffect,
     yiq_fielding::{DeinterlaceMode, YiqView},
 };
 use ntscrs::{
-    settings::{NtscEffectFullSettings, SettingDescriptor, SettingKind, SettingsList},
+    settings::{
+        standard::NtscEffectFullSettings, SettingDescriptor, SettingKind, Settings, SettingsList,
+    },
     yiq_fielding::{PixelFormat, Rgb16, Rgb32f, Rgb8, Rgbx16, Rgbx32f, Rgbx8},
 };
 

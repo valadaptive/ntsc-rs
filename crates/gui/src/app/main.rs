@@ -32,8 +32,8 @@ use crate::{
 };
 
 use ntscrs::settings::{
-    setting_id, NtscEffectFullSettings, SettingDescriptor, SettingKind, Settings, SettingsList,
-    UseField,
+    standard::{setting_id, NtscEffectFullSettings, UseField},
+    SettingDescriptor, SettingKind, Settings, SettingsList,
 };
 use snafu::ResultExt;
 

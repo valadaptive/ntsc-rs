@@ -14,7 +14,7 @@ use crate::{
     yiq_fielding::{BlitInfo, PixelFormat, YiqField, YiqOwned, YiqView},
 };
 
-pub use crate::settings::*;
+pub use crate::settings::standard::*;
 
 // 315/88 Mhz rate * 4
 // TODO: why do we multiply by 4? composite-video-simulator does this for every filter and ntscqt defines NTSC_RATE the

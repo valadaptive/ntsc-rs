@@ -11,11 +11,10 @@ use std::{
 use after_effects::{self as ae};
 use handle::SliceHandle;
 use ntscrs::{
-    ntsc::{
-        setting_id, NtscEffect, NtscEffectFullSettings, SettingDescriptor, SettingKind, Settings,
-        SettingsList, UseField,
+    ntsc::{setting_id, NtscEffect, NtscEffectFullSettings},
+    settings::{
+        standard::UseField, SettingDescriptor, SettingID, SettingKind, Settings, SettingsList,
     },
-    settings::SettingID,
     yiq_fielding::{
         self, AfterEffectsU16, Bgrx16, Bgrx32f, Bgrx8, BlitInfo, DeinterlaceMode, Xrgb16AE,
         Xrgb32f, Xrgb8, YiqField, YiqView,
@@ -528,7 +527,7 @@ impl Plugin {
     ) -> Result<(), Error> {
         for descriptor in descriptors {
             match &descriptor.kind {
-                ntscrs::ntsc::SettingKind::Enumeration {
+                SettingKind::Enumeration {
                     options,
                     default_value,
                 } => {
@@ -550,7 +549,7 @@ impl Plugin {
                         },
                     )?;
                 }
-                ntscrs::ntsc::SettingKind::Percentage {
+                SettingKind::Percentage {
                     logarithmic,
                     default_value,
                 } => params.add_customized(
@@ -576,7 +575,7 @@ impl Plugin {
                         -1
                     },
                 )?,
-                ntscrs::ntsc::SettingKind::IntRange {
+                SettingKind::IntRange {
                     range,
                     default_value,
                 } => params.add_customized(
@@ -596,7 +595,7 @@ impl Plugin {
                         -1
                     },
                 )?,
-                ntscrs::ntsc::SettingKind::FloatRange {
+                SettingKind::FloatRange {
                     range,
                     logarithmic,
                     default_value,
@@ -625,7 +624,7 @@ impl Plugin {
                         -1
                     },
                 )?,
-                ntscrs::ntsc::SettingKind::Boolean { default_value } => {
+                SettingKind::Boolean { default_value } => {
                     params.add_customized(
                         descriptor.id.ae_id(),
                         &descriptor.label,
@@ -641,7 +640,7 @@ impl Plugin {
                         },
                     )?;
                 }
-                ntscrs::ntsc::SettingKind::Group {
+                SettingKind::Group {
                     children,
                     default_value,
                 } => {
@@ -691,7 +690,7 @@ impl Plugin {
         ) -> Result<(), Error> {
             for descriptor in descriptors {
                 match &descriptor.kind {
-                    ntscrs::ntsc::SettingKind::Enumeration { options, .. } => {
+                    SettingKind::Enumeration { options, .. } => {
                         let selected_item_position =
                             params.get(descriptor.id.ae_id())?.as_popup()?.value() - 1;
                         if selected_item_position < 0 {
@@ -707,7 +706,7 @@ impl Plugin {
                                 .map_err(|_| Error::BadCallbackParameter)?;
                         }
                     }
-                    ntscrs::ntsc::SettingKind::Percentage { logarithmic, .. } => {
+                    SettingKind::Percentage { logarithmic, .. } => {
                         let mut slider_value = params
                             .get(descriptor.id.ae_id())?
                             .as_float_slider()?
@@ -721,7 +720,7 @@ impl Plugin {
                             .set_field_float(&descriptor.id, slider_value as f32)
                             .map_err(|_| Error::BadCallbackParameter)?;
                     }
-                    ntscrs::ntsc::SettingKind::IntRange { .. } => {
+                    SettingKind::IntRange { .. } => {
                         let slider_value = params
                             .get(descriptor.id.ae_id())?
                             .as_float_slider()?
@@ -731,7 +730,7 @@ impl Plugin {
                             .set_field_int(&descriptor.id, slider_value)
                             .map_err(|_| Error::BadCallbackParameter)?;
                     }
-                    ntscrs::ntsc::SettingKind::FloatRange {
+                    SettingKind::FloatRange {
                         logarithmic, range, ..
                     } => {
                         let mut slider_value = params
@@ -751,7 +750,7 @@ impl Plugin {
                             .set_field_float(&descriptor.id, slider_value as f32)
                             .map_err(|_| Error::BadCallbackParameter)?;
                     }
-                    ntscrs::ntsc::SettingKind::Boolean { .. } => {
+                    SettingKind::Boolean { .. } => {
                         settings
                             .set_field_bool(
                                 &descriptor.id,
@@ -759,7 +758,7 @@ impl Plugin {
                             )
                             .map_err(|_| Error::BadCallbackParameter)?;
                     }
-                    ntscrs::ntsc::SettingKind::Group { children, .. } => {
+                    SettingKind::Group { children, .. } => {
                         settings
                             .set_field_bool(
                                 &descriptor.id,
