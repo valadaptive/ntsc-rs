@@ -315,7 +315,7 @@ impl<T: Default> Default for SettingsBlock<T> {
 
 /// A fixed identifier that points to a given setting. The id and name cannot be changed or reused once created.
 #[derive(Debug, PartialEq, Eq)]
-pub struct SettingID<T: Settings + ?Sized> {
+pub struct SettingID<T: Settings> {
     pub id: u32,
     pub name: &'static str,
     settings: PhantomData<fn(&()) -> &T>,
@@ -323,13 +323,13 @@ pub struct SettingID<T: Settings + ?Sized> {
 
 // We can't use derive here because of the type parameter:
 // https://github.com/rust-lang/rust/issues/26925
-impl<T: Settings + ?Sized> std::hash::Hash for SettingID<T> {
+impl<T: Settings> std::hash::Hash for SettingID<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.id.hash(state);
         self.name.hash(state);
     }
 }
-impl<T: Settings + ?Sized> Clone for SettingID<T> {
+impl<T: Settings> Clone for SettingID<T> {
     fn clone(&self) -> Self {
         Self {
             id: self.id.clone(),
@@ -338,7 +338,7 @@ impl<T: Settings + ?Sized> Clone for SettingID<T> {
         }
     }
 }
-impl<T: Settings + ?Sized> Copy for SettingID<T> {}
+impl<T: Settings> Copy for SettingID<T> {}
 
 impl<T: Settings> SettingID<T> {
     pub const fn new(id: u32, name: &'static str) -> Self {

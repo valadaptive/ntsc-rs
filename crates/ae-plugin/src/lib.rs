@@ -12,7 +12,8 @@ use after_effects::{self as ae};
 use handle::SliceHandle;
 use ntscrs::{
     ntsc::{
-        NtscEffect, NtscEffectFullSettings, SettingDescriptor, SettingKind, SettingsList, UseField,
+        setting_id, NtscEffect, NtscEffectFullSettings, SettingDescriptor, SettingKind, Settings,
+        SettingsList, UseField,
     },
     settings::SettingID,
     yiq_fielding::{
@@ -23,7 +24,7 @@ use ntscrs::{
 };
 
 struct Plugin {
-    settings: SettingsList,
+    settings: SettingsList<NtscEffectFullSettings>,
 }
 
 impl Default for Plugin {
@@ -38,9 +39,9 @@ trait IDExt {
     fn ae_id(&self) -> i32;
 }
 
-impl IDExt for SettingID {
+impl<T: Settings> IDExt for SettingID<T> {
     fn ae_id(&self) -> i32 {
-        self.to_i32().unwrap() + 1
+        self.id.to_i32().unwrap() + 1
     }
 }
 
@@ -494,7 +495,7 @@ impl Plugin {
     fn update_controls_disabled(
         &self,
         params: &mut Parameters<i32>,
-        descriptors: &[SettingDescriptor],
+        descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
         enabled: bool,
     ) -> Result<(), Error> {
         for descriptor in descriptors {
@@ -523,7 +524,7 @@ impl Plugin {
     fn map_params(
         &self,
         params: &mut Parameters<i32>,
-        descriptors: &[SettingDescriptor],
+        descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
     ) -> Result<(), Error> {
         for descriptor in descriptors {
             match &descriptor.kind {
@@ -683,7 +684,7 @@ impl Plugin {
         let mut use_field = UseField::Alternating;
 
         fn apply_settings_list(
-            descriptors: &[SettingDescriptor],
+            descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
             params: &mut Parameters<i32>,
             settings: &mut NtscEffectFullSettings,
             use_field: &mut UseField,
@@ -697,13 +698,12 @@ impl Plugin {
                             continue;
                         }
                         let menu_enum_value = options[selected_item_position as usize].index;
-                        if descriptor.id == SettingID::USE_FIELD {
+                        if descriptor.id == setting_id::USE_FIELD {
                             *use_field =
                                 UseField::from_u32(menu_enum_value).ok_or(Error::InvalidIndex)?;
                         } else {
-                            descriptor
-                                .id
-                                .set_field_enum(settings, menu_enum_value)
+                            settings
+                                .set_field_enum(&descriptor.id, menu_enum_value)
                                 .map_err(|_| Error::BadCallbackParameter)?;
                         }
                     }
@@ -717,10 +717,9 @@ impl Plugin {
                         if *logarithmic {
                             slider_value = map_logarithmic(slider_value, 0.0, 1.0, LOG_SLIDER_BASE);
                         }
-                        *descriptor
-                            .id
-                            .get_field_mut(settings)
-                            .ok_or(Error::BadCallbackParameter)? = slider_value as f32;
+                        settings
+                            .set_field_float(&descriptor.id, slider_value as f32)
+                            .map_err(|_| Error::BadCallbackParameter)?;
                     }
                     ntscrs::ntsc::SettingKind::IntRange { .. } => {
                         let slider_value = params
@@ -728,9 +727,8 @@ impl Plugin {
                             .as_float_slider()?
                             .value()
                             .round() as i32;
-                        descriptor
-                            .id
-                            .set_field_int(settings, slider_value)
+                        settings
+                            .set_field_int(&descriptor.id, slider_value)
                             .map_err(|_| Error::BadCallbackParameter)?;
                     }
                     ntscrs::ntsc::SettingKind::FloatRange {
@@ -749,24 +747,25 @@ impl Plugin {
                                 LOG_SLIDER_BASE,
                             );
                         }
-                        *descriptor
-                            .id
-                            .get_field_mut(settings)
-                            .ok_or(Error::BadCallbackParameter)? = slider_value as f32;
+                        settings
+                            .set_field_float(&descriptor.id, slider_value as f32)
+                            .map_err(|_| Error::BadCallbackParameter)?;
                     }
                     ntscrs::ntsc::SettingKind::Boolean { .. } => {
-                        *descriptor
-                            .id
-                            .get_field_mut(settings)
-                            .ok_or(Error::BadCallbackParameter)? =
-                            params.get(descriptor.id.ae_id())?.as_checkbox()?.value();
+                        settings
+                            .set_field_bool(
+                                &descriptor.id,
+                                params.get(descriptor.id.ae_id())?.as_checkbox()?.value(),
+                            )
+                            .map_err(|_| Error::BadCallbackParameter)?;
                     }
                     ntscrs::ntsc::SettingKind::Group { children, .. } => {
-                        *descriptor
-                            .id
-                            .get_field_mut(settings)
-                            .ok_or(Error::BadCallbackParameter)? =
-                            params.get(descriptor.id.ae_id())?.as_checkbox()?.value();
+                        settings
+                            .set_field_bool(
+                                &descriptor.id,
+                                params.get(descriptor.id.ae_id())?.as_checkbox()?.value(),
+                            )
+                            .map_err(|_| Error::BadCallbackParameter)?;
 
                         apply_settings_list(&children, params, settings, use_field)?;
                     }
