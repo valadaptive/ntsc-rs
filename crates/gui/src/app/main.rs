@@ -58,6 +58,8 @@ use super::{
     AppFn, NtscApp,
 };
 
+const EXPERIMENTAL_EASY_MODE: bool = false;
+
 fn initialize_gstreamer() -> Result<(), GstreamerError> {
     gstreamer::init()?;
 
@@ -137,37 +139,40 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
             let settings_list = SettingsList::<NtscEffectFullSettings>::new();
             let settings_list_easy = SettingsList::<EasyModeFullSettings>::new();
-            let (settings, easy_mode_settings, easy_mode_enabled, theme) = if let Some(storage) =
-                cc.storage
-            {
-                // Load previous effect settings from storage
-                let settings = storage
-                    .get_string("effect_settings")
-                    .and_then(|saved_settings| settings_list.from_json(&saved_settings).ok())
-                    .unwrap_or_default();
-                let easy_mode_settings = storage
-                    .get_string("easy_mode_settings")
-                    .and_then(|saved_settings| settings_list_easy.from_json(&saved_settings).ok())
-                    .unwrap_or_default();
-                let easy_mode_enabled = storage
-                    .get_string("easy_mode_enabled")
-                    .map(|saved_enabled| saved_enabled == "true")
-                    .unwrap_or_default();
+            let (settings, easy_mode_settings, mut easy_mode_enabled, theme) =
+                if let Some(storage) = cc.storage {
+                    // Load previous effect settings from storage
+                    let settings = storage
+                        .get_string("effect_settings")
+                        .and_then(|saved_settings| settings_list.from_json(&saved_settings).ok())
+                        .unwrap_or_default();
+                    let easy_mode_settings = storage
+                        .get_string("easy_mode_settings")
+                        .and_then(|saved_settings| {
+                            settings_list_easy.from_json(&saved_settings).ok()
+                        })
+                        .unwrap_or_default();
+                    let easy_mode_enabled = storage
+                        .get_string("easy_mode_enabled")
+                        .map(|saved_enabled| saved_enabled == "true")
+                        .unwrap_or_default();
 
-                let theme = storage
-                    .get_string("color_theme")
-                    .and_then(|color_theme| ColorTheme::try_from(color_theme.as_str()).ok())
-                    .unwrap_or_default();
+                    let theme = storage
+                        .get_string("color_theme")
+                        .and_then(|color_theme| ColorTheme::try_from(color_theme.as_str()).ok())
+                        .unwrap_or_default();
 
-                (settings, easy_mode_settings, easy_mode_enabled, theme)
-            } else {
-                (
-                    NtscEffectFullSettings::default(),
-                    EasyModeFullSettings::default(),
-                    true,
-                    ColorTheme::default(),
-                )
-            };
+                    (settings, easy_mode_settings, easy_mode_enabled, theme)
+                } else {
+                    (
+                        NtscEffectFullSettings::default(),
+                        EasyModeFullSettings::default(),
+                        true,
+                        ColorTheme::default(),
+                    )
+                };
+
+            easy_mode_enabled &= EXPERIMENTAL_EASY_MODE;
 
             let ctx = cc.egui_ctx.clone();
             ctx.set_visuals(theme.visuals(&cc.integration_info));
@@ -1081,9 +1086,13 @@ impl NtscApp {
                         .and_then(|pipeline| pipeline.metadata.lock().unwrap().interlace_mode)
                         .unwrap_or(VideoInterlaceMode::Progressive);
 
-                    let mut settings_changed = ui
-                        .checkbox(&mut self.easy_mode_enabled, "Easy mode")
-                        .changed();
+                    let mut settings_changed = false;
+
+                    if EXPERIMENTAL_EASY_MODE {
+                        settings_changed |= ui
+                            .checkbox(&mut self.easy_mode_enabled, "Easy mode")
+                            .changed();
+                    }
 
                     if self.easy_mode_enabled {
                         settings_changed |= Self::settings_from_descriptors(
