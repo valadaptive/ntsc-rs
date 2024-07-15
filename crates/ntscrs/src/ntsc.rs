@@ -1270,7 +1270,11 @@ impl NtscEffect {
                     );
                     // The composite-video-simulator code sharpens the chroma plane, but ntscqt and this effect do not.
                     // I'm not sure if I'm implementing it wrong, but chroma sharpening looks awful.
-                    // let chroma_sharpen_filter = make_lowpass_triple(chroma_cut * 4.0, 0.0, NTSC_RATE);
+                    /*let chroma_sharpen_filter = make_lowpass_for_type(
+                        chroma_cut * frequency_extra_multiplier * sharpen.frequency,
+                        NTSC_RATE * self.bandwidth_scale,
+                        self.filter_type,
+                    );*/
                     filter_plane(
                         yiq.y,
                         width,
@@ -1279,8 +1283,22 @@ impl NtscEffect {
                         -sharpen.intensity * 2.0 * sharpen.frequency,
                         0,
                     );
-                    // filter_plane_scaled(&mut yiq.i, width, &chroma_sharpen_filter, -vhs_settings.sharpen * 0.85);
-                    // filter_plane_scaled(&mut yiq.q, width, &chroma_sharpen_filter, -vhs_settings.sharpen * 0.85);
+                    /*filter_plane(
+                        yiq.i,
+                        width,
+                        &chroma_sharpen_filter,
+                        InitialCondition::Zero,
+                        -sharpen.intensity * 0.85 * sharpen.frequency,
+                        0,
+                    );
+                    filter_plane(
+                        yiq.q,
+                        width,
+                        &chroma_sharpen_filter,
+                        InitialCondition::Zero,
+                        -sharpen.intensity * 0.85 * sharpen.frequency,
+                        0,
+                    );*/
                 }
             }
         }
