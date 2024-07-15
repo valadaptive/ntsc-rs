@@ -37,7 +37,7 @@ pub struct EzVHSSettings {
     chroma_loss: f32,
     sharpen: f32,
     edge_wave: f32,
-    head_switching: u32,
+    head_switching: f32,
     #[settings_block]
     tracking_noise: Option<EzTrackingNoiseSettings>,
 }
@@ -48,8 +48,8 @@ impl Default for EzVHSSettings {
             tape_speed: VHSTapeSpeed::SP,
             chroma_loss: 0.0,
             sharpen: 0.0,
-            edge_wave: 1.0,
-            head_switching: 8,
+            edge_wave: 0.5,
+            head_switching: 6.0,
             tracking_noise: Some(EzTrackingNoiseSettings::default()),
         }
     }
@@ -80,22 +80,22 @@ impl Default for EasyMode {
             random_seed: 0,
             use_field: UseField::InterleavedUpper,
             filter_type: FilterType::Butterworth,
-            saturation: 1.0,
-            snow: 0.2,
+            saturation: 0.25,
+            snow: 0.0005,
             chroma_demodulation_filter: ChromaDemodulationFilter::Notch,
             luma_smear: 0.2,
             ringing: 0.5,
             luma_noise: Some(FbmNoiseSettings {
-                frequency: 0.2,
-                intensity: 0.2,
+                frequency: 0.1,
+                intensity: 0.01,
                 detail: 2,
             }),
             chroma_noise: Some(FbmNoiseSettings {
-                frequency: 0.2,
-                intensity: 0.2,
+                frequency: 0.05,
+                intensity: 0.1,
                 detail: 2,
             }),
-            chroma_phase_noise: 0.0,
+            chroma_phase_noise: 0.01,
             vhs_settings: Some(EzVHSSettings::default()),
         }
     }
@@ -401,7 +401,7 @@ impl SettingsList<EasyModeFullSettings> {
                 label: "Chroma phase noise",
                 description: Some("Noise applied per-scanline to the phase of the chrominance signal."),
                 kind: SettingKind::Percentage {
-                    logarithmic: true,
+                    logarithmic: false,
                     default_value: default_settings.chroma_phase_noise,
                 },
                 id: setting_id::CHROMA_PHASE_NOISE,
@@ -444,7 +444,7 @@ impl SettingsList<EasyModeFullSettings> {
                         SettingDescriptor {
                             label: "Head switching",
                             description: Some("Emulate VHS head-switching artifacts at the bottom of the image."),
-                            kind: SettingKind::IntRange { range: 0..=24, default_value: default_settings.vhs_settings.settings.head_switching as i32 },
+                            kind: SettingKind::FloatRange { range: 0.0..=24.0, default_value: default_settings.vhs_settings.settings.head_switching, logarithmic: false },
                             id: setting_id::VHS_HEAD_SWITCHING,
                         },
                         SettingDescriptor {
@@ -514,12 +514,11 @@ impl From<&EasyModeFullSettings> for NtscEffectFullSettings {
             video_scanline_phase_shift: PhaseShift::Degrees180,
             video_scanline_phase_shift_offset: 0,
             head_switching: SettingsBlock {
-                enabled: easy_settings.vhs_settings.settings.head_switching > 0,
+                enabled: easy_settings.vhs_settings.enabled && easy_settings.vhs_settings.settings.head_switching > 0.0,
                 settings: HeadSwitchingSettingsFullSettings {
-                    height: easy_settings.vhs_settings.settings.head_switching,
-                    // TODO: most visually pleasing offset?
-                    offset: 0,
-                    horiz_shift: 10.0, // TODO: base on height?
+                    height: (easy_settings.vhs_settings.settings.head_switching * 1.25).round() as u32,
+                    offset: (easy_settings.vhs_settings.settings.head_switching * 0.25).round() as u32,
+                    horiz_shift: easy_settings.vhs_settings.settings.head_switching * 8.0,
                     mid_line: SettingsBlock {
                         enabled: true,
                         settings: HeadSwitchingMidLineSettings {
@@ -530,7 +529,7 @@ impl From<&EasyModeFullSettings> for NtscEffectFullSettings {
                 },
             },
             tracking_noise: SettingsBlock {
-                enabled: easy_settings.vhs_settings.settings.tracking_noise.enabled,
+                enabled: easy_settings.vhs_settings.enabled && easy_settings.vhs_settings.settings.tracking_noise.enabled,
                 settings: TrackingNoiseSettings {
                     height: easy_settings
                         .vhs_settings
@@ -538,26 +537,25 @@ impl From<&EasyModeFullSettings> for NtscEffectFullSettings {
                         .tracking_noise
                         .settings
                         .height,
-                    // TODO: tune these factors
                     wave_intensity: easy_settings
                         .vhs_settings
                         .settings
                         .tracking_noise
                         .settings
-                        .intensity,
+                        .intensity * 5.0,
                     snow_intensity: easy_settings
                         .vhs_settings
                         .settings
                         .tracking_noise
                         .settings
-                        .intensity,
-                    snow_anisotropy: 0.5,
+                        .intensity * 0.5,
+                    snow_anisotropy: 0.25,
                     noise_intensity: easy_settings
                         .vhs_settings
                         .settings
                         .tracking_noise
                         .settings
-                        .intensity,
+                        .intensity * 0.5,
                 },
             },
             composite_noise: SettingsBlock {
@@ -576,9 +574,9 @@ impl From<&EasyModeFullSettings> for NtscEffectFullSettings {
             chroma_noise: easy_settings.chroma_noise.clone(),
             snow_intensity: easy_settings.snow,
             snow_anisotropy: 0.5,
-            chroma_phase_noise_intensity: easy_settings.chroma_phase_noise,
+            chroma_phase_noise_intensity: easy_settings.chroma_phase_noise * 0.5,
             chroma_phase_error: 0.0,
-            chroma_delay_horizontal: 0.0, // TODO: calculate based on filter and other stuff?
+            chroma_delay_horizontal: 0.0,
             chroma_delay_vertical: 0,
             vhs_settings: SettingsBlock {
                 enabled: easy_settings.vhs_settings.enabled,
@@ -589,23 +587,22 @@ impl From<&EasyModeFullSettings> for NtscEffectFullSettings {
                         enabled: easy_settings.vhs_settings.settings.sharpen > 0.0,
                         settings: VHSSharpenSettings {
                             intensity: easy_settings.vhs_settings.settings.sharpen,
-                            frequency: 0.5, // TODO: what should this be?
+                            frequency: 0.5,
                         },
                     },
                     edge_wave: SettingsBlock {
                         enabled: easy_settings.vhs_settings.settings.edge_wave > 0.0,
                         settings: VHSEdgeWaveSettings {
                             intensity: easy_settings.vhs_settings.settings.edge_wave,
-                            // TODO: tweak factors
-                            speed: 2.0,
-                            frequency: 0.5,
+                            speed: 7.0,
+                            frequency: 0.1,
                             detail: 2,
                         },
                     },
                 },
             },
-            chroma_vert_blend: false,
-            chroma_lowpass_out: ChromaLowpass::None,
+            chroma_vert_blend: !easy_settings.vhs_settings.enabled,
+            chroma_lowpass_out: ChromaLowpass::Full,
             bandwidth_scale: 1.0,
         }
     }
