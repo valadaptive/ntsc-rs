@@ -514,10 +514,13 @@ impl From<&EasyModeFullSettings> for NtscEffectFullSettings {
             video_scanline_phase_shift: PhaseShift::Degrees180,
             video_scanline_phase_shift_offset: 0,
             head_switching: SettingsBlock {
-                enabled: easy_settings.vhs_settings.enabled && easy_settings.vhs_settings.settings.head_switching > 0.0,
+                enabled: easy_settings.vhs_settings.enabled
+                    && easy_settings.vhs_settings.settings.head_switching > 0.0,
                 settings: HeadSwitchingSettingsFullSettings {
-                    height: (easy_settings.vhs_settings.settings.head_switching * 1.25).round() as u32,
-                    offset: (easy_settings.vhs_settings.settings.head_switching * 0.25).round() as u32,
+                    height: (easy_settings.vhs_settings.settings.head_switching * 1.25).round()
+                        as u32,
+                    offset: (easy_settings.vhs_settings.settings.head_switching * 0.25).round()
+                        as u32,
                     horiz_shift: easy_settings.vhs_settings.settings.head_switching * 8.0,
                     mid_line: SettingsBlock {
                         enabled: true,
@@ -529,7 +532,8 @@ impl From<&EasyModeFullSettings> for NtscEffectFullSettings {
                 },
             },
             tracking_noise: SettingsBlock {
-                enabled: easy_settings.vhs_settings.enabled && easy_settings.vhs_settings.settings.tracking_noise.enabled,
+                enabled: easy_settings.vhs_settings.enabled
+                    && easy_settings.vhs_settings.settings.tracking_noise.enabled,
                 settings: TrackingNoiseSettings {
                     height: easy_settings
                         .vhs_settings
@@ -542,20 +546,23 @@ impl From<&EasyModeFullSettings> for NtscEffectFullSettings {
                         .settings
                         .tracking_noise
                         .settings
-                        .intensity * 5.0,
+                        .intensity
+                        * 5.0,
                     snow_intensity: easy_settings
                         .vhs_settings
                         .settings
                         .tracking_noise
                         .settings
-                        .intensity * 0.5,
+                        .intensity
+                        * 0.5,
                     snow_anisotropy: 0.25,
                     noise_intensity: easy_settings
                         .vhs_settings
                         .settings
                         .tracking_noise
                         .settings
-                        .intensity * 0.5,
+                        .intensity
+                        * 0.5,
                 },
             },
             composite_noise: SettingsBlock {
