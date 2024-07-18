@@ -73,6 +73,9 @@ impl<T> BorrowMut<[T]> for LockedHandle<'_, T> {
 
 impl<T> Drop for LockedHandle<'_, T> {
     fn drop(&mut self) {
-        self.parent.suite.unlock_handle(self.parent.handle.as_ptr())
+        self.parent.suite.unlock_handle(self.parent.handle.as_ptr());
+        self.parent
+            .suite
+            .dispose_handle(self.parent.handle.as_ptr());
     }
 }
