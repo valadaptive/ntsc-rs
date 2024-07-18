@@ -37,6 +37,11 @@ impl<T> SliceHandle<T> {
         Ok(LockedHandle { data, parent: self })
     }
 }
+impl<T> Drop for SliceHandle<T> {
+    fn drop(&mut self) {
+        self.suite.dispose_handle(self.handle.as_ptr());
+    }
+}
 
 impl<T: Copy> SliceHandle<T> {
     pub fn new(len: usize, value: T) -> Result<Self, Error> {
@@ -74,8 +79,5 @@ impl<T> BorrowMut<[T]> for LockedHandle<'_, T> {
 impl<T> Drop for LockedHandle<'_, T> {
     fn drop(&mut self) {
         self.parent.suite.unlock_handle(self.parent.handle.as_ptr());
-        self.parent
-            .suite
-            .dispose_handle(self.parent.handle.as_ptr());
     }
 }
