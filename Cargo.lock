@@ -120,7 +120,7 @@ dependencies = [
 [[package]]
 name = "after-effects"
 version = "0.1.6"
-source = "git+https://github.com/AdrianEddy/after-effects?rev=b5e7454#b5e7454adff1074406770c1c6983bbe5452b941a"
+source = "git+https://github.com/AdrianEddy/after-effects?rev=ac73105#ac731059f538e782cc4feeb80689826ac698b19f"
 dependencies = [
  "after-effects-sys",
  "bincode",
@@ -143,7 +143,7 @@ dependencies = [
 [[package]]
 name = "after-effects-sys"
 version = "0.1.6"
-source = "git+https://github.com/AdrianEddy/after-effects?rev=b5e7454#b5e7454adff1074406770c1c6983bbe5452b941a"
+source = "git+https://github.com/AdrianEddy/after-effects?rev=ac73105#ac731059f538e782cc4feeb80689826ac698b19f"
 dependencies = [
  "bindgen",
 ]
@@ -3311,7 +3311,7 @@ dependencies = [
 [[package]]
 name = "pipl"
 version = "0.1.0"
-source = "git+https://github.com/AdrianEddy/after-effects?rev=b5e7454#b5e7454adff1074406770c1c6983bbe5452b941a"
+source = "git+https://github.com/AdrianEddy/after-effects?rev=ac73105#ac731059f538e782cc4feeb80689826ac698b19f"
 dependencies = [
  "bitflags 2.5.0",
  "byteorder",
