@@ -73,7 +73,7 @@ impl AppExecutor {
                 queued.push(cb);
             }
 
-            return false;
+            false
         });
 
         queued

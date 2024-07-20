@@ -142,7 +142,7 @@ fn filter_plane_with_rows<const ROWS: usize>(
 
     // Process the row in chunks, each `ROWS` rows tall.
     row_chunks.for_each(|rows| {
-        let mut row_chunks: Vec<&mut [f32]> = rows.chunks_exact_mut(width).into_iter().collect();
+        let mut row_chunks: Vec<&mut [f32]> = rows.chunks_exact_mut(width).collect();
         let rows: &mut [&mut [f32]; ROWS] = row_chunks.as_mut_slice().try_into().unwrap();
 
         let mut initial_rows: [f32; ROWS] = [0f32; ROWS];
@@ -697,7 +697,7 @@ fn head_switching(
 
                 for i in copy_start..(copy_start + transient_len.ceil() as usize).min(width) {
                     let x = (i - copy_start) as f32;
-                    row[i] += (1.0 - (x / transient_len as f32)).powi(3) * transient_intensity;
+                    row[i] += (1.0 - (x / transient_len)).powi(3) * transient_intensity;
                 }
             } else {
                 shift_row(row, noisy_shift, BoundaryHandling::Constant(0.0));
@@ -1081,7 +1081,7 @@ impl NtscEffect {
         }
 
         if let Some(noise) = &self.composite_noise {
-            composite_noise(yiq, &info, &noise);
+            composite_noise(yiq, &info, noise);
         }
 
         if self.snow_intensity > 0.0 && self.bandwidth_scale > 0.0 {
@@ -1153,27 +1153,27 @@ impl NtscEffect {
 
         if let Some(luma_noise_settings) = &self.luma_noise {
             plane_noise(
-                &mut yiq.y,
+                yiq.y,
                 yiq.dimensions.0,
                 &info,
-                &luma_noise_settings,
+                luma_noise_settings,
                 noise_seeds::VIDEO_LUMA,
             );
         }
 
         if let Some(chroma_noise_settings) = &self.chroma_noise {
             plane_noise(
-                &mut yiq.i,
+                yiq.i,
                 yiq.dimensions.0,
                 &info,
-                &chroma_noise_settings,
+                chroma_noise_settings,
                 noise_seeds::VIDEO_CHROMA_I,
             );
             plane_noise(
-                &mut yiq.q,
+                yiq.q,
                 yiq.dimensions.0,
                 &info,
-                &chroma_noise_settings,
+                chroma_noise_settings,
                 noise_seeds::VIDEO_CHROMA_Q,
             );
         }

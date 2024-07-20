@@ -87,11 +87,7 @@ impl<T: Settings> std::hash::Hash for SettingID<T> {
 }
 impl<T: Settings> Clone for SettingID<T> {
     fn clone(&self) -> Self {
-        Self {
-            id: self.id.clone(),
-            name: self.name,
-            settings: self.settings.clone(),
-        }
+        *self
     }
 }
 impl<T: Settings> Copy for SettingID<T> {}
@@ -118,7 +114,7 @@ macro_rules! get_field_ref_impl {
             let type_name = std::any::type_name_of_val(&$($field_path).+);
             (&$($field_path).+ as &dyn std::any::Any)
                 .downcast_ref()
-                .ok_or_else(|| crate::settings::GetSetFieldError::TypeMismatch {
+                .ok_or_else(|| $crate::settings::GetSetFieldError::TypeMismatch {
                     actual_type: type_name,
                     requested_type: std::any::type_name::<T>()
                 })
@@ -126,7 +122,7 @@ macro_rules! get_field_ref_impl {
     };
 
     ($($field_path:ident).+, IS_AN_ENUM) => {
-        Err(crate::settings::GetSetFieldError::TypeMismatch {
+        Err($crate::settings::GetSetFieldError::TypeMismatch {
             actual_type: std::any::type_name_of_val(&$($field_path).+),
             requested_type: std::any::type_name::<T>()
         })
@@ -140,7 +136,7 @@ macro_rules! get_field_mut_impl {
             let type_name = std::any::type_name_of_val(&$($field_path).+);
             (&mut $($field_path).+ as &mut dyn std::any::Any)
                 .downcast_mut()
-                .ok_or_else(|| crate::settings::GetSetFieldError::TypeMismatch {
+                .ok_or_else(|| $crate::settings::GetSetFieldError::TypeMismatch {
                     actual_type: type_name,
                     requested_type: std::any::type_name::<T>()
                 })
@@ -149,7 +145,7 @@ macro_rules! get_field_mut_impl {
 
     ($($field_path:ident).+, IS_AN_ENUM) => {
         {
-            Err(crate::settings::GetSetFieldError::TypeMismatch {
+            Err($crate::settings::GetSetFieldError::TypeMismatch {
                 actual_type: std::any::type_name_of_val(&$($field_path).+),
                 requested_type: std::any::type_name::<T>()
             })
@@ -162,7 +158,7 @@ macro_rules! get_field_enum_impl {
     ($($field_path:ident).+) => {
         {
             let type_name = std::any::type_name_of_val(&$($field_path).+);
-            Err(crate::settings::GetSetFieldError::TypeMismatch { actual_type: type_name, requested_type: "enum" })
+            Err($crate::settings::GetSetFieldError::TypeMismatch { actual_type: type_name, requested_type: "enum" })
         }
     };
 
@@ -179,7 +175,7 @@ macro_rules! set_field_enum_impl {
     ($value:ident, $($field_path:ident).+) => {
         {
             let type_name = std::any::type_name_of_val(&$($field_path).+);
-            Err(crate::settings::GetSetFieldError::TypeMismatch { actual_type: type_name, requested_type: "enum" })
+            Err($crate::settings::GetSetFieldError::TypeMismatch { actual_type: type_name, requested_type: "enum" })
         }
     };
 
@@ -194,8 +190,8 @@ macro_rules! set_field_enum_impl {
 #[macro_export]
 macro_rules! impl_settings_for {
     ($item:ty, $(($field_setting_id:path, $($field_path:ident).+$(, $is_enum:tt)?)),+$(,)?) => {
-        impl crate::settings::Settings for $item {
-            fn get_field_mut<T: 'static>(&mut self, id: &crate::settings::SettingID<Self>) -> Result<&mut T, crate::settings::GetSetFieldError> {
+        impl $crate::settings::Settings for $item {
+            fn get_field_mut<T: 'static>(&mut self, id: &$crate::settings::SettingID<Self>) -> Result<&mut T, crate::settings::GetSetFieldError> {
                 match id {
                     $(&$field_setting_id => $crate::get_field_mut_impl!(self.$($field_path).+$(, $is_enum)?),)+
                     _ => Err(crate::settings::GetSetFieldError::NoSuchID(id.name))

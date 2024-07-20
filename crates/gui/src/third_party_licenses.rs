@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::OnceLock};
 
 use tinyjson::JsonValue;
 
-static THIRD_PARTY_LICENSES_JSON: &'static str = include_str!("../about.json");
+static THIRD_PARTY_LICENSES_JSON: &str = include_str!("../about.json");
 pub struct ThirdPartyCrate {
     pub name: String,
     pub version: String,

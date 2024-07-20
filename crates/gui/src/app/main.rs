@@ -2016,7 +2016,7 @@ impl NtscApp {
                     ui.menu_button("Edit", |ui| {
                         if ui
                             .add_enabled(
-                                self.undoer.has_undo(&mut self.effect_settings),
+                                self.undoer.has_undo(&self.effect_settings),
                                 egui::Button::new("Undo"),
                             )
                             .clicked()
@@ -2026,7 +2026,7 @@ impl NtscApp {
                         }
                         if ui
                             .add_enabled(
-                                self.undoer.has_redo(&mut self.effect_settings),
+                                self.undoer.has_redo(&self.effect_settings),
                                 egui::Button::new("Redo"),
                             )
                             .clicked()

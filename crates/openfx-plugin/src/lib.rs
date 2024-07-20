@@ -959,13 +959,13 @@ impl<'a> EffectApplicationParams<'a> {
         } else {
             (self.src_ptr, true)
         };
-        let srcStride = self.src_row_bytes.abs() as usize;
+        let srcStride = self.src_row_bytes.unsigned_abs() as usize;
 
         let mut yiq_view = YiqView::from_parts(&mut ntsc_buf, (srcWidth, srcHeight), cur_field);
 
         let srcData = slice::from_raw_parts(
             srcFirstRowPtr as *const MaybeUninit<S::DataFormat>,
-            srcStride / std::mem::size_of::<S::DataFormat>() * srcHeight as usize,
+            srcStride / std::mem::size_of::<S::DataFormat>() * srcHeight,
         );
         // TODO: ported from code written under the assumption that we go from (0, 0) to (width, height).
         // I could change this now to use the actual source rect (in case we need that), but then I'd have to convert
@@ -1018,10 +1018,10 @@ impl<'a> EffectStorageParams<'a> {
         } else {
             (self.dst_ptr, true)
         };
-        let dstStride = self.dst_row_bytes.abs() as usize;
+        let dstStride = self.dst_row_bytes.unsigned_abs() as usize;
         let dstData = slice::from_raw_parts_mut(
             dstFirstRowPtr as *mut MaybeUninit<D::DataFormat>,
-            dstStride / std::mem::size_of::<D::DataFormat>() * dstHeight as usize,
+            dstStride / std::mem::size_of::<D::DataFormat>() * dstHeight,
         );
         let blit_info = BlitInfo {
             rect: Rect::from_width_height(srcWidth, srcHeight),

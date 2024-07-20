@@ -202,7 +202,7 @@ impl NtscApp {
 
                             let file_name = preset_path
                                 .file_name()
-                                .unwrap_or_else(|| preset_path.as_os_str())
+                                .unwrap_or(preset_path.as_os_str())
                                 .to_string_lossy();
 
                             let rename =
@@ -222,7 +222,7 @@ impl NtscApp {
                                     if !ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                                         let new_path = PathBuf::from_iter([
                                             preset_path.parent().unwrap().as_os_str(),
-                                            &OsString::from_str(&name).unwrap(),
+                                            &OsString::from_str(name).unwrap(),
                                         ]);
                                         if new_path != preset_path {
                                             let old_path = preset_path.to_owned();

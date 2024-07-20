@@ -115,7 +115,7 @@ impl Normalize for AfterEffectsU16 {
 
     #[inline(always)]
     fn to_norm(self) -> f32 {
-        (self.0 as f32) / 32768.0 as f32
+        (self.0 as f32) / 32768.0
     }
 }
 

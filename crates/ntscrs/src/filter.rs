@@ -83,7 +83,7 @@ impl TransferFunction {
     pub fn cascade_self(&self, n: usize) -> Self {
         let mut filt = self.clone();
         for _ in 1..n {
-            filt = &filt * &self;
+            filt = &filt * self;
         }
         filt
     }

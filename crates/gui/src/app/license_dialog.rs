@@ -2,7 +2,7 @@ use eframe::egui;
 
 use super::NtscApp;
 
-const LICENSE_TEXT: &'static str = include_str!("../../LICENSE");
+const LICENSE_TEXT: &str = include_str!("../../LICENSE");
 
 impl NtscApp {
     pub fn show_license_dialog(&mut self, ctx: &egui::Context) {
