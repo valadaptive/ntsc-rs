@@ -503,6 +503,7 @@ mod noise_seeds {
 /// Helper function to apply gradient noise to a single row of a single plane.
 fn video_noise_line(
     row: &mut [f32],
+    scratch: &mut [f32],
     seeder: &Seeder,
     index: usize,
     frequency: f32,
@@ -514,18 +515,18 @@ fn video_noise_line(
     let noise_seed = rng.next_u32();
     let offset = rng.gen::<f32>() * width as f32;
 
-    let noise = NoiseBuilder::fbm_1d_offset(offset, width)
+    NoiseBuilder::fbm_1d_offset(offset, width)
         .with_seed(noise_seed as i32)
         .with_freq(frequency)
         .with_octaves(detail.clamp(1, 5) as u8)
         // Yes, they got the lacunarity backwards by making it apply to frequency instead of scale.
         // 2.0 *halves* the scale each time because it doubles the frequency.
         .with_lacunarity(2.0)
-        .generate()
+        .generate_into(scratch)
         .0;
 
     row.iter_mut().enumerate().for_each(|(x, pixel)| {
-        *pixel += noise[x] * 0.25 * intensity;
+        *pixel += scratch[x] * 0.25 * intensity;
     });
 }
 
@@ -538,10 +539,12 @@ fn composite_noise(yiq: &mut YiqView, info: &CommonInfo, noise_settings: &FbmNoi
 
     yiq.y
         .par_chunks_mut(width)
+        .zip(yiq.scratch.par_chunks_exact_mut(width))
         .enumerate()
-        .for_each(|(index, row)| {
+        .for_each(|(index, (row, scratch))| {
             video_noise_line(
                 row,
+                scratch,
                 &seeder,
                 index,
                 noise_settings.frequency / info.bandwidth_scale,
@@ -554,6 +557,7 @@ fn composite_noise(yiq: &mut YiqView, info: &CommonInfo, noise_settings: &FbmNoi
 /// Add gradient noise to a single plane of a de-modulated signal.
 fn plane_noise(
     plane: &mut [f32],
+    scratch: &mut [f32],
     width: usize,
     info: &CommonInfo,
     settings: &FbmNoiseSettings,
@@ -563,10 +567,12 @@ fn plane_noise(
 
     plane
         .par_chunks_mut(width)
+        .zip(scratch.par_chunks_mut(width))
         .enumerate()
-        .for_each(|(index, row)| {
+        .for_each(|(index, (row, scratch))| {
             video_noise_line(
                 row,
+                scratch,
                 &seeder,
                 index,
                 settings.frequency / info.bandwidth_scale,
@@ -807,17 +813,19 @@ fn tracking_noise(
 
     // Handle cases where the number of affected rows exceeds the number of actual rows in the image
     let start_row = height.max(num_rows) - num_rows;
-    let affected_rows = &mut yiq.y[start_row * width..];
     let cut_off_rows = if num_rows > height {
         num_rows - height
     } else {
         0
     };
+    let affected_rows = &mut yiq.y[start_row * width..];
+    let scratch_rows = &mut yiq.scratch[start_row * width..];
 
     affected_rows
         .par_chunks_mut(width)
+        .zip(scratch_rows.par_chunks_mut(width))
         .enumerate()
-        .for_each(|(index, row)| {
+        .for_each(|(index, (row, scratch))| {
             let index = index + cut_off_rows;
             // This iterates from the top down. Increase the intensity as we approach the bottom of the picture.
             let intensity_scale = index as f32 / num_rows as f32;
@@ -829,6 +837,7 @@ fn tracking_noise(
 
             video_noise_line(
                 row,
+                scratch,
                 &seeder,
                 index,
                 0.25 / info.bandwidth_scale,
@@ -956,17 +965,17 @@ fn vhs_edge_wave(yiq: &mut YiqView, info: &CommonInfo, settings: &VHSEdgeWaveSet
     let seeder = Seeder::new(info.seed).mix(noise_seeds::EDGE_WAVE);
     let noise_seed: i32 = seeder.clone().mix(0).finalize();
     let offset = seeder.mix(1).finalize::<f32>() * yiq.num_rows() as f32;
-    let noise =
-        NoiseBuilder::fbm_2d_offset(offset, height, info.frame_num as f32 * settings.speed, 1)
-            .with_seed(noise_seed)
-            .with_freq(settings.frequency)
-            .with_octaves(settings.detail.clamp(1, 5) as u8)
-            // Yes, they got the lacunarity backwards by making it apply to frequency instead of scale.
-            // 2.0 *halves* the scale each time because it doubles the frequency.
-            .with_lacunarity(2.0)
-            .with_gain(std::f32::consts::FRAC_1_SQRT_2)
-            .generate()
-            .0;
+    let noise = &mut yiq.scratch[..height];
+    NoiseBuilder::fbm_2d_offset(offset, height, info.frame_num as f32 * settings.speed, 1)
+        .with_seed(noise_seed)
+        .with_freq(settings.frequency)
+        .with_octaves(settings.detail.clamp(1, 5) as u8)
+        // Yes, they got the lacunarity backwards by making it apply to frequency instead of scale.
+        // 2.0 *halves* the scale each time because it doubles the frequency.
+        .with_lacunarity(2.0)
+        .with_gain(std::f32::consts::FRAC_1_SQRT_2)
+        .generate_into(noise)
+        .0;
 
     for plane in [&mut yiq.y, &mut yiq.i, &mut yiq.q] {
         plane
@@ -1154,6 +1163,7 @@ impl NtscEffect {
         if let Some(luma_noise_settings) = &self.luma_noise {
             plane_noise(
                 yiq.y,
+                yiq.scratch,
                 yiq.dimensions.0,
                 &info,
                 luma_noise_settings,
@@ -1164,6 +1174,7 @@ impl NtscEffect {
         if let Some(chroma_noise_settings) = &self.chroma_noise {
             plane_noise(
                 yiq.i,
+                yiq.scratch,
                 yiq.dimensions.0,
                 &info,
                 chroma_noise_settings,
@@ -1171,6 +1182,7 @@ impl NtscEffect {
             );
             plane_noise(
                 yiq.q,
+                yiq.scratch,
                 yiq.dimensions.0,
                 &info,
                 chroma_noise_settings,
