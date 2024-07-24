@@ -138,10 +138,7 @@ impl BaseTransformImpl for VideoPadFilter {
                         }
 
                         out_caps.append_structure(s_out);
-                        out_caps.set_features(
-                            idx as u32,
-                            caps.features(idx as u32).map(|f| f.to_owned()),
-                        );
+                        out_caps.set_features(idx, caps.features(idx).map(|f| f.to_owned()));
                     }
                 }
 
