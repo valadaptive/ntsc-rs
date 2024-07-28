@@ -62,7 +62,6 @@ impl TopBottomPanelExt for egui::TopBottomPanel {
         let expected_margin = frame.inner_margin;
         frame.inner_margin.top = 0.0;
         frame.inner_margin.bottom = 0.0;
-        //let frame_margin = egui::Frame::side_top_panel(ui.style()).inner_margin;
         self.exact_height(
             ctx.style().spacing.interact_size.y * 2.0
                 + expected_margin.top

@@ -1039,7 +1039,7 @@ impl NtscApp {
             egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
         egui::TopBottomPanel::bottom("preset_manager")
             .resizable(collapse_state.is_open())
-            // Determined experimentall to prevent the presets manager from becoming too tall to drag back down by its
+            // Determined experimentally to prevent the presets manager from becoming too tall to drag back down by its
             // top edge
             .max_height(600.0f32.min(ui.available_height() - 100.0))
             .min_height(egui::lerp(
