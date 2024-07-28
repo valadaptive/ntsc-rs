@@ -8,6 +8,7 @@ current_platform = "0.2.0"
 clap = {version = "4.5.4", features = ["cargo", "string"] }
 cargo_toml = "0.20.2"
 walkdir = "2.5.0"
+plist = {version = "1.7.0", default-features = false}
 
 [[bin]]
 name = "xtask"

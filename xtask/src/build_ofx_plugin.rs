@@ -7,6 +7,7 @@ use clap::builder::PathBufValueParser;
 use crate::util::targets::{Target, MACOS_AARCH64, MACOS_X86_64, TARGETS};
 use crate::util::{workspace_dir, PathBufExt, StatusExt};
 
+use std::error::Error;
 use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
@@ -59,38 +60,40 @@ pub fn command() -> clap::Command {
 }
 
 /// Creates the contents of the Info.plist file for the bundle when building for macOS.
-/// I may want to consider using PlistBuddy, but string formatting is likely a lot faster.
-fn get_info_plist() -> String {
+fn get_info_plist() -> plist::Value {
     let cargo_toml_path = workspace_dir().plus_iter(["crates", "openfx-plugin", "Cargo.toml"]);
     let manifest = cargo_toml::Manifest::from_path(cargo_toml_path).unwrap();
     let version = manifest.package().version();
-    format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0">
-        <dict>
-            <key>CFBundleInfoDictionaryVersion</key>
-            <string>6.0</string>
-            <key>CFBundleDevelopmentRegion</key>
-            <string>en</string>
-            <key>CFBundlePackageType</key>
-            <string>BNDL</string>
-            <key>CFBundleIdentifier</key>
-            <string>rs.ntsc.openfx</string>
-            <key>CFBundleExecutable</key>
-            <string>ntsc-rs-standalone</string>
-            <key>CFBundleVersion</key>
-            <string>{version}</string>
-            <key>CFBundleShortVersionString</key>
-            <string>{version}</string>
-            <key>NSHumanReadableCopyright</key>
-            <string>© 2023-2024 valadaptive</string>
-            <key>CFBundleSignature</key>
-            <string>????</string>
-        </dict>
-        </plist>
-        "#
-    )
+
+    let mut info_plist_contents = plist::dictionary::Dictionary::new();
+    info_plist_contents.insert(
+        "CFBundleInfoDictionaryVersion".to_string(),
+        plist::Value::from("6.0"),
+    );
+    info_plist_contents.insert(
+        "CFBundleDevelopmentRegion".to_string(),
+        plist::Value::from("en"),
+    );
+    info_plist_contents.insert(
+        "CFBundlePackageType".to_string(),
+        plist::Value::from("BNDL"),
+    );
+    info_plist_contents.insert(
+        "CFBundleIdentifier".to_string(),
+        plist::Value::from("rs.ntsc.openfx"),
+    );
+    info_plist_contents.insert("CFBundleVersion".to_string(), plist::Value::from(version));
+    info_plist_contents.insert(
+        "CFBundleShortVersionString".to_string(),
+        plist::Value::from(version),
+    );
+    info_plist_contents.insert(
+        "NSHumanReadableCopyright".to_string(),
+        plist::Value::from("© 2023-2024 valadaptive"),
+    );
+    info_plist_contents.insert("CFBundleSignature".to_string(), plist::Value::from("????"));
+
+    plist::Value::Dictionary(info_plist_contents)
 }
 
 /// Build the plugin for a given target, in either debug or release mode. This is called once in most cases, but when
@@ -131,7 +134,7 @@ fn build_plugin_for_target(target: &Target, release_mode: bool) -> std::io::Resu
     Ok(built_library_path)
 }
 
-pub fn main(args: &clap::ArgMatches) -> std::io::Result<()> {
+pub fn main(args: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
     let release_mode = args.get_flag("release");
 
     // TODO: remove previous built bundle?
@@ -194,7 +197,7 @@ pub fn main(args: &clap::ArgMatches) -> std::io::Result<()> {
     fs::create_dir_all(plugin_bin_path.parent().unwrap())?;
     fs::copy(built_library_path, plugin_bin_path)?;
     if ofx_architecture == "MacOS" {
-        fs::write(plugin_bundle_path.plus("Info.plist"), get_info_plist())?;
+        get_info_plist().to_file_xml(plugin_bundle_path.plus("Info.plist"))?;
     }
 
     Ok(())

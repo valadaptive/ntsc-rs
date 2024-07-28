@@ -115,39 +115,49 @@ pub fn main(args: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
     let gui_version = gui_manifest.package().version();
 
     // Construct Info.plist and bundle structure.
-    let info_plist_contents = format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleInfoDictionaryVersion</key>
-    <string>6.0</string>
-    <key>CFBundleDevelopmentRegion</key>
-    <string>en</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleIdentifier</key>
-    <string>rs.ntsc</string>
-    <key>CFBundleExecutable</key>
-    <string>ntsc-rs-standalone</string>
-    <key>CFBundleIconFile</key>
-    <string>icon.icns</string>
-    <key>CFBundleDisplayName</key>
-    <string>ntsc-rs</string>
-    <key>CFBundleName</key>
-    <string>ntsc-rs</string>
-    <key>CFBundleVersion</key>
-    <string>{gui_version}</string>
-    <key>CFBundleShortVersionString</key>
-    <string>{gui_version}</string>
-    <key>NSHumanReadableCopyright</key>
-    <string>© 2023-2024 valadaptive</string>
-    <key>CFBundleSignature</key>
-    <string>????</string>
-</dict>
-</plist>
-"#
+    let mut info_plist_contents = plist::dictionary::Dictionary::new();
+    info_plist_contents.insert(
+        "CFBundleInfoDictionaryVersion".to_string(),
+        plist::Value::from("6.0"),
     );
+    info_plist_contents.insert(
+        "CFBundleDevelopmentRegion".to_string(),
+        plist::Value::from("en"),
+    );
+    info_plist_contents.insert(
+        "CFBundlePackageType".to_string(),
+        plist::Value::from("APPL"),
+    );
+    info_plist_contents.insert(
+        "CFBundleIdentifier".to_string(),
+        plist::Value::from("rs.ntsc.standalone"),
+    );
+    info_plist_contents.insert(
+        "CFBundleExecutable".to_string(),
+        plist::Value::from("ntsc-rs-standalone"),
+    );
+    info_plist_contents.insert(
+        "CFBundleIconFile".to_string(),
+        plist::Value::from("icon.icns"),
+    );
+    info_plist_contents.insert(
+        "CFBundleDisplayName".to_string(),
+        plist::Value::from("ntsc-rs"),
+    );
+    info_plist_contents.insert("CFBundleName".to_string(), plist::Value::from("ntsc-rs"));
+    info_plist_contents.insert(
+        "CFBundleVersion".to_string(),
+        plist::Value::from(gui_version),
+    );
+    info_plist_contents.insert(
+        "CFBundleShortVersionString".to_string(),
+        plist::Value::from(gui_version),
+    );
+    info_plist_contents.insert(
+        "NSHumanReadableCopyright".to_string(),
+        plist::Value::from("© 2023-2024 valadaptive"),
+    );
+    info_plist_contents.insert("CFBundleSignature".to_string(), plist::Value::from("????"));
 
     let build_dir_path = args.get_one::<PathBuf>("destdir").unwrap();
     let app_dir_path = build_dir_path.plus("ntsc-rs.app");
@@ -166,10 +176,8 @@ pub fn main(args: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
     let resources_dir_path = contents_dir_path.plus("Resources");
     fs::create_dir_all(&resources_dir_path)?;
 
-    fs::write(
-        contents_dir_path.plus("Info.plist"),
-        info_plist_contents.as_bytes(),
-    )?;
+    plist::Value::Dictionary(info_plist_contents)
+        .to_file_xml(contents_dir_path.plus("Info.plist"))?;
 
     let app_executable_path = macos_dir_path.plus("ntsc-rs-standalone");
 
