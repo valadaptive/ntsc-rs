@@ -6,6 +6,7 @@ use clap::builder::PathBufValueParser;
 use crate::util::targets::{Target, MACOS_AARCH64, MACOS_X86_64, TARGETS};
 use crate::util::{workspace_dir, PathBufExt, StatusExt};
 
+use std::error::Error;
 use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
@@ -99,7 +100,7 @@ fn build_plugin_for_target(
     Ok((built_library_path, built_rsrc_path))
 }
 
-pub fn main(args: &clap::ArgMatches) -> std::io::Result<()> {
+pub fn main(args: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
     let release_mode = args.get_flag("release");
 
     let build_dir_path = args.get_one::<PathBuf>("destdir").unwrap();
@@ -119,22 +120,19 @@ pub fn main(args: &clap::ArgMatches) -> std::io::Result<()> {
 
     fs::write(contents_dir_path.plus("PkgInfo"), "eFKTFXTC")?;
 
-    let info_plist_path = contents_dir_path.plus("Info.plist");
+    let mut info_plist_contents = plist::dictionary::Dictionary::new();
+    info_plist_contents.insert(
+        "CFBundleIdentifier".to_string(),
+        plist::Value::from("rs.ntsc.afterfx"),
+    );
+    info_plist_contents.insert(
+        "CFBundlePackageType".to_string(),
+        plist::Value::from("eFKT"),
+    );
+    info_plist_contents.insert("CFBundleSignature".to_string(), plist::Value::from("FXTC"));
 
-    let plist_buddy = |cmd: &str| {
-        Command::new("/usr/libexec/PlistBuddy")
-            .args([
-                OsString::from("-c"),
-                OsString::from(cmd),
-                OsString::from(&info_plist_path),
-            ])
-            .status()
-            .expect_success()
-    };
-
-    plist_buddy("add CFBundlePackageType string eFKT")?;
-    plist_buddy("add CFBundleSignature string FXTC")?;
-    plist_buddy("add CFBundleIdentifier string rs.ntsc.openfx")?;
+    plist::Value::Dictionary(info_plist_contents)
+        .to_file_xml(contents_dir_path.plus("Info.plist"))?;
 
     let (built_library_path, built_rsrc_path) = if args.get_flag("macos-universal") {
         let x86_64_target = MACOS_X86_64;
