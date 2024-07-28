@@ -20,7 +20,7 @@ use super::{
         FsSnafu, JSONParseSnafu, JSONReadSnafu, RenamePresetSnafu,
     },
     layout_helper::LayoutHelper,
-    NtscApp,
+    AppFn, NtscApp,
 };
 
 #[derive(Debug)]
@@ -130,6 +130,7 @@ impl NtscApp {
             return;
         };
         let mut just_pressed_save = false;
+        let mut overwrite_selected_preset = false;
         ui.horizontal(|ui| {
             if ui.button("Open folder").clicked() {
                 self.handle_result(open::that_detached(presets_dir));
@@ -140,7 +141,21 @@ impl NtscApp {
                     _ => self.reload_presets_dir(),
                 }
             }
-            if ui.button("Save").clicked() {
+
+            let modified = self
+                .presets_state
+                .selected_preset
+                .as_ref()
+                .is_some_and(|selected_preset| selected_preset.settings != self.effect_settings);
+
+            if ui
+                .add_enabled(modified, egui::Button::new("Overwrite"))
+                .clicked()
+            {
+                overwrite_selected_preset = true;
+            }
+
+            if ui.button("Save as").clicked() {
                 let mut preset_name = String::from("preset.json");
                 just_pressed_save = true;
 
@@ -196,7 +211,6 @@ impl NtscApp {
                             let selected = self.presets_state.selected_preset.as_ref().is_some_and(
                                 |selected_preset| {
                                     selected_preset.path == preset_path
-                                        && selected_preset.settings == self.effect_settings
                                 },
                             );
 
@@ -237,7 +251,9 @@ impl NtscApp {
                                                         });
                                                     }
                                                     fs::rename(old_path, new_path)
-                                                        .context(RenamePresetSnafu)
+                                                        .context(RenamePresetSnafu)?;
+
+                                                    Ok(None)
                                                 },
                                             ));
                                         }
@@ -254,7 +270,8 @@ impl NtscApp {
                                         self.do_fs_operation_then_refresh(unblock(
                                             || {
                                                 trash::delete(delete_path)
-                                                    .context(DeletePresetSnafu)
+                                                    .context(DeletePresetSnafu)?;
+                                                Ok(None)
                                             },
                                         ));
                                         ui.close_menu();
@@ -284,6 +301,7 @@ impl NtscApp {
                                 let save_button = ui.button("Save");
                                 let text_edit = ui.add_sized(ui.available_size(), egui::TextEdit::singleline(new_preset_name));
                                 if just_pressed_save {
+                                    text_edit.scroll_to_me(None);
                                     text_edit.request_focus();
                                 }
                                 if (text_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape))) || close_button.clicked() {
@@ -298,8 +316,9 @@ impl NtscApp {
                         if save_new_preset {
                             let preset_name = std::mem::take(&mut *self.presets_state.new_preset_name.borrow_mut()).unwrap();
                             let mut preset_path = Self::presets_dir().unwrap();
-                            let preset_json = self.settings_list.to_json(&self.effect_settings);
                             preset_path.push(preset_name);
+                            let preset_json = self.settings_list.to_json(&self.effect_settings);
+                            let new_selected_preset = SelectedPreset { path: preset_path.clone(), settings: self.effect_settings.clone() };
                             self.do_fs_operation_then_refresh(async move {
                                 if preset_path.try_exists().context(CreatePresetSnafu)? {
                                     return Err(ApplicationError::CreatePreset {
@@ -311,10 +330,27 @@ impl NtscApp {
                                 }
                                 let mut destination = fs::File::create(preset_path).context(CreatePresetSnafu)?;
                                 preset_json.write_to(&mut destination).context(CreatePresetSnafu)?;
-                                Ok(())
+                                Ok(Some(Box::new(|app: &mut NtscApp| {
+                                    app.presets_state.selected_preset = Some(new_selected_preset);
+                                    Ok(())
+                                }) as _))
                             })
                         } else if clear_preset_name {
                             *self.presets_state.new_preset_name.borrow_mut() = None;
+                        }
+
+                        if let (true, Some(selected_preset)) = (overwrite_selected_preset, self.presets_state.selected_preset.as_ref()) {
+                            let preset_json = self.settings_list.to_json(&self.effect_settings);
+                            let preset_path = selected_preset.path.clone();
+                            let new_selected_preset = SelectedPreset {path: preset_path.clone(), settings: self.effect_settings.clone() };
+                            self.do_fs_operation_then_refresh(async move {
+                                let mut destination = fs::File::create(preset_path).context(CreatePresetSnafu)?;
+                                preset_json.write_to(&mut destination).context(CreatePresetSnafu)?;
+                                Ok(Some(Box::new(|app: &mut NtscApp| {
+                                    app.presets_state.selected_preset = Some(new_selected_preset);
+                                    Ok(())
+                                }) as _))
+                            })
                         }
                     });
                 }
@@ -328,7 +364,7 @@ impl NtscApp {
 
     fn do_fs_operation_then_refresh(
         &self,
-        op: impl Future<Output = Result<(), ApplicationError>> + Send + 'static,
+        op: impl Future<Output = Result<Option<AppFn>, ApplicationError>> + Send + 'static,
     ) {
         self.presets_state
             .active_fs_operations
@@ -338,7 +374,11 @@ impl NtscApp {
             let res = op.await;
 
             Some(Box::new(|app: &mut NtscApp| {
-                app.handle_result(res);
+                match res {
+                    Ok(Some(func)) => func(app)?,
+                    Ok(None) => {}
+                    Err(e) => app.handle_error(&e),
+                }
 
                 let active_fs_operations = app.presets_state.active_fs_operations.get_mut();
                 *active_fs_operations -= 1;
@@ -346,6 +386,7 @@ impl NtscApp {
                 if *active_fs_operations == 0 {
                     app.reload_presets_dir();
                 }
+
                 Ok(())
             }) as _)
         })
