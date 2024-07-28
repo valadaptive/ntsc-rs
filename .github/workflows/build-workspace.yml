@@ -7,6 +7,7 @@ on:
       - macos
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
   workflow_dispatch:
 
 env:
@@ -15,7 +16,6 @@ env:
 jobs:
   build-linux:
     runs-on: ubuntu-24.04
-    if: ${{ github.ref_name != 'macos' }}
 
     steps:
     - name: Checkout
@@ -53,7 +53,6 @@ jobs:
 
   build-windows:
     runs-on: windows-2019
-    if: ${{ github.ref_name != 'macos' }}
 
     steps:
       # This is an attempt to make the Windows CI image faster. Not sure if it works.
@@ -151,7 +150,6 @@ jobs:
 
   build-macos:
     runs-on: macos-14
-    if: ${{ github.ref_name == 'macos' }} # TODO: remove once macos branch is merged
 
     steps:
     - name: Checkout
@@ -188,6 +186,8 @@ jobs:
       run: cargo xtask macos-ae-plugin --macos-universal --release --destdir=build/ntsc-rs-afterfx
 
     - name: Create .pkg installers for bundles
+      # Using the "latest" compression setting is slower (50 seconds vs 25ish) but results in a smaller file
+      # (around 120MB vs around 180MB).
       run: |
         pkgbuild --install-location /Applications --component build/ntsc-rs-standalone/ntsc-rs.app --min-os-version $MACOSX_DEPLOYMENT_TARGET --compression latest build/ntsc-rs-macos-standalone.pkg
         pkgbuild --install-location /Library/OFX/Plugins --component build/ntsc-rs-openfx/NtscRs.ofx.bundle --min-os-version $MACOSX_DEPLOYMENT_TARGET --compression latest build/ntsc-rs-macos-openfx.pkg
@@ -195,7 +195,7 @@ jobs:
 
     - name: Archive .pkg installers
       uses: actions/upload-artifact@v4
-      # if: ${{ github.ref_type == 'tag' }}
+      if: ${{ github.ref_type == 'tag' }}
       with:
         name: ntsc-rs-macos
         path: build/ntsc-rs-*.pkg
@@ -234,5 +234,5 @@ jobs:
     - name: Create release
       uses: ncipollo/release-action@v1
       with:
-        artifacts: "./artifacts/ntsc-rs-*-standalone.zip,./artifacts/ntsc-rs-*-openfx.zip,./artifacts/ntsc-rs-*-afterfx.zip,./artifacts/ntsc-rs-macos/*.pkg"
+        artifacts: "./artifacts/ntsc-rs-*.zip,./artifacts/ntsc-rs-macos/ntsc-rs-*.pkg"
         draft: true
