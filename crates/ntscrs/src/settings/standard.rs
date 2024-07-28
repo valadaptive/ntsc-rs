@@ -100,7 +100,7 @@ pub struct VHSSharpenSettings {
 impl Default for VHSSharpenSettings {
     fn default() -> Self {
         Self {
-            intensity: 1.0,
+            intensity: 0.25,
             frequency: 1.0,
         }
     }
@@ -117,10 +117,10 @@ pub struct VHSEdgeWaveSettings {
 impl Default for VHSEdgeWaveSettings {
     fn default() -> Self {
         Self {
-            intensity: 1.0,
+            intensity: 0.5,
             speed: 4.0,
             frequency: 0.05,
-            detail: 1,
+            detail: 2,
         }
     }
 }
@@ -139,7 +139,7 @@ impl Default for VHSSettings {
     fn default() -> Self {
         Self {
             tape_speed: VHSTapeSpeed::LP,
-            chroma_loss: 0.0,
+            chroma_loss: 0.000025,
             sharpen: Some(VHSSharpenSettings::default()),
             edge_wave: Some(VHSEdgeWaveSettings::default()),
         }
@@ -208,11 +208,11 @@ pub struct TrackingNoiseSettings {
 impl Default for TrackingNoiseSettings {
     fn default() -> Self {
         Self {
-            height: 24,
-            wave_intensity: 5.0,
-            snow_intensity: 0.05,
-            snow_anisotropy: 0.5,
-            noise_intensity: 0.005,
+            height: 12,
+            wave_intensity: 15.0,
+            snow_intensity: 0.025,
+            snow_anisotropy: 0.25,
+            noise_intensity: 0.25,
         }
     }
 }
@@ -350,12 +350,12 @@ impl Default for NtscEffect {
     fn default() -> Self {
         Self {
             random_seed: 0,
-            use_field: UseField::Alternating,
-            filter_type: FilterType::ConstantK,
+            use_field: UseField::InterleavedUpper,
+            filter_type: FilterType::Butterworth,
             input_luma_filter: LumaLowpass::Notch,
             chroma_lowpass_in: ChromaLowpass::Full,
-            chroma_demodulation: ChromaDemodulationFilter::Box,
-            luma_smear: 0.0,
+            chroma_demodulation: ChromaDemodulationFilter::Notch,
+            luma_smear: 0.5,
             chroma_lowpass_out: ChromaLowpass::Full,
             composite_preemphasis: 1.0,
             video_scanline_phase_shift: PhaseShift::Degrees180,
@@ -363,22 +363,22 @@ impl Default for NtscEffect {
             head_switching: Some(HeadSwitchingSettings::default()),
             tracking_noise: Some(TrackingNoiseSettings::default()),
             ringing: Some(RingingSettings::default()),
-            snow_intensity: 0.003,
+            snow_intensity: 0.00025,
             snow_anisotropy: 0.5,
             composite_noise: Some(FbmNoiseSettings {
                 frequency: 0.5,
-                intensity: 0.01,
+                intensity: 0.05,
                 detail: 1,
             }),
             luma_noise: Some(FbmNoiseSettings {
                 frequency: 0.5,
-                intensity: 0.05,
+                intensity: 0.01,
                 detail: 1,
             }),
             chroma_noise: Some(FbmNoiseSettings {
                 frequency: 0.05,
                 intensity: 0.1,
-                detail: 1,
+                detail: 2,
             }),
             chroma_phase_noise_intensity: 0.001,
             chroma_phase_error: 0.0,
