@@ -1,6 +1,6 @@
 [package]
 name = "gui"
-version = "0.7.3"
+version = "0.8.0"
 edition = "2021"
 default-run = "ntsc-rs-standalone"
 license = "GPL-3.0"
@@ -10,6 +10,11 @@ repository = "https://github.com/valadaptive/ntsc-rs/tree/main/crates/gui"
 ntscrs = { path = "../ntscrs" }
 arboard = "3.4.0"
 eframe = { version = "0.28.1", features=["persistence"] }
+# The dirs maintainer has intentionally inserted an MPL dependency into this package.
+# https://github.com/dirs-dev/dirs-sys-rs/issues/21
+# May his shoe forever contain a small pebble in it for making me waste time on this garbage.
+# Tracking its replacement in egui in https://github.com/emilk/egui/issues/4884
+dirs-sys = { version = "=0.4.0" }
 env_logger = "0.11.3"
 snafu = "0.8.3"
 logos = "0.14"
