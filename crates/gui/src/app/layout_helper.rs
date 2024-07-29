@@ -61,9 +61,7 @@ impl TopBottomPanelExt for egui::TopBottomPanel {
         let mut frame = egui::Frame::side_top_panel(&ctx.style());
         // Kludge to restore centering of buttons along the bottom
         frame.inner_margin.bottom = 0.0;
-        self.exact_height(
-            ctx.style().spacing.interact_size.y * 2.0,
-        )
-        .frame(frame)
+        self.exact_height(ctx.style().spacing.interact_size.y * 2.0)
+            .frame(frame)
     }
 }

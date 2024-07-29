@@ -18,6 +18,7 @@ pub mod pipeline_info;
 pub mod presets;
 pub mod render_job;
 pub mod render_settings;
+pub mod third_party_licenses_dialog;
 
 pub type AppFn = Box<dyn FnOnce(&mut NtscApp) -> Result<(), error::ApplicationError> + Send>;
 

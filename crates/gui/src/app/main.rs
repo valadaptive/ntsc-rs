@@ -27,7 +27,6 @@ use crate::{
         pipeline_utils::{create_pipeline, PipelineError, VideoElemMetadata},
         scale_from_caps,
     },
-    third_party_licenses::get_third_party_licenses,
     widgets::{render_job::RenderJobWidget, splitscreen::SplitScreen, timeline::Timeline},
 };
 
@@ -1950,38 +1949,6 @@ impl NtscApp {
                         "https://github.com/joncampbell123/composite-video-simulator/",
                     ));
                 });
-            });
-    }
-
-    fn show_third_party_licenses_dialog(&mut self, ctx: &egui::Context) {
-        egui::Window::new("Third-Party Licenses")
-            .open(&mut self.third_party_licenses_dialog_open)
-            .default_width(400.0)
-            .default_height(400.0)
-            .show(ctx, |ui| {
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        for (i, license) in get_third_party_licenses().iter().enumerate() {
-                            if i != 0 {
-                                ui.separator();
-                            }
-                            egui::CollapsingHeader::new(&license.name)
-                                .id_source(i)
-                                .show(ui, |ui| {
-                                    ui.label(&license.text);
-                                });
-                            ui.indent(i, |ui| {
-                                ui.label("Used by:");
-                                for used_by in license.used_by.iter() {
-                                    ui.add(egui::Hyperlink::from_label_and_url(
-                                        format!("{} {}", used_by.name, used_by.version),
-                                        &used_by.url,
-                                    ));
-                                }
-                            });
-                        }
-                    });
             });
     }
 
