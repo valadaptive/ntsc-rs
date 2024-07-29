@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     cell::{Cell, RefCell},
     collections::HashSet,
     ffi::{OsStr, OsString},
@@ -131,6 +132,13 @@ impl NtscApp {
         };
         let mut just_pressed_save = false;
         let mut overwrite_selected_preset = false;
+
+        let selected_preset_modified = self
+            .presets_state
+            .selected_preset
+            .as_ref()
+            .is_some_and(|selected_preset| selected_preset.settings != self.effect_settings);
+
         ui.horizontal(|ui| {
             if ui.button("Open folder").clicked() {
                 self.handle_result(open::that_detached(presets_dir));
@@ -142,14 +150,8 @@ impl NtscApp {
                 }
             }
 
-            let modified = self
-                .presets_state
-                .selected_preset
-                .as_ref()
-                .is_some_and(|selected_preset| selected_preset.settings != self.effect_settings);
-
             if ui
-                .add_enabled(modified, egui::Button::new("Overwrite"))
+                .add_enabled(selected_preset_modified, egui::Button::new("Overwrite"))
                 .clicked()
             {
                 overwrite_selected_preset = true;
@@ -214,10 +216,14 @@ impl NtscApp {
                                 },
                             );
 
-                            let file_name = preset_path
+                            let mut file_name = preset_path
                                 .file_name()
                                 .unwrap_or(preset_path.as_os_str())
                                 .to_string_lossy();
+
+                            if selected && selected_preset_modified {
+                                file_name = Cow::Owned(format!("* {file_name}"));
+                            }
 
                             let rename =
                                 renamed_preset.as_mut().and_then(|(renamed_index, name)| {
