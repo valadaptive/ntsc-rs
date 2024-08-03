@@ -1,6 +1,6 @@
 extern crate criterion;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use image::io::Reader as ImageReader;
+use image::ImageReader;
 use ntscrs::{ntsc::NtscEffect, yiq_fielding::Rgb8};
 #[cfg(not(target_os = "windows"))]
 use pprof::criterion::{Output, PProfProfiler};
