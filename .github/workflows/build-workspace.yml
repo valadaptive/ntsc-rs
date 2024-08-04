@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - debug2
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+-*'
@@ -121,7 +122,6 @@ jobs:
         path: crates/openfx-plugin/build/
 
     - name: Package Windows binary
-      if: ${{ github.ref_type == 'tag' }}
       # Some things to note:
       # - Robocopy has a non-zero exit code even when successful. We therefore clear it to 0 so that Actions doesn't
       #   fail.
@@ -135,7 +135,6 @@ jobs:
 
     - name: Archive Windows binary
       uses: actions/upload-artifact@v4
-      if: ${{ github.ref_type == 'tag' }}
       with:
         name: ntsc-rs-windows-standalone
         path: ntsc-rs-windows-standalone
