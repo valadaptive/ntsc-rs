@@ -1,10 +1,9 @@
-use std::sync::RwLock;
+use std::sync::{OnceLock, RwLock};
 
 use gstreamer::glib;
 use gstreamer::prelude::{GstParamSpecBuilderExt, ParamSpecBuilderExt, ToValue};
 use gstreamer_video::subclass::prelude::*;
 use gstreamer_video::{VideoFormat, VideoFrameExt};
-use once_cell::sync::Lazy;
 
 use ntscrs::ntsc::NtscEffect;
 use ntscrs::yiq_fielding::{Bgrx8, Rgbx8, Xbgr8, Xrgb16, Xrgb8};
@@ -32,7 +31,9 @@ impl ObjectSubclass for NtscFilter {
 
 impl ObjectImpl for NtscFilter {
     fn properties() -> &'static [glib::ParamSpec] {
-        static PROPERTIES: Lazy<Vec<glib::ParamSpec>> = Lazy::new(|| {
+        static PROPERTIES: OnceLock<Vec<glib::ParamSpec>> = OnceLock::new();
+
+        PROPERTIES.get_or_init(|| {
             vec![
                 glib::ParamSpecBoxed::builder::<NtscFilterSettings>("settings")
                     .nick("Settings")
@@ -41,9 +42,7 @@ impl ObjectImpl for NtscFilter {
                     .controllable()
                     .build(),
             ]
-        });
-
-        PROPERTIES.as_ref()
+        })
     }
 
     fn set_property(&self, _id: usize, value: &glib::Value, pspec: &glib::ParamSpec) {
@@ -70,20 +69,20 @@ impl GstObjectImpl for NtscFilter {}
 
 impl ElementImpl for NtscFilter {
     fn metadata() -> Option<&'static gstreamer::subclass::ElementMetadata> {
-        static ELEMENT_METADATA: Lazy<gstreamer::subclass::ElementMetadata> = Lazy::new(|| {
+        static PROPERTIES: OnceLock<gstreamer::subclass::ElementMetadata> = OnceLock::new();
+        Some(PROPERTIES.get_or_init(|| {
             gstreamer::subclass::ElementMetadata::new(
                 "NTSC-rs Filter",
                 "Filter/Effect/Converter/Video",
                 "Applies an NTSC/VHS effect to video",
                 "valadaptive",
             )
-        });
-
-        Some(&*ELEMENT_METADATA)
+        }))
     }
 
     fn pad_templates() -> &'static [gstreamer::PadTemplate] {
-        static PAD_TEMPLATES: Lazy<Vec<gstreamer::PadTemplate>> = Lazy::new(|| {
+        static PAD_TEMPLATES: OnceLock<Vec<gstreamer::PadTemplate>> = OnceLock::new();
+        PAD_TEMPLATES.get_or_init(|| {
             let caps = gstreamer_video::VideoCapsBuilder::new()
                 .format_list([
                     VideoFormat::Rgbx,
@@ -115,9 +114,7 @@ impl ElementImpl for NtscFilter {
             .unwrap();
 
             vec![src_pad_template, sink_pad_template]
-        });
-
-        PAD_TEMPLATES.as_ref()
+        })
     }
 }
 

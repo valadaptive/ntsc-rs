@@ -2318,7 +2318,6 @@ dependencies = [
  "log",
  "logos",
  "ntscrs",
- "once_cell",
  "open",
  "rand",
  "rfd",

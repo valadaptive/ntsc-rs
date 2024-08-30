@@ -30,7 +30,6 @@ log = "0.4.20"
 rfd = {git = "https://github.com/PolyMeilex/rfd", rev = "1791c98", default-features = false, features = ["gtk3"] }
 rand = "0.8.5"
 tinyjson = "2.5.1"
-once_cell = "1.19.0"
 open = "5.1.4"
 trash = "5.0.0"
 blocking = "1.6.1"

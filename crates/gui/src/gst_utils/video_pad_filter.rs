@@ -1,9 +1,8 @@
-use std::sync::RwLock;
+use std::sync::{OnceLock, RwLock};
 
 use gstreamer::glib;
 use gstreamer_video::subclass::prelude::*;
 use gstreamer_video::{VideoFormat, VideoFrameExt};
-use once_cell::sync::Lazy;
 
 #[derive(Default)]
 pub struct VideoPadFilter {
@@ -21,9 +20,9 @@ impl ObjectSubclass for VideoPadFilter {
 
 impl ObjectImpl for VideoPadFilter {
     fn properties() -> &'static [glib::ParamSpec] {
-        static PROPERTIES: Lazy<Vec<glib::ParamSpec>> = Lazy::new(Vec::new);
+        static PROPERTIES: OnceLock<Vec<glib::ParamSpec>> = OnceLock::new();
 
-        PROPERTIES.as_ref()
+        PROPERTIES.get_or_init(Vec::new)
     }
 }
 
@@ -31,20 +30,22 @@ impl GstObjectImpl for VideoPadFilter {}
 
 impl ElementImpl for VideoPadFilter {
     fn metadata() -> Option<&'static gstreamer::subclass::ElementMetadata> {
-        static ELEMENT_METADATA: Lazy<gstreamer::subclass::ElementMetadata> = Lazy::new(|| {
+        static ELEMENT_METADATA: OnceLock<gstreamer::subclass::ElementMetadata> = OnceLock::new();
+
+        Some(ELEMENT_METADATA.get_or_init(|| {
             gstreamer::subclass::ElementMetadata::new(
                 "Video Pad (for YUV)",
                 "Filter/Effect/Converter/Video",
                 "Applies padding to extend a video to even dimensions",
                 "valadaptive",
             )
-        });
-
-        Some(&*ELEMENT_METADATA)
+        }))
     }
 
     fn pad_templates() -> &'static [gstreamer::PadTemplate] {
-        static PAD_TEMPLATES: Lazy<Vec<gstreamer::PadTemplate>> = Lazy::new(|| {
+        static PAD_TEMPLATES: OnceLock<Vec<gstreamer::PadTemplate>> = OnceLock::new();
+
+        PAD_TEMPLATES.get_or_init(|| {
             let caps = gstreamer_video::VideoCapsBuilder::new()
                 .format_list([
                     VideoFormat::Rgbx,
@@ -76,9 +77,7 @@ impl ElementImpl for VideoPadFilter {
             .unwrap();
 
             vec![src_pad_template, sink_pad_template]
-        });
-
-        PAD_TEMPLATES.as_ref()
+        })
     }
 }
 

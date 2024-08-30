@@ -6,9 +6,8 @@ use gstreamer_video::subclass::prelude::*;
 use gstreamer_video::video_frame::Readable;
 use gstreamer_video::{VideoFrame, VideoFrameExt};
 use ntscrs::yiq_fielding::{self, Rgbx8};
-use once_cell::sync::Lazy;
 use std::fmt::Debug;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 use super::ntscrs_filter::NtscFilterSettings;
 use super::process_gst_frame::process_gst_frame;
@@ -175,20 +174,20 @@ impl GstObjectImpl for EguiSink {}
 
 impl ElementImpl for EguiSink {
     fn metadata() -> Option<&'static gstreamer::subclass::ElementMetadata> {
-        static ELEMENT_METADATA: Lazy<gstreamer::subclass::ElementMetadata> = Lazy::new(|| {
+        static ELEMENT_METADATA: OnceLock<gstreamer::subclass::ElementMetadata> = OnceLock::new();
+        Some(ELEMENT_METADATA.get_or_init(|| {
             gstreamer::subclass::ElementMetadata::new(
                 "egui sink",
                 "Sink/Video",
                 "Video sink for egui texture",
                 "valadaptive",
             )
-        });
-
-        Some(&*ELEMENT_METADATA)
+        }))
     }
 
     fn pad_templates() -> &'static [gstreamer::PadTemplate] {
-        static PAD_TEMPLATES: Lazy<Vec<PadTemplate>> = Lazy::new(|| {
+        static PAD_TEMPLATES: OnceLock<Vec<PadTemplate>> = OnceLock::new();
+        PAD_TEMPLATES.get_or_init(|| {
             let caps = gstreamer_video::VideoCapsBuilder::new()
                 .format(gstreamer_video::VideoFormat::Rgbx)
                 .build();
@@ -202,9 +201,7 @@ impl ElementImpl for EguiSink {
             .unwrap();
 
             vec![pad_template]
-        });
-
-        PAD_TEMPLATES.as_ref()
+        })
     }
 }
 
