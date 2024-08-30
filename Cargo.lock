@@ -2304,7 +2304,6 @@ version = "0.8.0"
 dependencies = [
  "arboard",
  "async-executor",
- "async-task",
  "blocking",
  "dirs-sys",
  "eframe",

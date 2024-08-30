@@ -4,8 +4,7 @@ use std::{
     task::{Context, Poll, Wake, Waker},
 };
 
-use async_executor::Executor;
-use async_task::Task;
+use async_executor::{Executor, Task};
 use eframe::egui;
 use futures_lite::{Future, FutureExt};
 use gstreamer::glib::clone::Downgrade;
