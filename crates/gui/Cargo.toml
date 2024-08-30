@@ -25,7 +25,6 @@ gstreamer-controller = "0.23"
 futures-lite = "2.3.0"
 async-executor = "1.12.0"
 async-task = "4.7.0"
-waker-fn = "1.2.0"
 log = "0.4.20"
 rfd = {git = "https://github.com/PolyMeilex/rfd", rev = "1791c98", default-features = false, features = ["gtk3"] }
 rand = "0.8.5"

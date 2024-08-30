@@ -2324,7 +2324,6 @@ dependencies = [
  "snafu",
  "tinyjson",
  "trash",
- "waker-fn",
 ]
 
 [[package]]

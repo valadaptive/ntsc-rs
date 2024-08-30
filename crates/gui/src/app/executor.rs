@@ -1,7 +1,7 @@
 use std::{
     pin::Pin,
     sync::{Arc, Mutex, Weak},
-    task::{Context, Poll, Waker},
+    task::{Context, Poll, Wake, Waker},
 };
 
 use async_executor::Executor;
@@ -30,6 +30,18 @@ impl AppExecutorInner {
     }
 }
 
+struct AppWaker(egui::Context);
+
+impl Wake for AppWaker {
+    fn wake(self: Arc<Self>) {
+        self.0.request_repaint();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.request_repaint();
+    }
+}
+
 pub struct AppExecutor(Arc<Mutex<AppExecutorInner>>);
 
 impl AppExecutor {
@@ -44,7 +56,7 @@ impl AppExecutor {
                     .run(futures_lite::future::pending())
                     .await
             }),
-            waker: waker_fn::waker_fn(move || egui_ctx_for_waker.request_repaint()),
+            waker: Waker::from(Arc::new(AppWaker(egui_ctx_for_waker))),
             egui_ctx,
             tasks: Vec::new(),
         })))
