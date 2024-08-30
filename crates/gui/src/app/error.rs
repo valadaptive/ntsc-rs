@@ -18,6 +18,9 @@ pub enum ApplicationError {
     #[snafu(display("Error creating render job: {source}"))]
     CreateRenderJob { source: GstreamerError },
 
+    #[snafu(display("Error during render job: {source}"))]
+    RenderJobPipeline { source: GstreamerError },
+
     #[snafu(display("Error reading JSON: {source}"))]
     JSONRead { source: std::io::Error },
 

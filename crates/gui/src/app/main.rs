@@ -27,7 +27,11 @@ use crate::{
         pipeline_utils::{create_pipeline, PipelineError, VideoElemMetadata},
         scale_from_caps,
     },
-    widgets::{render_job::RenderJobWidget, splitscreen::SplitScreen, timeline::Timeline},
+    widgets::{
+        render_job::{RenderJobResponse, RenderJobWidget},
+        splitscreen::SplitScreen,
+        timeline::Timeline,
+    },
 };
 
 use ntscrs::settings::{
@@ -1341,15 +1345,22 @@ impl NtscApp {
 
             ui.separator();
 
+            let mut render_job_error = None;
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     self.render_jobs.retain_mut(|job| {
-                        let mut closed = false;
-                        ui.add(RenderJobWidget::new(job, &mut closed));
+                        let RenderJobResponse {closed, error, ..} = RenderJobWidget::new(job).show(ui);
+                        if let Some(error) = error {
+                            render_job_error = Some(error);
+                        }
                         !closed
                     })
                 });
+
+            if let Some(e) = render_job_error {
+                self.handle_error(&e);
+            }
         });
     }
 
