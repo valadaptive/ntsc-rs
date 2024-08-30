@@ -5,7 +5,7 @@ use gstreamer::glib;
 #[derive(Debug, Clone)]
 pub enum GstreamerError {
     GlibError(glib::Error),
-    BoolError(glib::BoolError),
+    BoolError(Box<glib::BoolError>),
     PadLinkError(gstreamer::PadLinkError),
     StateChangeError(gstreamer::StateChangeError),
     FlowError(gstreamer::FlowError),
@@ -19,7 +19,7 @@ impl From<glib::Error> for GstreamerError {
 
 impl From<glib::BoolError> for GstreamerError {
     fn from(value: glib::BoolError) -> Self {
-        GstreamerError::BoolError(value)
+        GstreamerError::BoolError(Box::new(value))
     }
 }
 

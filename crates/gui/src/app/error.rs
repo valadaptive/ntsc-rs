@@ -25,7 +25,10 @@ pub enum ApplicationError {
     JSONRead { source: std::io::Error },
 
     #[snafu(display("Error parsing JSON: {source}"))]
-    JSONParse { source: ParseSettingsError },
+    JSONParse {
+        #[snafu(source(from(ParseSettingsError, Box::new)))]
+        source: Box<ParseSettingsError>,
+    },
 
     #[snafu(display("Error saving JSON: {source}"))]
     JSONSave { source: std::io::Error },
@@ -37,7 +40,10 @@ pub enum ApplicationError {
     CreatePreset { source: std::io::Error },
 
     #[snafu(display("Error deleting preset: {source}"))]
-    DeletePreset { source: trash::Error },
+    DeletePreset {
+        #[snafu(source(from(trash::Error, Box::new)))]
+        source: Box<trash::Error>,
+    },
 
     #[snafu(display("Error renaming preset: {source}"))]
     RenamePreset { source: std::io::Error },
