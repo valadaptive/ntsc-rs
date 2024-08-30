@@ -14,7 +14,19 @@ use super::process_gst_frame::process_gst_frame;
 
 #[derive(Clone, glib::Boxed, Default)]
 #[boxed_type(name = "SinkTexture")]
-pub struct SinkTexture(pub Option<TextureHandle>);
+pub struct SinkTexture {
+    pub handle: Option<TextureHandle>,
+    pub rendered_at_least_once: bool,
+}
+
+impl SinkTexture {
+    pub fn new(handle: TextureHandle) -> Self {
+        Self {
+            handle: Some(handle),
+            rendered_at_least_once: false,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, glib::Boxed, Default)]
 #[boxed_type(name = "VideoPreviewSetting")]
@@ -27,20 +39,15 @@ pub enum EffectPreviewSetting {
 
 impl Debug for SinkTexture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut t = f.debug_tuple("SinkTexture");
-
-        match &self.0 {
-            Some(_) => {
-                t.field(&"TextureHandle");
-            }
-            None => {
-                t.field(&"None");
-            }
-        }
-
-        t.finish()
+        f.debug_struct("SinkTexture")
+            .field("rendered_at_least_once", &self.rendered_at_least_once)
+            .finish()
     }
 }
+
+#[derive(Debug, Clone, glib::Boxed, Default)]
+#[boxed_type(name = "EguiCtx")]
+pub struct EguiCtx(pub Option<Context>);
 
 #[derive(glib::Properties, Default)]
 #[properties(wrapper_type = super::elements::EguiSink)]
@@ -62,10 +69,6 @@ pub struct EguiSink {
         )>,
     >,
 }
-
-#[derive(Debug, Clone, glib::Boxed, Default)]
-#[boxed_type(name = "EguiCtx")]
-pub struct EguiCtx(pub Option<Context>);
 
 impl EguiSink {
     fn set_settings(&self, value: NtscFilterSettings) {
@@ -107,6 +110,10 @@ impl EguiSink {
         Ok(image)
     }
 
+    pub fn get_texture(&self) -> SinkTexture {
+        self.texture.lock().unwrap().clone()
+    }
+
     pub fn update_texture(&self) -> Result<(), gstreamer::FlowError> {
         let mut tex = self.texture.lock().unwrap();
         let vframe = self.last_frame.lock().unwrap();
@@ -144,7 +151,7 @@ impl EguiSink {
             }
         }
 
-        tex.0.as_mut().ok_or(gstreamer::FlowError::Error)?.set(
+        tex.handle.as_mut().ok_or(gstreamer::FlowError::Error)?.set(
             image,
             TextureOptions {
                 magnification: TextureFilter::Nearest,
@@ -152,6 +159,7 @@ impl EguiSink {
                 ..Default::default()
             },
         );
+        tex.rendered_at_least_once = true;
         if let Some(ctx) = &self.ctx.lock().unwrap().0 {
             ctx.request_repaint();
         }
