@@ -188,7 +188,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             easy_mode_enabled &= EXPERIMENTAL_EASY_MODE;
 
             let ctx = cc.egui_ctx.clone();
-            ctx.set_visuals(theme.visuals(&cc.integration_info));
+            let visuals = theme.visuals(&ctx);
+            ctx.set_visuals(visuals);
             ctx.style_mut(|style| style.interaction.tooltip_delay = 0.5);
             Ok(Box::new(NtscApp::new(
                 ctx,
@@ -1970,7 +1971,7 @@ impl NtscApp {
             });
     }
 
-    fn show_app(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn show_app(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.credits_dialog_open {
             self.show_credits_dialog(ctx);
         }
@@ -2054,7 +2055,8 @@ impl NtscApp {
                             if color_theme_changed {
                                 // Results in a bit of "theme tearing" since every widget rendered after this will use a
                                 // different color scheme than those rendered before it. Not really noticeable in practice.
-                                ui.ctx().set_visuals(self.color_theme.visuals(frame.info()));
+                                let visuals = self.color_theme.visuals(&ui.ctx());
+                                ui.ctx().set_visuals(visuals);
                                 ui.close_menu();
                             }
                         });

@@ -79,13 +79,13 @@ pub enum ColorTheme {
 }
 
 impl ColorTheme {
-    pub fn visuals(&self, info: &eframe::IntegrationInfo) -> egui::Visuals {
+    pub fn visuals(&self, ctx: &egui::Context) -> egui::Visuals {
         match &self {
             ColorTheme::Dark => egui::Visuals::dark(),
             ColorTheme::Light => egui::Visuals::light(),
-            ColorTheme::System => match info.system_theme {
-                Some(eframe::Theme::Dark) => egui::Visuals::dark(),
-                Some(eframe::Theme::Light) => egui::Visuals::light(),
+            ColorTheme::System => match ctx.input(|input| input.raw.system_theme) {
+                Some(egui::Theme::Dark) => egui::Visuals::dark(),
+                Some(egui::Theme::Light) => egui::Visuals::light(),
                 None => egui::Visuals::default(),
             },
         }

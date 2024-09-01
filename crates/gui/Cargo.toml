@@ -9,7 +9,7 @@ repository = "https://github.com/valadaptive/ntsc-rs/tree/main/crates/gui"
 [dependencies]
 ntscrs = { path = "../ntscrs" }
 arboard = "3.4.0"
-eframe = { version = "0.28.1", features=["persistence", "wgpu"] }
+eframe = { git = "https://github.com/emilk/egui", rev = "edea5a40b9ed9531734e6e3b0f6c3b413b820381", features=["persistence", "wgpu"] }
 # The dirs maintainer has intentionally inserted an MPL dependency into this package.
 # https://github.com/dirs-dev/dirs-sys-rs/issues/21
 # May his shoe forever contain a small pebble in it for making me waste time on this garbage.
@@ -25,7 +25,7 @@ gstreamer-controller = "0.23"
 futures-lite = "2.3.0"
 async-executor = "1.12.0"
 log = "0.4.20"
-rfd = {git = "https://github.com/PolyMeilex/rfd", rev = "1791c98", default-features = false, features = ["gtk3"] }
+rfd = {git = "https://github.com/PolyMeilex/rfd", rev = "665230c", default-features = false, features = ["gtk3"] }
 rand = "0.8.5"
 tinyjson = "2.5.1"
 open = "5.1.4"
