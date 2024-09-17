@@ -574,12 +574,6 @@ impl SettingsList<NtscEffectFullSettings> {
                 id: setting_id::RANDOM_SEED,
             },
             SettingDescriptor {
-                label: "Bandwidth scale",
-                description: Some("Horizontally scale the effect by this amount. For 480p video, leave this at 1.0 for the most physically-accurate result."),
-                kind: SettingKind::FloatRange { range: 0.125..=8.0, logarithmic: false, default_value: default_settings.bandwidth_scale },
-                id: setting_id::BANDWIDTH_SCALE,
-            },
-            SettingDescriptor {
                 label: "Use field",
                 description: Some("Choose which rows (\"fields\" in NTSC parlance) of the source image will be used."),
                 kind: SettingKind::Enumeration {
@@ -1159,6 +1153,12 @@ impl SettingsList<NtscEffectFullSettings> {
                     default_value: default_settings.chroma_lowpass_out.to_u32().unwrap(),
                 },
                 id: setting_id::CHROMA_LOWPASS_OUT,
+            },
+            SettingDescriptor {
+                label: "Bandwidth scale",
+                description: Some("Horizontally scale the effect by this amount. For 480p video, leave this at 1.0 for the most physically-accurate result."),
+                kind: SettingKind::FloatRange { range: 0.125..=8.0, logarithmic: false, default_value: default_settings.bandwidth_scale },
+                id: setting_id::BANDWIDTH_SCALE,
             },
         ];
 
