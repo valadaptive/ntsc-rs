@@ -19,7 +19,7 @@ impl NtscApp {
                                 ui.separator();
                             }
                             egui::CollapsingHeader::new(&license.name)
-                                .id_source(i)
+                                .id_salt(i)
                                 .show(ui, |ui| {
                                     ui.label(&license.text);
                                 });
