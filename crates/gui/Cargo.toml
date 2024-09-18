@@ -9,7 +9,7 @@ repository = "https://github.com/valadaptive/ntsc-rs/tree/main/crates/gui"
 [dependencies]
 ntscrs = { path = "../ntscrs" }
 arboard = "3.4.0"
-eframe = { git = "https://github.com/emilk/egui", rev = "1474c17", features=["persistence", "wgpu"] }
+eframe = { git = "https://github.com/valadaptive/egui", rev = "7a070b5", features=["persistence", "wgpu"] }
 env_logger = "0.11.3"
 snafu = "0.8.3"
 logos = "0.14"

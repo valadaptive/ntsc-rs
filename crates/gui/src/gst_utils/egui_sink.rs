@@ -1,7 +1,7 @@
 use eframe::egui::{Context, Rect, TextureFilter, TextureOptions};
 use eframe::epaint::{Color32, ColorImage, TextureHandle};
-use gstreamer::prelude::*;
 use gstreamer::{glib, PadTemplate};
+use gstreamer::{prelude::*, Fraction};
 use gstreamer_video::subclass::prelude::*;
 use gstreamer_video::video_frame::Readable;
 use gstreamer_video::{VideoFrame, VideoFrameExt};
@@ -16,6 +16,7 @@ use super::process_gst_frame::process_gst_frame;
 #[boxed_type(name = "SinkTexture")]
 pub struct SinkTexture {
     pub handle: Option<TextureHandle>,
+    pub pixel_aspect_ratio: Option<Fraction>,
     pub rendered_at_least_once: bool,
 }
 
@@ -23,6 +24,7 @@ impl SinkTexture {
     pub fn new(handle: TextureHandle) -> Self {
         Self {
             handle: Some(handle),
+            pixel_aspect_ratio: None,
             rendered_at_least_once: false,
         }
     }
@@ -118,6 +120,7 @@ impl EguiSink {
         let mut tex = self.texture.lock().unwrap();
         let vframe = self.last_frame.lock().unwrap();
         let (vframe, ..) = vframe.as_ref().ok_or(gstreamer::FlowError::Error)?;
+        tex.pixel_aspect_ratio = Some(vframe.info().par());
 
         let width = vframe.width() as usize;
         let height = vframe.height() as usize;

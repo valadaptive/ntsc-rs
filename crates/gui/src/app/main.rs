@@ -11,9 +11,11 @@ use std::{
     thread,
 };
 
-use eframe::egui::{self, util::undoer::Undoer, vec2, ColorImage, Response};
+use eframe::egui::{
+    self, util::undoer::Undoer, vec2, Color32, ColorImage, Response, TextureOptions,
+};
 use futures_lite::Future;
-use gstreamer::{glib::subclass::types::ObjectSubclassExt, prelude::*, ClockTime};
+use gstreamer::{glib::subclass::types::ObjectSubclassExt, prelude::*, ClockTime, Fraction};
 use gstreamer_video::{VideoCapsBuilder, VideoInterlaceMode};
 
 use crate::{
@@ -1842,15 +1844,34 @@ impl NtscApp {
                                         egui_sink.get_texture()
                                     };
 
-                                    let (Some(preview), true) =
+                                    let (Some(mut preview), true) =
                                         (texture.handle, texture.rendered_at_least_once)
                                     else {
                                         ui.add(egui::Spinner::new());
                                         return;
                                     };
 
+                                    let par = {
+                                        let par = texture
+                                            .pixel_aspect_ratio
+                                            .unwrap_or(Fraction::from_integer(1));
+                                        (par.numer() as f32, par.denom() as f32)
+                                    };
+
+                                    let logical_size = {
+                                        let mut preview_size = preview.size_vec2();
+
+                                        preview_size[0] = (preview_size[0] * par.0) / par.1;
+
+                                        preview_size
+                                    };
+
+                                    /**/
+
                                     let texture_size = if self.video_scale.enabled {
-                                        let texture_actual_size = preview.size_vec2();
+                                        let texture_actual_size = logical_size;
+                                        // scale_factor is usually 1.0, but while the user is dragging the "Video scale"
+                                        // value, gstreamer may take a bit to update the video scale.
                                         let scale_factor =
                                             self.video_scale.scale as f32 / texture_actual_size.y;
                                         vec2(
@@ -1858,7 +1879,7 @@ impl NtscApp {
                                             self.video_scale.scale as f32,
                                         )
                                     } else {
-                                        preview.size_vec2()
+                                        logical_size
                                     };
                                     let scale_factor = if self.video_zoom.fit {
                                         // Due to floating-point error, a scrollbar may appear even if we scale down. To
@@ -1870,6 +1891,26 @@ impl NtscApp {
                                     } else {
                                         self.video_zoom.scale as f32
                                     };
+
+                                    // If each pixel of the video is at least 2 physical pixels large, use nearest-
+                                    // neighbor sampling. Otherwise, use linear sampling.
+                                    let pixel_size = scale_factor
+                                        * egui::vec2(par.0 / par.1, 1.0)
+                                        * ui.ctx().pixels_per_point();
+                                    let use_nearest = pixel_size.min_elem() >= 2.0;
+                                    preview.set_partial(
+                                        [0, 0],
+                                        ColorImage::new([0, 0], Color32::RED),
+                                        TextureOptions {
+                                            magnification: if use_nearest {
+                                                egui::TextureFilter::Nearest
+                                            } else {
+                                                egui::TextureFilter::Linear
+                                            },
+                                            minification: egui::TextureFilter::Linear,
+                                            ..Default::default()
+                                        },
+                                    );
 
                                     // We need to render the splitscreen bar in the same area as the image. The
                                     // Response returned from ui.image() fills the entire scroll area, so we need
