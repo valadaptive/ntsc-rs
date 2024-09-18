@@ -1,6 +1,6 @@
 use std::thread::JoinHandle;
 
-use eframe::egui::{self, pos2, Rect};
+use eframe::egui::{pos2, Rect};
 use snafu::ResultExt;
 
 use crate::gst_utils::gstreamer_error::GstreamerError;
@@ -68,50 +68,6 @@ pub enum LeftPanelState {
     #[default]
     EffectSettings,
     RenderSettings,
-}
-
-#[derive(Default, PartialEq, Eq)]
-pub enum ColorTheme {
-    Dark,
-    Light,
-    #[default]
-    System,
-}
-
-impl ColorTheme {
-    pub fn visuals(&self, ctx: &egui::Context) -> egui::Visuals {
-        match &self {
-            ColorTheme::Dark => egui::Visuals::dark(),
-            ColorTheme::Light => egui::Visuals::light(),
-            ColorTheme::System => match ctx.input(|input| input.raw.system_theme) {
-                Some(egui::Theme::Dark) => egui::Visuals::dark(),
-                Some(egui::Theme::Light) => egui::Visuals::light(),
-                None => egui::Visuals::default(),
-            },
-        }
-    }
-}
-
-impl From<&ColorTheme> for &str {
-    fn from(value: &ColorTheme) -> Self {
-        match value {
-            ColorTheme::Dark => "Dark",
-            ColorTheme::Light => "Light",
-            ColorTheme::System => "System",
-        }
-    }
-}
-
-impl TryFrom<&str> for ColorTheme {
-    type Error = ();
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "Dark" => Ok(ColorTheme::Dark),
-            "Light" => Ok(ColorTheme::Light),
-            "System" => Ok(ColorTheme::System),
-            _ => Err(()),
-        }
-    }
 }
 
 /// Used for the loading screen (and error screen if GStreamer fails to initialize). We initialize GStreamer on its own

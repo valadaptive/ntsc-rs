@@ -45,8 +45,8 @@ use log::debug;
 
 use super::{
     app_state::{
-        AudioVolume, ColorTheme, EffectPreviewMode, EffectPreviewSettings, GstreamerInitState,
-        LeftPanelState, VideoScale, VideoZoom,
+        AudioVolume, EffectPreviewMode, EffectPreviewSettings, GstreamerInitState, LeftPanelState,
+        VideoScale, VideoZoom,
     },
     error::{ApplicationError, JSONParseSnafu, JSONReadSnafu, JSONSaveSnafu, LoadVideoSnafu},
     executor::AppExecutor,
@@ -152,44 +152,35 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
             let settings_list = SettingsList::<NtscEffectFullSettings>::new();
             let settings_list_easy = SettingsList::<EasyModeFullSettings>::new();
-            let (settings, easy_mode_settings, mut easy_mode_enabled, theme) =
-                if let Some(storage) = cc.storage {
-                    // Load previous effect settings from storage
-                    let settings = storage
-                        .get_string("effect_settings")
-                        .and_then(|saved_settings| settings_list.from_json(&saved_settings).ok())
-                        .unwrap_or_default();
-                    let easy_mode_settings = storage
-                        .get_string("easy_mode_settings")
-                        .and_then(|saved_settings| {
-                            settings_list_easy.from_json(&saved_settings).ok()
-                        })
-                        .unwrap_or_default();
-                    let easy_mode_enabled = storage
-                        .get_string("easy_mode_enabled")
-                        .map(|saved_enabled| saved_enabled == "true")
-                        .unwrap_or_default();
+            let (settings, easy_mode_settings, mut easy_mode_enabled) = if let Some(storage) =
+                cc.storage
+            {
+                // Load previous effect settings from storage
+                let settings = storage
+                    .get_string("effect_settings")
+                    .and_then(|saved_settings| settings_list.from_json(&saved_settings).ok())
+                    .unwrap_or_default();
+                let easy_mode_settings = storage
+                    .get_string("easy_mode_settings")
+                    .and_then(|saved_settings| settings_list_easy.from_json(&saved_settings).ok())
+                    .unwrap_or_default();
+                let easy_mode_enabled = storage
+                    .get_string("easy_mode_enabled")
+                    .map(|saved_enabled| saved_enabled == "true")
+                    .unwrap_or_default();
 
-                    let theme = storage
-                        .get_string("color_theme")
-                        .and_then(|color_theme| ColorTheme::try_from(color_theme.as_str()).ok())
-                        .unwrap_or_default();
-
-                    (settings, easy_mode_settings, easy_mode_enabled, theme)
-                } else {
-                    (
-                        NtscEffectFullSettings::default(),
-                        EasyModeFullSettings::default(),
-                        true,
-                        ColorTheme::default(),
-                    )
-                };
+                (settings, easy_mode_settings, easy_mode_enabled)
+            } else {
+                (
+                    NtscEffectFullSettings::default(),
+                    EasyModeFullSettings::default(),
+                    true,
+                )
+            };
 
             easy_mode_enabled &= EXPERIMENTAL_EASY_MODE;
 
             let ctx = cc.egui_ctx.clone();
-            let visuals = theme.visuals(&ctx);
-            ctx.set_visuals(visuals);
             ctx.style_mut(|style| style.interaction.tooltip_delay = 0.5);
             Ok(Box::new(NtscApp::new(
                 ctx,
@@ -198,7 +189,6 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 settings,
                 easy_mode_settings,
                 easy_mode_enabled,
-                theme,
                 init_state,
             )))
         }),
@@ -215,7 +205,6 @@ impl NtscApp {
         effect_settings: NtscEffectFullSettings,
         easy_mode_settings: EasyModeFullSettings,
         easy_mode_enabled: bool,
-        color_theme: ColorTheme,
         gstreamer_init: GstreamerInitState,
     ) -> Self {
         Self {
@@ -244,7 +233,6 @@ impl NtscApp {
             render_jobs: Vec::new(),
             settings_json_paste: String::new(),
             last_error: RefCell::new(None),
-            color_theme,
             credits_dialog_open: false,
             third_party_licenses_dialog_open: false,
             license_dialog_open: false,
@@ -2035,28 +2023,36 @@ impl NtscApp {
                     ui.menu_button("View", |ui| {
                         ui.menu_button("Theme", |ui| {
                             let mut color_theme_changed = false;
+                            let mut theme_preference = ui.ctx().options(|opt| opt.theme_preference);
                             color_theme_changed |= ui
                                 .selectable_value(
-                                    &mut self.color_theme,
-                                    ColorTheme::System,
+                                    &mut theme_preference,
+                                    egui::ThemePreference::System,
                                     "System",
                                 )
                                 .on_hover_text("Follow system color theme")
                                 .changed();
                             color_theme_changed |= ui
-                                .selectable_value(&mut self.color_theme, ColorTheme::Light, "Light")
+                                .selectable_value(
+                                    &mut theme_preference,
+                                    egui::ThemePreference::Light,
+                                    "Light",
+                                )
                                 .on_hover_text("Use light mode")
                                 .changed();
                             color_theme_changed |= ui
-                                .selectable_value(&mut self.color_theme, ColorTheme::Dark, "Dark")
+                                .selectable_value(
+                                    &mut theme_preference,
+                                    egui::ThemePreference::Dark,
+                                    "Dark",
+                                )
                                 .on_hover_text("Use dark mode")
                                 .changed();
 
                             if color_theme_changed {
                                 // Results in a bit of "theme tearing" since every widget rendered after this will use a
                                 // different color scheme than those rendered before it. Not really noticeable in practice.
-                                let visuals = self.color_theme.visuals(&ui.ctx());
-                                ui.ctx().set_visuals(visuals);
+                                ui.ctx().set_theme(theme_preference);
                                 ui.close_menu();
                             }
                         });
@@ -2278,11 +2274,6 @@ impl eframe::App for NtscApp {
         {
             storage.set_string("easy_mode_settings", settings_json);
         }
-
-        storage.set_string(
-            "color_theme",
-            <&ColorTheme as Into<&str>>::into(&self.color_theme).to_owned(),
-        );
 
         storage.set_string("easy_mode_enabled", self.easy_mode_enabled.to_string())
     }

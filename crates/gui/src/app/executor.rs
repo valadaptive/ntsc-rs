@@ -22,7 +22,10 @@ struct AppExecutorInner {
 
 impl AppExecutorInner {
     pub fn spawn(&mut self, future: impl Future<Output = Option<AppFn>> + 'static + Send) {
-        trace!("spawned task on frame {}", self.egui_ctx.frame_nr());
+        trace!(
+            "spawned task on frame {}",
+            self.egui_ctx.cumulative_pass_nr()
+        );
         let task = self.executor.spawn(future);
         self.tasks.push(task);
         self.egui_ctx.request_repaint();
@@ -74,7 +77,10 @@ impl AppExecutor {
             if !task.is_finished() {
                 return true;
             }
-            trace!("finished task on frame {}", exec.egui_ctx.frame_nr());
+            trace!(
+                "finished task on frame {}",
+                exec.egui_ctx.cumulative_pass_nr()
+            );
 
             let Poll::Ready(cb) = task.poll(&mut context) else {
                 panic!("task is finished but poll is not ready");

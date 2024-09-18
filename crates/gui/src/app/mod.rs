@@ -42,7 +42,6 @@ pub struct NtscApp {
     pub render_jobs: Vec<render_job::RenderJob>,
     pub settings_json_paste: String,
     pub last_error: RefCell<Option<String>>,
-    pub color_theme: app_state::ColorTheme,
     pub credits_dialog_open: bool,
     pub third_party_licenses_dialog_open: bool,
     pub license_dialog_open: bool,
