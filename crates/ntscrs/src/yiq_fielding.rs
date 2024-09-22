@@ -57,6 +57,19 @@ impl YiqField {
         }
     }
 
+    /// The number of rows that correspond to this field for a given vertical resolution. Can be 0 unlike
+    /// `num_image_rows`.
+    pub fn num_actual_image_rows(&self, image_height: usize) -> usize {
+        // On an image with an odd input height, we do ceiling division if we render upper-field-first
+        // (take an image 3 pixels tall. it goes render, skip, render--that's 2 renders) but floor division if we
+        // render lower-field-first (skip, render, skip--only 1 render).
+        match self {
+            Self::Upper => (image_height + 1) / 2,
+            Self::Lower => image_height / 2,
+            Self::Both | Self::InterleavedUpper | Self::InterleavedLower => image_height,
+        }
+    }
+
     /// Flips the field parity--upper becomes lower and vice versa.
     pub fn flip(&self) -> Self {
         match self {
@@ -359,32 +372,40 @@ impl<T: Fn([f32; 3]) -> [f32; 3] + Send + Sync + Copy> PixelTransform for T {}
 
 impl<'a> YiqView<'a> {
     /// Split this `YiqView` into two `YiqView`s vertically at a given row.
-    pub fn split_at_row(&mut self, idx: usize) -> (YiqView<'_>, YiqView<'_>) {
+    pub fn split_at_row(&mut self, idx: usize) -> (Option<YiqView<'_>>, Option<YiqView<'_>>) {
         let (y1, y2) = self.y.split_at_mut(idx * self.dimensions.0);
         let (i1, i2) = self.i.split_at_mut(idx * self.dimensions.0);
         let (q1, q2) = self.q.split_at_mut(idx * self.dimensions.0);
         let (s1, s2) = self.scratch.split_at_mut(idx * self.dimensions.0);
         (
-            YiqView {
-                y: y1,
-                i: i1,
-                q: q1,
-                scratch: s1,
-                dimensions: (self.dimensions.0, self.dimensions.1),
-                field: self.field,
+            if y1.len() > 0 {
+                Some(YiqView {
+                    y: y1,
+                    i: i1,
+                    q: q1,
+                    scratch: s1,
+                    dimensions: (self.dimensions.0, self.dimensions.1),
+                    field: self.field,
+                })
+            } else {
+                None
             },
-            YiqView {
-                y: y2,
-                i: i2,
-                q: q2,
-                scratch: s2,
-                dimensions: (self.dimensions.0, self.dimensions.1),
-                field: self.field,
+            if y2.len() > 0 {
+                Some(YiqView {
+                    y: y2,
+                    i: i2,
+                    q: q2,
+                    scratch: s2,
+                    dimensions: (self.dimensions.0, self.dimensions.1),
+                    field: self.field,
+                })
+            } else {
+                None
             },
         )
     }
 
-    /// Number of actual rows of pixels being stored in this view. This will be smaller than `dimensions.1` if some
+    /// Number of rows of pixels being stored in this view. This will be smaller than `dimensions.1` if some
     /// fields are being skipped.
     pub fn num_rows(&self) -> usize {
         self.field.num_image_rows(self.dimensions.1)
@@ -507,20 +528,46 @@ impl<'a> YiqView<'a> {
                 )
             }
             YiqField::InterleavedUpper => {
-                let num_upper_rows = YiqField::Upper.num_image_rows(self.dimensions.1);
+                let num_upper_rows = YiqField::Upper.num_actual_image_rows(self.dimensions.1);
                 let (mut upper, mut lower) = self.split_at_row(num_upper_rows);
-                upper.field = YiqField::Upper;
-                lower.field = YiqField::Lower;
-                upper.set_from_strided_buffer_maybe_uninit::<S, F>(buf, blit_info, pixel_transform);
-                lower.set_from_strided_buffer_maybe_uninit::<S, F>(buf, blit_info, pixel_transform);
+                if let Some(upper) = upper.as_mut() {
+                    upper.field = YiqField::Upper;
+                    upper.set_from_strided_buffer_maybe_uninit::<S, F>(
+                        buf,
+                        blit_info,
+                        pixel_transform,
+                    );
+                };
+
+                if let Some(lower) = lower.as_mut() {
+                    lower.field = YiqField::Lower;
+                    lower.set_from_strided_buffer_maybe_uninit::<S, F>(
+                        buf,
+                        blit_info,
+                        pixel_transform,
+                    );
+                };
             }
             YiqField::InterleavedLower => {
-                let num_lower_rows = YiqField::Lower.num_image_rows(self.dimensions.1);
+                let num_lower_rows = YiqField::Lower.num_actual_image_rows(self.dimensions.1);
                 let (mut lower, mut upper) = self.split_at_row(num_lower_rows);
-                upper.field = YiqField::Upper;
-                lower.field = YiqField::Lower;
-                upper.set_from_strided_buffer_maybe_uninit::<S, F>(buf, blit_info, pixel_transform);
-                lower.set_from_strided_buffer_maybe_uninit::<S, F>(buf, blit_info, pixel_transform);
+                if let Some(upper) = upper.as_mut() {
+                    upper.field = YiqField::Upper;
+                    upper.set_from_strided_buffer_maybe_uninit::<S, F>(
+                        buf,
+                        blit_info,
+                        pixel_transform,
+                    );
+                };
+
+                if let Some(lower) = lower.as_mut() {
+                    lower.field = YiqField::Lower;
+                    lower.set_from_strided_buffer_maybe_uninit::<S, F>(
+                        buf,
+                        blit_info,
+                        pixel_transform,
+                    );
+                };
             }
         }
     }
@@ -815,10 +862,6 @@ pub struct YiqOwned {
 }
 
 impl YiqOwned {
-    pub fn num_rows(&self) -> usize {
-        self.field.num_image_rows(self.dimensions.1)
-    }
-
     pub fn from_strided_buffer<S: PixelFormat>(
         buf: &[S::DataFormat],
         row_bytes: usize,

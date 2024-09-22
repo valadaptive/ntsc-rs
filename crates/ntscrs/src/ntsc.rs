@@ -1349,21 +1349,27 @@ impl NtscEffect {
                     // fields in the top half and the odd/even fields in the bottom half.
                     match yiq.field {
                         YiqField::InterleavedUpper => {
-                            let num_upper_rows = YiqField::Upper.num_image_rows(yiq.dimensions.1);
+                            let num_upper_rows = YiqField::Upper.num_actual_image_rows(yiq.dimensions.1);
                             let (upper, lower) = yiq.split_at_row(num_upper_rows);
                             (upper, lower, frame_num * 2, frame_num * 2 + 1)
                         }
                         YiqField::InterleavedLower => {
-                            let num_lower_rows = YiqField::Lower.num_image_rows(yiq.dimensions.1);
+                            let num_lower_rows = YiqField::Lower.num_actual_image_rows(yiq.dimensions.1);
                             let (lower, upper) = yiq.split_at_row(num_lower_rows);
                             (upper, lower, frame_num * 2 + 1, frame_num * 2)
                         }
                         _ => unreachable!(),
                     };
-                yiq_upper.field = YiqField::Upper;
-                yiq_lower.field = YiqField::Lower;
-                self.apply_effect_to_yiq_field(&mut yiq_upper, frame_num_upper);
-                self.apply_effect_to_yiq_field(&mut yiq_lower, frame_num_lower);
+
+                if let Some(yiq_upper) = yiq_upper.as_mut() {
+                    yiq_upper.field = YiqField::Upper;
+                    self.apply_effect_to_yiq_field(yiq_upper, frame_num_upper);
+                }
+
+                if let Some(yiq_lower) = yiq_lower.as_mut() {
+                    yiq_lower.field = YiqField::Lower;
+                    self.apply_effect_to_yiq_field(yiq_lower, frame_num_lower);
+                }
             }
         })
     }

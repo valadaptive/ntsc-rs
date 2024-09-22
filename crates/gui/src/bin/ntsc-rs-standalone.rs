@@ -5,7 +5,7 @@ use std::error::Error;
 use gui::app::main::run;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    #[cfg(windows)]
+    #[cfg(all(windows, not(debug_assertions)))]
     std::panic::set_hook(Box::new(|info| {
         let backtrace = std::backtrace::Backtrace::force_capture();
         rfd::MessageDialog::new()
@@ -14,6 +14,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             .set_description(format!("{info}\n\nBacktrace:\n{backtrace}"))
             .set_title("Error")
             .show();
+
+        std::process::exit(1);
     }));
 
     run()
