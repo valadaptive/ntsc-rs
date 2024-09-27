@@ -9,7 +9,7 @@ repository = "https://github.com/valadaptive/ntsc-rs/tree/main/crates/gui"
 [dependencies]
 ntscrs = { path = "../ntscrs" }
 arboard = "3.4.0"
-eframe = { git = "https://github.com/valadaptive/egui", rev = "7a070b5", features=["persistence", "wgpu"] }
+eframe = { version = "0.29", features = ["persistence", "wgpu"] }
 env_logger = "0.11.3"
 snafu = "0.8.3"
 logos = "0.14"
@@ -20,7 +20,7 @@ gstreamer-controller = "0.23"
 futures-lite = "2.3.0"
 async-executor = "1.12.0"
 log = "0.4.20"
-rfd = {git = "https://github.com/PolyMeilex/rfd", rev = "665230c", default-features = false, features = ["gtk3"] }
+rfd = { git = "https://github.com/PolyMeilex/rfd", rev = "665230c", default-features = false, features = ["gtk3"] }
 rand = "0.8.5"
 tinyjson = "2.5.1"
 open = "5.1.4"
