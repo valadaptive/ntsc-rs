@@ -651,6 +651,7 @@ impl Plugin {
                         descriptor_id_start,
                         descriptor_id_end,
                         &descriptor.label,
+                        false,
                         |g| {
                             g.add_customized(
                                 descriptor_id_num,

@@ -10,7 +10,7 @@ allocator-api2 = "0.2.16"
 ntscrs = { path = "../ntscrs" }
 
 [build-dependencies]
-bindgen = "0.69.1"
+bindgen = "0.70"
 
 [lib]
 crate-type = ["cdylib"]
