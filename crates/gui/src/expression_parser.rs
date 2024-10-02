@@ -120,7 +120,10 @@ fn eval_expr(lexer: &mut LexerWrapper, min_binding_power: usize) -> Result<f64, 
             }
             Ok(res)
         }
-        Some(Token::Number(value)) => Ok(value),
+        Some(Token::Number(value)) => {
+            lexer.advance()?;
+            Ok(value)
+        }
         Some(Token::Plus) => {
             lexer.advance()?;
             let inner_value = eval_expr(lexer, prefix_binding_power(&Token::Plus))?;
@@ -135,8 +138,6 @@ fn eval_expr(lexer: &mut LexerWrapper, min_binding_power: usize) -> Result<f64, 
         }
         _ => Err(ParseError::new("Invalid left-hand side")),
     }?;
-
-    lexer.advance()?;
 
     loop {
         let op = match lexer.cur {
