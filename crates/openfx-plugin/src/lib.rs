@@ -2,10 +2,13 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
+mod bindings;
+
 use core::slice;
 use std::{
     convert::identity,
     ffi::{c_char, c_int, c_void, CStr, CString},
+    fs,
     mem::{self, MaybeUninit},
     ptr::{self, NonNull},
     sync::{OnceLock, RwLock},
@@ -28,7 +31,7 @@ use ntscrs::{
     yiq_fielding::{PixelFormat, Rgb16, Rgb32f, Rgb8, Rgbx16, Rgbx32f, Rgbx8},
 };
 
-include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+use bindings::*;
 
 // https://stackoverflow.com/questions/53611161/how-do-i-expose-a-compile-time-generated-static-c-string-through-ffi
 macro_rules! static_cstr {
@@ -92,22 +95,20 @@ mod OfxStat {
 impl SharedData {
     pub unsafe fn new(host_info: HostInfo) -> OfxResult<Self> {
         let property_suite = (host_info.fetchSuite)(
-            host_info.host as *const _ as *mut _,
+            host_info.host as *const _ as _,
             kOfxPropertySuite.as_ptr(),
             1,
         ) as *const OfxPropertySuiteV1;
         let image_effect_suite = (host_info.fetchSuite)(
-            host_info.host as *const _ as *mut _,
+            host_info.host as *const _ as _,
             kOfxImageEffectSuite.as_ptr(),
             1,
         ) as *const OfxImageEffectSuiteV1;
-        let memory_suite = (host_info.fetchSuite)(
-            host_info.host as *const _ as *mut _,
-            kOfxMemorySuite.as_ptr(),
-            1,
-        ) as *const OfxMemorySuiteV1;
+        let memory_suite =
+            (host_info.fetchSuite)(host_info.host as *const _ as _, kOfxMemorySuite.as_ptr(), 1)
+                as *const OfxMemorySuiteV1;
         let parameter_suite = (host_info.fetchSuite)(
-            host_info.host as *const _ as *mut _,
+            host_info.host as *const _ as _,
             kOfxParameterSuite.as_ptr(),
             1,
         ) as *const OfxParameterSuiteV1;
@@ -158,7 +159,7 @@ unsafe fn action_load() -> OfxResult<()> {
         .ok_or(OfxStat::kOfxStatFailed)?;
     let mut supports_multiple_clip_depths: c_int = 0;
     propGetInt(
-        data.host_info.host as *const _ as *mut _,
+        data.host_info.host as *const _ as _,
         kOfxImageEffectPropSupportsMultipleClipDepths.as_ptr(),
         0,
         &mut supports_multiple_clip_depths,
@@ -260,7 +261,7 @@ fn ofx_err(code: c_int) -> OfxResult<()> {
     }
 }
 
-unsafe fn setup_params(
+unsafe fn map_params(
     property_suite: &OfxPropertySuiteV1,
     param_suite: &OfxParameterSuiteV1,
     param_set: OfxParamSetHandle,
@@ -492,7 +493,7 @@ unsafe fn setup_params(
                     0,
                 ))?;
 
-                setup_params(
+                map_params(
                     property_suite,
                     param_suite,
                     param_set,
@@ -591,6 +592,9 @@ unsafe fn apply_params(
     Ok(())
 }
 
+const LOAD_PRESET_ID: &CStr = static_cstr!("load_preset");
+const SAVE_PRESET_ID: &CStr = static_cstr!("save_preset");
+
 const SRGB_GAMMA_NAME: &CStr = static_cstr!("SrgbGammaCorrect");
 
 unsafe fn action_describe_in_context(descriptor: OfxImageEffectHandle) -> OfxResult<()> {
@@ -655,7 +659,34 @@ unsafe fn action_describe_in_context(descriptor: OfxImageEffectHandle) -> OfxRes
     let mut param_set: OfxParamSetHandle = ptr::null_mut();
     ofx_err(getParamSet(descriptor, &mut param_set))?;
 
-    setup_params(
+    let mut loadPresetProps: OfxPropertySetHandle = ptr::null_mut();
+    ofx_err(paramDefine(
+        param_set,
+        kOfxParamTypePushButton.as_ptr(),
+        LOAD_PRESET_ID.as_ptr(),
+        &mut loadPresetProps,
+    ))?;
+    ofx_err(propSetString(
+        loadPresetProps,
+        kOfxPropLabel.as_ptr(),
+        0,
+        static_cstr!("Load Preset...").as_ptr(),
+    ))?;
+    let mut savePresetProps: OfxPropertySetHandle = ptr::null_mut();
+    ofx_err(paramDefine(
+        param_set,
+        kOfxParamTypePushButton.as_ptr(),
+        SAVE_PRESET_ID.as_ptr(),
+        &mut savePresetProps,
+    ))?;
+    ofx_err(propSetString(
+        savePresetProps,
+        kOfxPropLabel.as_ptr(),
+        0,
+        static_cstr!("Save Preset...").as_ptr(),
+    ))?;
+
+    map_params(
         property_suite,
         param_suite,
         param_set,
@@ -806,6 +837,84 @@ unsafe fn update_controls_disabled(
     Ok(())
 }
 
+unsafe fn set_controls_from_settings(
+    data: &SharedData,
+    param_set: OfxParamSetHandle,
+    setting_descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
+    settings: &NtscEffectFullSettings,
+    time: f64,
+) -> OfxResult<()> {
+    let paramGetHandle = data
+        .parameter_suite
+        .paramGetHandle
+        .ok_or(OfxStat::kOfxStatFailed)?;
+    let paramSetValue = data
+        .parameter_suite
+        .paramSetValue
+        .ok_or(OfxStat::kOfxStatFailed)?;
+
+    for descriptor in setting_descriptors {
+        let descriptor_id_str = descriptor.id.id.to_string();
+        let descriptor_id_cstr = CString::new(descriptor_id_str.clone()).unwrap();
+
+        let mut param: OfxParamHandle = ptr::null_mut();
+        ofx_err(paramGetHandle(
+            param_set,
+            descriptor_id_cstr.as_ptr(),
+            &mut param,
+            ptr::null_mut(),
+        ))?;
+
+        match &descriptor.kind {
+            SettingKind::Enumeration { options, .. } => {
+                let enum_value = settings
+                    .get_field_enum(&descriptor.id)
+                    .map_err(|_| OfxStat::kOfxStatErrBadIndex)?;
+                let item_index = options
+                    .iter()
+                    .position(|item| item.index == enum_value)
+                    .ok_or(OfxStat::kOfxStatErrBadIndex)?;
+                ofx_err(paramSetValue(param, item_index as i32))?;
+            }
+            SettingKind::Percentage { .. } | SettingKind::FloatRange { .. } => {
+                ofx_err(paramSetValue(
+                    param,
+                    settings
+                        .get_field_float(&descriptor.id)
+                        .map_err(|_| OfxStat::kOfxStatErrBadIndex)? as f64,
+                ))?;
+            }
+            SettingKind::IntRange { .. } => {
+                ofx_err(paramSetValue(
+                    param,
+                    settings
+                        .get_field_int(&descriptor.id)
+                        .map_err(|_| OfxStat::kOfxStatErrBadIndex)?,
+                ))?;
+            }
+            SettingKind::Boolean { .. } => {
+                ofx_err(paramSetValue(
+                    param,
+                    settings
+                        .get_field_bool(&descriptor.id)
+                        .map_err(|_| OfxStat::kOfxStatErrBadIndex)? as i32,
+                ))?;
+            }
+            SettingKind::Group { children, .. } => {
+                ofx_err(paramSetValue(
+                    param,
+                    settings
+                        .get_field_bool(&descriptor.id)
+                        .map_err(|_| OfxStat::kOfxStatErrBadIndex)? as i32,
+                ))?;
+                set_controls_from_settings(data, param_set, &children, settings, time)?;
+            }
+        };
+    }
+
+    Ok(())
+}
+
 unsafe fn action_instance_changed(
     descriptor: OfxImageEffectHandle,
     inArgs: OfxPropertySetHandle,
@@ -820,12 +929,84 @@ unsafe fn action_instance_changed(
         .property_suite
         .propGetDouble
         .ok_or(OfxStat::kOfxStatFailed)?;
+    let propGetString = data
+        .property_suite
+        .propGetString
+        .ok_or(OfxStat::kOfxStatFailed)?;
+
+    let mut target_type: *mut c_char = ptr::null_mut();
+    ofx_err(propGetString(
+        inArgs,
+        kOfxPropType.as_ptr(),
+        0,
+        &mut target_type,
+    ))?;
 
     let mut param_set: OfxParamSetHandle = ptr::null_mut();
     ofx_err(getParamSet(descriptor, &mut param_set))?;
 
     let mut time: f64 = 0.0;
     propGetDouble(inArgs, kOfxPropTime.as_ptr(), 0, &mut time);
+
+    if CStr::from_ptr(target_type) == kOfxTypeParameter {
+        let mut target_name: *mut c_char = ptr::null_mut();
+        ofx_err(propGetString(
+            inArgs,
+            kOfxPropName.as_ptr(),
+            0,
+            &mut target_name,
+        ))?;
+
+        if LOAD_PRESET_ID == CStr::from_ptr(target_name) {
+            let Some(preset_path) = rfd::FileDialog::new()
+                .add_filter("ntsc-rs preset", &["json"])
+                .pick_file()
+            else {
+                return Ok(());
+            };
+
+            let preset_contents =
+                fs::read_to_string(preset_path).map_err(|_| OfxStat::kOfxStatFailed)?;
+            let settings = data
+                .settings_list
+                .from_json(&preset_contents)
+                .map_err(|_| OfxStat::kOfxStatFailed)?;
+            set_controls_from_settings(
+                data,
+                param_set,
+                &data.settings_list.settings,
+                &settings,
+                time,
+            )?;
+
+            return Ok(());
+        } else if SAVE_PRESET_ID == CStr::from_ptr(target_name) {
+            let Some(preset_path) = rfd::FileDialog::new()
+                .add_filter("ntsc-rs preset", &["json"])
+                .set_file_name("settings.json")
+                .save_file()
+            else {
+                return Ok(());
+            };
+
+            let mut settings = NtscEffectFullSettings::default();
+            apply_params(
+                &data.parameter_suite,
+                param_set,
+                time,
+                &data.settings_list.settings,
+                &mut settings,
+            )?;
+
+            let json = data.settings_list.to_json(&settings);
+            let mut dst_file =
+                fs::File::create(preset_path).map_err(|_| OfxStat::kOfxStatFailed)?;
+            json.write_to(&mut dst_file)
+                .map_err(|_| OfxStat::kOfxStatFailed)?;
+
+            return Ok(());
+        }
+    }
 
     update_controls_disabled(data, param_set, &data.settings_list.settings, time, true)?;
 

@@ -8,6 +8,7 @@ repository = "https://github.com/valadaptive/ntsc-rs/tree/main/crates/openfx-plu
 [dependencies]
 allocator-api2 = "0.2.16"
 ntscrs = { path = "../ntscrs" }
+rfd = "0.15.0"
 
 [build-dependencies]
 bindgen = "0.70"
