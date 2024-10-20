@@ -907,6 +907,7 @@ impl NtscApp {
                     if ui.button("Save to...").clicked() {
                         let json = self.settings_list.to_json(&self.effect_settings);
                         let handle = rfd::AsyncFileDialog::new()
+                            .add_filter("ntsc-rs preset", &["json"])
                             .set_file_name("settings.json")
                             .save_file();
                         self.spawn(async move {
@@ -927,7 +928,7 @@ impl NtscApp {
 
                     if ui.button("Load from...").clicked() {
                         let handle = rfd::AsyncFileDialog::new()
-                            .add_filter("JSON", &["json"])
+                            .add_filter("ntsc-rs preset", &["json"])
                             .pick_file();
                         self.spawn(async move {
                             let handle = handle.await;

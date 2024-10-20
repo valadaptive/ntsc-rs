@@ -1,17 +1,20 @@
 #![cfg(any(windows, target_os = "macos"))]
 
 mod handle;
+mod window_handle;
 
 use std::{
     borrow::BorrowMut,
     convert::identity,
+    fs::File,
     mem::{self, MaybeUninit},
+    num::NonZero,
 };
 
 use after_effects::{self as ae};
 use handle::SliceHandle;
 use ntscrs::{
-    ntsc::{setting_id, NtscEffect, NtscEffectFullSettings},
+    ntsc::{NtscEffect, NtscEffectFullSettings},
     settings::{
         standard::UseField, SettingDescriptor, SettingID, SettingKind, Settings, SettingsList,
     },
@@ -19,8 +22,10 @@ use ntscrs::{
         self, AfterEffectsU16, Bgrx16, Bgrx32f, Bgrx8, BlitInfo, DeinterlaceMode, Xrgb16AE,
         Xrgb32f, Xrgb8, YiqField, YiqView,
     },
-    FromPrimitive, ToPrimitive,
+    ToPrimitive,
 };
+use raw_window_handle::Win32WindowHandle;
+use window_handle::WindowAndDisplayHandle;
 
 struct Plugin {
     settings: SettingsList<NtscEffectFullSettings>,
@@ -32,6 +37,16 @@ impl Default for Plugin {
             settings: SettingsList::<NtscEffectFullSettings>::new(),
         }
     }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+enum ParamID {
+    Param(i32),
+    GroupStart(i32),
+    GroupEnd(i32),
+    LoadPresetButton,
+    SavePresetButton,
 }
 
 trait IDExt {
@@ -93,7 +108,7 @@ fn map_logarithmic_inverse(value: f64, min: f64, max: f64, base: f64) -> f64 {
     f64::log(((value - min) / (max - min)) * (base - 1.0) + 1.0, base) * (max - min) + min
 }
 
-ae::define_effect!(Plugin, (), i32);
+ae::define_effect!(Plugin, (), ParamID);
 
 impl AdobePluginGlobal for Plugin {
     fn can_load(_host_name: &str, _host_version: &str) -> bool {
@@ -102,11 +117,39 @@ impl AdobePluginGlobal for Plugin {
 
     fn params_setup(
         &self,
-        params: &mut Parameters<i32>,
+        params: &mut Parameters<ParamID>,
         _in_data: InData,
         _out_data: OutData,
     ) -> Result<(), Error> {
-        self.map_params(params, &self.settings.settings)
+        params.add_customized(
+            ParamID::LoadPresetButton,
+            "",
+            ae::ButtonDef::setup(|def| {
+                def.set_label("Load Preset...");
+            }),
+            |p| {
+                p.set_flag(ParamFlag::START_COLLAPSED, true);
+                p.set_flag(ParamFlag::SUPERVISE, true);
+                -1
+            },
+        )?;
+
+        params.add_customized(
+            ParamID::SavePresetButton,
+            "",
+            ae::ButtonDef::setup(|def| {
+                def.set_label("Save Preset...");
+            }),
+            |p| {
+                p.set_flag(ParamFlag::START_COLLAPSED, true);
+                p.set_flag(ParamFlag::SUPERVISE, true);
+                -1
+            },
+        )?;
+
+        self.map_params(params, &self.settings.settings)?;
+
+        Ok(())
     }
 
     fn handle_command(
@@ -114,7 +157,7 @@ impl AdobePluginGlobal for Plugin {
         command: Command,
         in_data: InData,
         out_data: OutData,
-        params: &mut Parameters<i32>,
+        params: &mut Parameters<ParamID>,
     ) -> Result<(), Error> {
         match command {
             Command::GlobalSetup => self.global_setup(in_data, out_data, params)?,
@@ -129,6 +172,9 @@ impl AdobePluginGlobal for Plugin {
             }
             Command::UpdateParamsUi => {
                 self.update_controls_disabled(params, &self.settings.settings, true)?
+            }
+            Command::UserChangedParam { param_index } => {
+                self.handle_param_callback(params, in_data, out_data, param_index)?
             }
             _ => {}
         }
@@ -149,10 +195,11 @@ impl Plugin {
     fn global_setup(
         &self,
         in_data: InData,
-        _out_data: OutData,
-        _params: &mut Parameters<i32>,
+        mut _out_data: OutData,
+        _params: &mut Parameters<ParamID>,
     ) -> Result<(), Error> {
-        if in_data.is_premiere() {
+        let is_premiere = in_data.is_premiere();
+        if is_premiere {
             let pf = suites::PixelFormat::new()?;
             pf.clear_supported_pixel_formats(in_data.effect_ref())?;
             pf.add_supported_pixel_format(in_data.effect_ref(), pr::PixelFormat::Bgra4444_8u)?;
@@ -235,7 +282,7 @@ impl Plugin {
         out_data: OutData,
         in_layer: Layer,
         out_layer: Layer,
-        params: &mut Parameters<i32>,
+        params: &mut Parameters<ParamID>,
     ) -> Result<(), Error> {
         if !in_data.is_premiere() {
             // We don't support non-SmartFX unless it's Premiere
@@ -268,7 +315,7 @@ impl Plugin {
         in_data: InData,
         out_data: OutData,
         extra: SmartRenderExtra,
-        params: &mut Parameters<i32>,
+        params: &mut Parameters<ParamID>,
     ) -> Result<(), Error> {
         let input_world = extra.callbacks().checkout_layer_pixels(0)?;
         let output_world = extra.callbacks().checkout_output()?;
@@ -295,13 +342,13 @@ impl Plugin {
         mut out_layer: Layer,
         in_pixel_format: NtscrsPixelFormat,
         out_pixel_format: NtscrsPixelFormat,
-        params: &mut Parameters<i32>,
+        params: &mut Parameters<ParamID>,
     ) -> Result<(), Error> {
-        let (effect, use_field) = self.apply_settings(params)?;
+        let effect: NtscEffect = self.apply_settings(params)?.into();
 
         let frame_num = in_data.current_frame() as usize;
 
-        let yiq_field = match use_field {
+        let yiq_field = match effect.use_field {
             UseField::Alternating => {
                 if frame_num & 1 == 1 {
                     YiqField::Upper
@@ -493,19 +540,22 @@ impl Plugin {
 
     fn update_controls_disabled(
         &self,
-        params: &mut Parameters<i32>,
+        params: &mut Parameters<ParamID>,
         descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
         enabled: bool,
     ) -> Result<(), Error> {
         for descriptor in descriptors {
             match &descriptor.kind {
                 SettingKind::Group { children, .. } => {
-                    let group_enabled = params.get(descriptor.id.ae_id())?.as_checkbox()?.value();
+                    let group_enabled = params
+                        .get(ParamID::Param(descriptor.id.ae_id()))?
+                        .as_checkbox()?
+                        .value();
                     self.update_controls_disabled(params, &children, enabled && group_enabled)?;
                 }
                 _ => {}
             }
-            if let Ok(p) = params.get(descriptor.id.ae_id()) {
+            if let Ok(p) = params.get(ParamID::Param(descriptor.id.ae_id())) {
                 let was_enabled = !p.ui_flags().contains(ParamUIFlags::DISABLED);
 
                 if was_enabled != enabled {
@@ -522,7 +572,7 @@ impl Plugin {
 
     fn map_params(
         &self,
-        params: &mut Parameters<i32>,
+        params: &mut Parameters<ParamID>,
         descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
     ) -> Result<(), Error> {
         for descriptor in descriptors {
@@ -532,7 +582,7 @@ impl Plugin {
                     default_value,
                 } => {
                     params.add_customized(
-                        descriptor.id.ae_id(),
+                        ParamID::Param(descriptor.id.ae_id()),
                         &descriptor.label,
                         ae::PopupDef::setup(|p| {
                             p.set_options(&options.iter().map(|o| o.label).collect::<Vec<_>>());
@@ -553,7 +603,7 @@ impl Plugin {
                     logarithmic,
                     default_value,
                 } => params.add_customized(
-                    descriptor.id.ae_id(),
+                    ParamID::Param(descriptor.id.ae_id()),
                     &descriptor.label,
                     ae::FloatSliderDef::setup(|f| {
                         f.set_slider_min(0.0);
@@ -579,7 +629,7 @@ impl Plugin {
                     range,
                     default_value,
                 } => params.add_customized(
-                    descriptor.id.ae_id(),
+                    ParamID::Param(descriptor.id.ae_id()),
                     &descriptor.label,
                     ae::FloatSliderDef::setup(|f| {
                         f.set_slider_min(*range.start() as f32);
@@ -600,7 +650,7 @@ impl Plugin {
                     logarithmic,
                     default_value,
                 } => params.add_customized(
-                    descriptor.id.ae_id(),
+                    ParamID::Param(descriptor.id.ae_id()),
                     &descriptor.label,
                     ae::FloatSliderDef::setup(|f| {
                         f.set_slider_min(*range.start());
@@ -626,7 +676,7 @@ impl Plugin {
                 )?,
                 SettingKind::Boolean { default_value } => {
                     params.add_customized(
-                        descriptor.id.ae_id(),
+                        ParamID::Param(descriptor.id.ae_id()),
                         &descriptor.label,
                         ae::CheckBoxDef::setup(|c| {
                             c.set_default(*default_value);
@@ -644,24 +694,22 @@ impl Plugin {
                     children,
                     default_value,
                 } => {
-                    let descriptor_id_num = descriptor.id.ae_id();
-                    let descriptor_id_start = descriptor_id_num | 1024;
-                    let descriptor_id_end = descriptor_id_num | 2048;
+                    let descriptor_id = descriptor.id.ae_id();
                     params.add_group(
-                        descriptor_id_start,
-                        descriptor_id_end,
+                        ParamID::GroupStart(descriptor_id),
+                        ParamID::GroupEnd(descriptor_id),
                         &descriptor.label,
                         false,
                         |g| {
                             g.add_customized(
-                                descriptor_id_num,
+                                ParamID::Param(descriptor_id),
                                 &descriptor.label,
                                 ae::CheckBoxDef::setup(|c| {
                                     c.set_default(*default_value);
                                     c.set_label(&"Enabled");
                                 }),
                                 |p| {
-                                    p.set_id(descriptor_id_num);
+                                    p.set_id(descriptor_id);
                                     -1
                                 },
                             )?;
@@ -676,40 +724,219 @@ impl Plugin {
         Ok(())
     }
 
+    fn get_window_handle(
+        &self,
+        #[allow(unused_variables)] in_data: &InData,
+    ) -> Result<Option<WindowAndDisplayHandle>, Error> {
+        #[cfg(windows)]
+        {
+            let hwnd = if in_data.is_premiere() {
+                // Acquiring any Premiere suite requires the PICA basic suite to be initialized. It's stored as
+                // a thread-local variable that's set by creating a `PicaBasicSuite` and unset to its previous
+                // value when said `PicaBasicSuite` is dropped. Note that we cannot use a `let _ = ...`
+                // ("wildcard") binding as it is special and will *immediately* drop the right-hand side.
+                let _pica_suite = premiere::PicaBasicSuite::from_sp_basic_suite_raw(
+                    in_data.pica_basic_suite_ptr() as _,
+                );
+                premiere::suites::Window::new()
+                    .map_err(|_| Error::Generic)?
+                    .get_main_window() as usize as isize
+            } else {
+                let utility = ae::aegp::suites::Utility::new()?;
+                utility.main_hwnd()? as usize as isize
+            };
+
+            Ok(NonZero::<isize>::new(hwnd)
+                .map(|hwnd| unsafe { WindowAndDisplayHandle::new(Win32WindowHandle::new(hwnd)) }))
+        }
+
+        #[cfg(not(windows))]
+        Ok(None)
+    }
+
+    fn handle_param_callback(
+        &self,
+        params: &mut Parameters<ParamID>,
+        in_data: InData,
+        mut out_data: OutData,
+        param_index: usize,
+    ) -> Result<(), Error> {
+        match params.type_at(param_index) {
+            ParamID::LoadPresetButton => {
+                let mut dialog = rfd::FileDialog::new().add_filter("ntsc-rs preset", &["json"]);
+
+                // Set the parent window handle on Windows so the user can't interact with the main window while the
+                // file picker is open. If they switch projects while it's open, AE will crash when the dialog closes.
+                //
+                // Seemingly, Premiere won't let us get the window handle in global_setup and always returns null, so we
+                // need to do it in this callback.
+                if let Some(handle) = self.get_window_handle(&in_data)? {
+                    dialog = dialog.set_parent(&handle);
+                }
+
+                let Some(preset_path) = dialog.pick_file() else {
+                    return Ok(());
+                };
+                let file_contents = match std::fs::read_to_string(preset_path) {
+                    Ok(contents) => contents,
+                    Err(e) => {
+                        out_data.set_error_msg(&format!("Error loading preset: {}", e.kind()));
+                        return Ok(());
+                    }
+                };
+                let loaded_preset = match self.settings.from_json(&file_contents) {
+                    Ok(settings) => settings,
+                    Err(e) => {
+                        out_data.set_error_msg(&format!("Error loading preset: {}", e));
+                        return Ok(());
+                    }
+                };
+
+                self.update_params_from_settings(&self.settings.settings, params, &loaded_preset)?;
+            }
+            ParamID::SavePresetButton => {
+                let mut dialog = rfd::FileDialog::new()
+                    .add_filter("ntsc-rs preset", &["json"])
+                    .set_file_name("settings.json");
+
+                if let Some(handle) = self.get_window_handle(&in_data)? {
+                    dialog = dialog.set_parent(&handle);
+                }
+
+                let Some(preset_path) = dialog.save_file() else {
+                    return Ok(());
+                };
+
+                let effect_settings = self.apply_settings(params)?;
+                let json = self.settings.to_json(&effect_settings);
+                let res: Result<(), std::io::Error> = (|| {
+                    let mut destination = File::create(preset_path)?;
+                    json.write_to(&mut destination)?;
+
+                    Ok(())
+                })();
+                if let Err(e) = res {
+                    out_data.set_error_msg(&format!("Error saving preset: {}", e.kind()));
+                    return Ok(());
+                }
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    fn update_params_from_settings(
+        &self,
+        descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
+        params: &mut Parameters<ParamID>,
+        settings: &NtscEffectFullSettings,
+    ) -> Result<(), Error> {
+        for descriptor in descriptors {
+            match &descriptor.kind {
+                SettingKind::Enumeration { options, .. } => {
+                    let mut param = params.get_mut(ParamID::Param(descriptor.id.ae_id()))?;
+                    let mut param = param.as_popup_mut()?;
+                    let setting = settings.get_field_enum(&descriptor.id).unwrap();
+                    param.set_value(
+                        options
+                            .iter()
+                            .position(|item| item.index == setting)
+                            .unwrap() as i32
+                            + 1,
+                    );
+                    param.set_value_changed();
+                }
+                SettingKind::Percentage { logarithmic, .. } => {
+                    let mut param = params.get_mut(ParamID::Param(descriptor.id.ae_id()))?;
+                    let mut param = param.as_float_slider_mut()?;
+                    let setting = settings.get_field_float(&descriptor.id).unwrap();
+                    param.set_value(
+                        if *logarithmic {
+                            map_logarithmic_inverse(setting.into(), 0.0, 1.0, LOG_SLIDER_BASE)
+                        } else {
+                            setting.into()
+                        } * 100.0,
+                    );
+                    param.set_value_changed();
+                }
+                SettingKind::IntRange { .. } => {
+                    let mut param = params.get_mut(ParamID::Param(descriptor.id.ae_id()))?;
+                    let mut param = param.as_float_slider_mut()?;
+                    let setting = settings.get_field_int(&descriptor.id).unwrap();
+                    param.set_value(setting.into());
+                    param.set_value_changed();
+                }
+                SettingKind::FloatRange {
+                    range, logarithmic, ..
+                } => {
+                    let mut param = params.get_mut(ParamID::Param(descriptor.id.ae_id()))?;
+                    let mut param = param.as_float_slider_mut()?;
+                    let setting = settings.get_field_float(&descriptor.id).unwrap();
+                    param.set_value(if *logarithmic {
+                        map_logarithmic_inverse(
+                            setting.into(),
+                            *range.start() as f64,
+                            *range.end() as f64,
+                            LOG_SLIDER_BASE,
+                        )
+                    } else {
+                        setting.into()
+                    });
+                    param.set_value_changed();
+                }
+                SettingKind::Boolean { .. } => {
+                    let mut param = params.get_mut(ParamID::Param(descriptor.id.ae_id()))?;
+                    let mut param = param.as_checkbox_mut()?;
+                    let setting = settings.get_field_bool(&descriptor.id).unwrap();
+                    param.set_value(setting);
+                    param.set_value_changed();
+                }
+                SettingKind::Group { children, .. } => {
+                    let mut param = params.get_mut(ParamID::Param(descriptor.id.ae_id()))?;
+                    let mut param = param.as_checkbox_mut()?;
+                    let setting = settings.get_field_bool(&descriptor.id).unwrap();
+                    param.set_value(setting);
+                    param.set_value_changed();
+
+                    self.update_params_from_settings(children, params, settings)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     fn apply_settings(
         &self,
-        params: &mut Parameters<i32>,
-    ) -> Result<(NtscEffect, UseField), Error> {
+        params: &mut Parameters<ParamID>,
+    ) -> Result<NtscEffectFullSettings, Error> {
         let mut settings = NtscEffectFullSettings::default();
-        let mut use_field = UseField::Alternating;
 
         fn apply_settings_list(
             descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
-            params: &mut Parameters<i32>,
+            params: &mut Parameters<ParamID>,
             settings: &mut NtscEffectFullSettings,
-            use_field: &mut UseField,
         ) -> Result<(), Error> {
             for descriptor in descriptors {
                 match &descriptor.kind {
                     SettingKind::Enumeration { options, .. } => {
-                        let selected_item_position =
-                            params.get(descriptor.id.ae_id())?.as_popup()?.value() - 1;
+                        let selected_item_position = params
+                            .get(ParamID::Param(descriptor.id.ae_id()))?
+                            .as_popup()?
+                            .value()
+                            - 1;
                         if selected_item_position < 0 {
                             continue;
                         }
                         let menu_enum_value = options[selected_item_position as usize].index;
-                        if descriptor.id == setting_id::USE_FIELD {
-                            *use_field =
-                                UseField::from_u32(menu_enum_value).ok_or(Error::InvalidIndex)?;
-                        } else {
-                            settings
-                                .set_field_enum(&descriptor.id, menu_enum_value)
-                                .map_err(|_| Error::BadCallbackParameter)?;
-                        }
+                        settings
+                            .set_field_enum(&descriptor.id, menu_enum_value)
+                            .map_err(|_| Error::BadCallbackParameter)?;
                     }
                     SettingKind::Percentage { logarithmic, .. } => {
                         let mut slider_value = params
-                            .get(descriptor.id.ae_id())?
+                            .get(ParamID::Param(descriptor.id.ae_id()))?
                             .as_float_slider()?
                             .value()
                             * 0.01;
@@ -723,7 +950,7 @@ impl Plugin {
                     }
                     SettingKind::IntRange { .. } => {
                         let slider_value = params
-                            .get(descriptor.id.ae_id())?
+                            .get(ParamID::Param(descriptor.id.ae_id()))?
                             .as_float_slider()?
                             .value()
                             .round() as i32;
@@ -735,7 +962,7 @@ impl Plugin {
                         logarithmic, range, ..
                     } => {
                         let mut slider_value = params
-                            .get(descriptor.id.ae_id())?
+                            .get(ParamID::Param(descriptor.id.ae_id()))?
                             .as_float_slider()?
                             .value();
 
@@ -755,7 +982,10 @@ impl Plugin {
                         settings
                             .set_field_bool(
                                 &descriptor.id,
-                                params.get(descriptor.id.ae_id())?.as_checkbox()?.value(),
+                                params
+                                    .get(ParamID::Param(descriptor.id.ae_id()))?
+                                    .as_checkbox()?
+                                    .value(),
                             )
                             .map_err(|_| Error::BadCallbackParameter)?;
                     }
@@ -763,11 +993,14 @@ impl Plugin {
                         settings
                             .set_field_bool(
                                 &descriptor.id,
-                                params.get(descriptor.id.ae_id())?.as_checkbox()?.value(),
+                                params
+                                    .get(ParamID::Param(descriptor.id.ae_id()))?
+                                    .as_checkbox()?
+                                    .value(),
                             )
                             .map_err(|_| Error::BadCallbackParameter)?;
 
-                        apply_settings_list(&children, params, settings, use_field)?;
+                        apply_settings_list(&children, params, settings)?;
                     }
                 }
             }
@@ -775,13 +1008,8 @@ impl Plugin {
             Ok(())
         }
 
-        apply_settings_list(
-            &self.settings.settings,
-            params,
-            &mut settings,
-            &mut use_field,
-        )?;
+        apply_settings_list(&self.settings.settings, params, &mut settings)?;
 
-        Ok((settings.into(), use_field))
+        Ok(settings)
     }
 }
