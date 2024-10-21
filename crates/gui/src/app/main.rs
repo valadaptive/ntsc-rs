@@ -1381,7 +1381,9 @@ impl NtscApp {
                 .structure(0)?
                 .get::<gstreamer::Fraction>("framerate")
                 .ok()?;
-            Some(framerate)
+
+            // If the framerate is 0, treat it like it's absent
+            (framerate.numer() != 0).then_some(framerate)
         })();
 
         egui::TopBottomPanel::top("video_info")

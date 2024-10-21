@@ -1,5 +1,5 @@
 use super::{gstreamer_error::GstreamerError, scale_from_caps};
-use gstreamer::{element_error, element_warning, glib, prelude::*};
+use gstreamer::{element_error, element_warning, glib, prelude::*, query::Duration};
 use gstreamer_video::VideoInterlaceMode;
 use log::debug;
 use std::{
@@ -220,10 +220,21 @@ pub fn create_pipeline<
                             ))
                         });
 
-                        let is_still_image = match framerate {
+                        let mut q = Duration::new(gstreamer::Format::Time);
+                        let _ = src_pad.query(q.query_mut());
+                        let src_duration = q.result();
+                        let has_duration = src_duration.is_some();
+
+                        let has_zero_framerate = match framerate {
                             Some(framerate) => framerate.numer() == 0,
                             None => false,
                         };
+
+                        // TODO: Videos with a variable framerate have a framerate of 0, so we also check if the input
+                        // has a defined duration (see https://github.com/valadaptive/ntsc-rs/issues/8). Since we do so,
+                        // is it still necessary to have *both* checks? Are there some videos that are not still images
+                        // but still have no duration?
+                        let is_still_image = has_zero_framerate && !has_duration;
 
                         let video_sink = video_sink(
                             &pipeline,
