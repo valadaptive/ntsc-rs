@@ -41,7 +41,8 @@ fn main() {
                 OutFlags2::SupportsSmartRender |
                 OutFlags2::FloatColorAware |
                 OutFlags2::RevealsZeroAlpha |
-                OutFlags2::SupportsThreadedRendering
+                OutFlags2::SupportsThreadedRendering |
+                OutFlags2::SupportsGetFlattenedSequenceData
             ),
             Property::AE_Effect_Match_Name("ntsc-rs"),
             Property::AE_Reserved_Info(8),

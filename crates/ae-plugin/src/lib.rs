@@ -176,6 +176,7 @@ impl AdobePluginGlobal for Plugin {
             Command::UserChangedParam { param_index } => {
                 self.handle_param_callback(params, in_data, out_data, param_index)?
             }
+            Command::GetFlattenedSequenceData => {}
             _ => {}
         }
 
