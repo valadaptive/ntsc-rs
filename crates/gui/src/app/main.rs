@@ -1651,7 +1651,8 @@ impl NtscApp {
 
                     ui.separator();
 
-                    ui.label("🔎");
+                    ui.add(egui::Label::new("🔎").selectable(false))
+                        .on_hover_text("Zoom preview");
                     ui.add_enabled(
                         !self.video_zoom.fit,
                         egui::DragValue::new(&mut self.video_zoom.scale)
@@ -1684,7 +1685,7 @@ impl NtscApp {
                                 self.handle_result(res);
                             }
                         }
-                        ui.label("scanlines");
+                        ui.label("lines");
                     });
 
                     ui.separator();
@@ -1764,7 +1765,8 @@ impl NtscApp {
                     ui.separator();
 
                     let mut update_effect_preview = false;
-                    ui.label("✨").on_hover_text("Effect preview");
+                    ui.add(egui::Label::new("✨").selectable(false))
+                        .on_hover_text("Effect preview");
                     update_effect_preview |= ui
                         .selectable_value(
                             &mut self.effect_preview.mode,

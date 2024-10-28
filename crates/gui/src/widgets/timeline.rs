@@ -208,9 +208,14 @@ impl<'a> Widget for Timeline<'a> {
         let range_f64 = *self.range.start() as f64..=*self.range.end() as f64;
 
         if ui.rect_contains_pointer(rect) {
-            let scroll_delta = ui.ctx().input(|input| input.raw_scroll_delta);
             let zoom_delta = ui.ctx().input(|input| input.zoom_delta());
-            let scroll_delta = scroll_delta.x + scroll_delta.y;
+            // If we're zooming, it may be via ctrl-scroll. We never want to zoom and scroll at the same time.
+            let scroll_delta = if zoom_delta == 1.0 {
+                let scroll_delta = ui.ctx().input(|input| input.smooth_scroll_delta);
+                scroll_delta.x + scroll_delta.y
+            } else {
+                0.0
+            };
 
             if zoom_delta != 1.0 {
                 let pointer_pos = ui.ctx().input(|i| i.pointer.hover_pos());
@@ -253,7 +258,7 @@ impl<'a> Widget for Timeline<'a> {
             if scroll_delta != 0.0 {
                 let zoom_span = state.zoom_range[1] - state.zoom_range[0];
                 // we need to negate the scroll delta--scrolling down and right are both negative?
-                let delta = (-scroll_delta.signum() / rect.width()) as f64 * zoom_span;
+                let delta = (-scroll_delta / rect.width()) as f64 * zoom_span;
                 if delta > 0.0 {
                     state.zoom_range[1] = (state.zoom_range[1] + delta).min(1.0);
                     state.zoom_range[0] = state.zoom_range[1] - zoom_span;
