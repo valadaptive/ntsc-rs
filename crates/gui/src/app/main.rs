@@ -899,7 +899,7 @@ impl NtscApp {
         changed
     }
 
-    fn show_effect_settings(&mut self, ui: &mut egui::Ui) {
+    fn show_effect_settings(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         egui::TopBottomPanel::bottom("preset_copy_paste")
             .interact_height_tall(ui.ctx())
             .show_inside(ui, |ui| {
@@ -907,6 +907,7 @@ impl NtscApp {
                     if ui.button("Save to...").clicked() {
                         let json = self.settings_list.to_json(&self.effect_settings);
                         let handle = rfd::AsyncFileDialog::new()
+                            .set_parent(frame)
                             .add_filter("ntsc-rs preset", &["json"])
                             .set_file_name("settings.json")
                             .save_file();
@@ -928,6 +929,7 @@ impl NtscApp {
 
                     if ui.button("Load from...").clicked() {
                         let handle = rfd::AsyncFileDialog::new()
+                            .set_parent(frame)
                             .add_filter("ntsc-rs preset", &["json"])
                             .pick_file();
                         self.spawn(async move {
@@ -1133,7 +1135,7 @@ impl NtscApp {
             spacing.slider_width + spacing.interact_size.x + spacing.item_spacing.x;
     }
 
-    fn show_render_settings(&mut self, ui: &mut egui::Ui) {
+    fn show_render_settings(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         egui::Frame::central_panel(ui.style()).show(ui, |ui| {
             Self::setup_control_rows(ui);
             let mut codec_changed = false;
@@ -1228,7 +1230,7 @@ impl NtscApp {
                             dialog_path = path;
                         }
                     }
-                    let mut file_dialog = rfd::AsyncFileDialog::new();
+                    let mut file_dialog = rfd::AsyncFileDialog::new().set_parent(frame);
 
                     if dialog_path.components().next().is_some() {
                         if let Some(parent) = dialog_path.parent() {
@@ -1356,7 +1358,7 @@ impl NtscApp {
         });
     }
 
-    fn show_video_pane(&mut self, ui: &mut egui::Ui) {
+    fn show_video_pane(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let last_seek_pos = if let Some(info) = &mut self.pipeline {
             // While seeking, GStreamer sometimes doesn't return a timecode. In that case, use the last timecode it
             // did respond with.
@@ -1504,17 +1506,16 @@ impl NtscApp {
 
                     if let Some((src_path, dst_path)) = save_image_to {
                         let ctx = ui.ctx().clone();
+                        let handle = rfd::AsyncFileDialog::new()
+                            .set_parent(frame)
+                            .set_directory(dst_path.parent().unwrap_or(Path::new("/")))
+                            .set_file_name(format!(
+                                "{}_ntsc.png",
+                                dst_path.file_name().to_owned().unwrap().to_string_lossy()
+                            ))
+                            .save_file();
                         self.spawn(async move {
-                            let handle = rfd::AsyncFileDialog::new()
-                                .set_directory(dst_path.parent().unwrap_or(Path::new("/")))
-                                .set_file_name(format!(
-                                    "{}_ntsc.png",
-                                    dst_path.file_name().to_owned().unwrap().to_string_lossy()
-                                ))
-                                .save_file()
-                                .await;
-
-                            handle.map(|handle| {
+                            handle.await.map(|handle| {
                                 Box::new(move |app: &mut NtscApp| {
                                     let current_time = app
                                         .pipeline
@@ -2003,7 +2004,7 @@ impl NtscApp {
             });
     }
 
-    fn show_app(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn show_app(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         if self.credits_dialog_open {
             self.show_credits_dialog(ctx);
         }
@@ -2022,7 +2023,8 @@ impl NtscApp {
                 ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                     ui.menu_button("File", |ui| {
                         if ui.button("Open").clicked() {
-                            let file_dialog = rfd::AsyncFileDialog::new().pick_file();
+                            let file_dialog =
+                                rfd::AsyncFileDialog::new().set_parent(frame).pick_file();
                             let ctx = ctx.clone();
                             self.spawn(async move {
                                 let handle = file_dialog.await;
@@ -2198,10 +2200,10 @@ impl NtscApp {
                     .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(0.0))
                     .show_inside(ui, |ui| match self.left_panel_state {
                         LeftPanelState::EffectSettings => {
-                            self.show_effect_settings(ui);
+                            self.show_effect_settings(ui, frame);
                         }
                         LeftPanelState::RenderSettings => {
-                            self.show_render_settings(ui);
+                            self.show_render_settings(ui, frame);
                         }
                     });
             });
@@ -2210,7 +2212,7 @@ impl NtscApp {
             .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(0.0))
             .show(ctx, |ui| {
                 ui.visuals_mut().clip_rect_margin = 0.0;
-                self.show_video_pane(ui);
+                self.show_video_pane(ui, frame);
             });
     }
 
