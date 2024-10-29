@@ -147,7 +147,7 @@ impl AdobePluginGlobal for Plugin {
             },
         )?;
 
-        self.map_params(params, &self.settings.settings)?;
+        Self::map_params(params, &self.settings.settings)?;
 
         Ok(())
     }
@@ -171,7 +171,7 @@ impl AdobePluginGlobal for Plugin {
                 self.smart_render(in_data, out_data, extra, params)?
             }
             Command::UpdateParamsUi => {
-                self.update_controls_disabled(params, &self.settings.settings, true)?
+                Self::update_controls_disabled(params, &self.settings.settings, true)?
             }
             Command::UserChangedParam { param_index } => {
                 self.handle_param_callback(params, in_data, out_data, param_index)?
@@ -212,7 +212,7 @@ impl Plugin {
     }
 
     fn about(&self, _in_data: InData, mut out_data: OutData) -> Result<(), Error> {
-        const DESCRIPTION: &'static str = "Analog TV and VHS emulation.";
+        const DESCRIPTION: &str = "Analog TV and VHS emulation.";
         out_data.set_return_msg(
             format!(
                 "NTSC-rs {}.{}.{}\r\r{DESCRIPTION}",
@@ -415,7 +415,7 @@ impl Plugin {
 
         match in_pixel_format {
             NtscrsPixelFormat::Xrgb8 => unsafe {
-                let data = mem::transmute::<_, &[MaybeUninit<u8>]>(in_layer.buffer());
+                let data = mem::transmute::<&[u8], &[MaybeUninit<u8>]>(in_layer.buffer());
                 view.set_from_strided_buffer_maybe_uninit::<Xrgb8, _>(
                     data,
                     src_blit_info,
@@ -423,7 +423,8 @@ impl Plugin {
                 );
             },
             NtscrsPixelFormat::Xrgb16AE => unsafe {
-                let data = mem::transmute::<_, &[MaybeUninit<AfterEffectsU16>]>(in_layer.buffer());
+                let data =
+                    mem::transmute::<&[u8], &[MaybeUninit<AfterEffectsU16>]>(in_layer.buffer());
                 view.set_from_strided_buffer_maybe_uninit::<Xrgb16AE, _>(
                     data,
                     src_blit_info,
@@ -431,7 +432,7 @@ impl Plugin {
                 );
             },
             NtscrsPixelFormat::Xrgb32f => unsafe {
-                let data = mem::transmute::<_, &[MaybeUninit<f32>]>(in_layer.buffer());
+                let data = mem::transmute::<&[u8], &[MaybeUninit<f32>]>(in_layer.buffer());
                 view.set_from_strided_buffer_maybe_uninit::<Xrgb32f, _>(
                     data,
                     src_blit_info,
@@ -439,7 +440,7 @@ impl Plugin {
                 );
             },
             NtscrsPixelFormat::Bgrx8 => unsafe {
-                let data = mem::transmute::<_, &[MaybeUninit<u8>]>(in_layer.buffer());
+                let data = mem::transmute::<&[u8], &[MaybeUninit<u8>]>(in_layer.buffer());
                 view.set_from_strided_buffer_maybe_uninit::<Bgrx8, _>(
                     data,
                     src_blit_info,
@@ -447,7 +448,7 @@ impl Plugin {
                 );
             },
             NtscrsPixelFormat::Bgrx16 => unsafe {
-                let data = mem::transmute::<_, &[MaybeUninit<u16>]>(in_layer.buffer());
+                let data = mem::transmute::<&[u8], &[MaybeUninit<u16>]>(in_layer.buffer());
                 view.set_from_strided_buffer_maybe_uninit::<Bgrx16, _>(
                     data,
                     src_blit_info,
@@ -455,7 +456,7 @@ impl Plugin {
                 );
             },
             NtscrsPixelFormat::Bgrx32f => unsafe {
-                let data = mem::transmute::<_, &[MaybeUninit<f32>]>(in_layer.buffer());
+                let data = mem::transmute::<&[u8], &[MaybeUninit<f32>]>(in_layer.buffer());
                 view.set_from_strided_buffer_maybe_uninit::<Bgrx32f, _>(
                     data,
                     src_blit_info,
@@ -468,8 +469,9 @@ impl Plugin {
 
         match out_pixel_format {
             NtscrsPixelFormat::Xrgb8 => {
-                let data =
-                    unsafe { mem::transmute::<_, &mut [MaybeUninit<u8>]>(out_layer.buffer_mut()) };
+                let data = unsafe {
+                    mem::transmute::<&mut [u8], &mut [MaybeUninit<u8>]>(out_layer.buffer_mut())
+                };
                 view.write_to_strided_buffer_maybe_uninit::<Xrgb8, _>(
                     data,
                     dst_blit_info,
@@ -480,7 +482,9 @@ impl Plugin {
             }
             NtscrsPixelFormat::Xrgb16AE => {
                 let data = unsafe {
-                    mem::transmute::<_, &mut [MaybeUninit<AfterEffectsU16>]>(out_layer.buffer_mut())
+                    mem::transmute::<&mut [u8], &mut [MaybeUninit<AfterEffectsU16>]>(
+                        out_layer.buffer_mut(),
+                    )
                 };
                 view.write_to_strided_buffer_maybe_uninit::<Xrgb16AE, _>(
                     data,
@@ -491,8 +495,9 @@ impl Plugin {
                 );
             }
             NtscrsPixelFormat::Xrgb32f => {
-                let data =
-                    unsafe { mem::transmute::<_, &mut [MaybeUninit<f32>]>(out_layer.buffer_mut()) };
+                let data = unsafe {
+                    mem::transmute::<&mut [u8], &mut [MaybeUninit<f32>]>(out_layer.buffer_mut())
+                };
                 view.write_to_strided_buffer_maybe_uninit::<Xrgb32f, _>(
                     data,
                     dst_blit_info,
@@ -502,8 +507,9 @@ impl Plugin {
                 );
             }
             NtscrsPixelFormat::Bgrx8 => {
-                let data =
-                    unsafe { mem::transmute::<_, &mut [MaybeUninit<u8>]>(out_layer.buffer_mut()) };
+                let data = unsafe {
+                    mem::transmute::<&mut [u8], &mut [MaybeUninit<u8>]>(out_layer.buffer_mut())
+                };
                 view.write_to_strided_buffer_maybe_uninit::<Bgrx8, _>(
                     data,
                     dst_blit_info,
@@ -513,8 +519,9 @@ impl Plugin {
                 );
             }
             NtscrsPixelFormat::Bgrx16 => {
-                let data =
-                    unsafe { mem::transmute::<_, &mut [MaybeUninit<u16>]>(out_layer.buffer_mut()) };
+                let data = unsafe {
+                    mem::transmute::<&mut [u8], &mut [MaybeUninit<u16>]>(out_layer.buffer_mut())
+                };
                 view.write_to_strided_buffer_maybe_uninit::<Bgrx16, _>(
                     data,
                     dst_blit_info,
@@ -524,8 +531,9 @@ impl Plugin {
                 );
             }
             NtscrsPixelFormat::Bgrx32f => {
-                let data =
-                    unsafe { mem::transmute::<_, &mut [MaybeUninit<f32>]>(out_layer.buffer_mut()) };
+                let data = unsafe {
+                    mem::transmute::<&mut [u8], &mut [MaybeUninit<f32>]>(out_layer.buffer_mut())
+                };
                 view.write_to_strided_buffer_maybe_uninit::<Bgrx32f, _>(
                     data,
                     dst_blit_info,
@@ -540,21 +548,17 @@ impl Plugin {
     }
 
     fn update_controls_disabled(
-        &self,
         params: &mut Parameters<ParamID>,
         descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
         enabled: bool,
     ) -> Result<(), Error> {
         for descriptor in descriptors {
-            match &descriptor.kind {
-                SettingKind::Group { children, .. } => {
-                    let group_enabled = params
-                        .get(ParamID::Param(descriptor.id.ae_id()))?
-                        .as_checkbox()?
-                        .value();
-                    self.update_controls_disabled(params, &children, enabled && group_enabled)?;
-                }
-                _ => {}
+            if let SettingKind::Group { children, .. } = &descriptor.kind {
+                let group_enabled = params
+                    .get(ParamID::Param(descriptor.id.ae_id()))?
+                    .as_checkbox()?
+                    .value();
+                Self::update_controls_disabled(params, children, enabled && group_enabled)?;
             }
             if let Ok(p) = params.get(ParamID::Param(descriptor.id.ae_id())) {
                 let was_enabled = !p.ui_flags().contains(ParamUIFlags::DISABLED);
@@ -572,7 +576,6 @@ impl Plugin {
     }
 
     fn map_params(
-        &self,
         params: &mut Parameters<ParamID>,
         descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
     ) -> Result<(), Error> {
@@ -584,7 +587,7 @@ impl Plugin {
                 } => {
                     params.add_customized(
                         ParamID::Param(descriptor.id.ae_id()),
-                        &descriptor.label,
+                        descriptor.label,
                         ae::PopupDef::setup(|p| {
                             p.set_options(&options.iter().map(|o| o.label).collect::<Vec<_>>());
                             let default_idx = options
@@ -605,7 +608,7 @@ impl Plugin {
                     default_value,
                 } => params.add_customized(
                     ParamID::Param(descriptor.id.ae_id()),
-                    &descriptor.label,
+                    descriptor.label,
                     ae::FloatSliderDef::setup(|f| {
                         f.set_slider_min(0.0);
                         f.set_valid_min(0.0);
@@ -631,7 +634,7 @@ impl Plugin {
                     default_value,
                 } => params.add_customized(
                     ParamID::Param(descriptor.id.ae_id()),
-                    &descriptor.label,
+                    descriptor.label,
                     ae::FloatSliderDef::setup(|f| {
                         f.set_slider_min(*range.start() as f32);
                         f.set_valid_min(*range.start() as f32);
@@ -652,7 +655,7 @@ impl Plugin {
                     default_value,
                 } => params.add_customized(
                     ParamID::Param(descriptor.id.ae_id()),
-                    &descriptor.label,
+                    descriptor.label,
                     ae::FloatSliderDef::setup(|f| {
                         f.set_slider_min(*range.start());
                         f.set_valid_min(*range.start());
@@ -678,11 +681,11 @@ impl Plugin {
                 SettingKind::Boolean { default_value } => {
                     params.add_customized(
                         ParamID::Param(descriptor.id.ae_id()),
-                        &descriptor.label,
+                        descriptor.label,
                         ae::CheckBoxDef::setup(|c| {
                             c.set_default(*default_value);
                             // The effect will fail to load if we don't set the label (by default it's the null pointer)
-                            c.set_label(&descriptor.label);
+                            c.set_label(descriptor.label);
                         }),
                         |p| {
                             p.set_id(descriptor.id.ae_id());
@@ -699,22 +702,22 @@ impl Plugin {
                     params.add_group(
                         ParamID::GroupStart(descriptor_id),
                         ParamID::GroupEnd(descriptor_id),
-                        &descriptor.label,
+                        descriptor.label,
                         false,
                         |g| {
                             g.add_customized(
                                 ParamID::Param(descriptor_id),
-                                &descriptor.label,
+                                descriptor.label,
                                 ae::CheckBoxDef::setup(|c| {
                                     c.set_default(*default_value);
-                                    c.set_label(&"Enabled");
+                                    c.set_label("Enabled");
                                 }),
                                 |p| {
                                     p.set_id(descriptor_id);
                                     -1
                                 },
                             )?;
-                            self.map_params(g, children)?;
+                            Self::map_params(g, children)?;
                             Ok(())
                         },
                     )?;
@@ -793,7 +796,7 @@ impl Plugin {
                     }
                 };
 
-                self.update_params_from_settings(&self.settings.settings, params, &loaded_preset)?;
+                Self::update_params_from_settings(&self.settings.settings, params, &loaded_preset)?;
             }
             ParamID::SavePresetButton => {
                 let mut dialog = rfd::FileDialog::new()
@@ -828,7 +831,6 @@ impl Plugin {
     }
 
     fn update_params_from_settings(
-        &self,
         descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
         params: &mut Parameters<ParamID>,
         settings: &NtscEffectFullSettings,
@@ -900,7 +902,7 @@ impl Plugin {
                     param.set_value(setting);
                     param.set_value_changed();
 
-                    self.update_params_from_settings(children, params, settings)?;
+                    Self::update_params_from_settings(children, params, settings)?;
                 }
             }
         }
@@ -1001,7 +1003,7 @@ impl Plugin {
                             )
                             .map_err(|_| Error::BadCallbackParameter)?;
 
-                        apply_settings_list(&children, params, settings)?;
+                        apply_settings_list(children, params, settings)?;
                     }
                 }
             }

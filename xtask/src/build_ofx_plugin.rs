@@ -52,7 +52,7 @@ pub fn command() -> clap::Command {
                 .value_parser(PathBufValueParser::new())
                 .default_value(
                     workspace_dir()
-                        .plus_iter(&["crates", "openfx-plugin", "build"])
+                        .plus_iter(["crates", "openfx-plugin", "build"])
                         .as_os_str()
                         .to_owned(),
                 ),
@@ -117,7 +117,7 @@ fn build_plugin_for_target(target: &Target, release_mode: bool) -> std::io::Resu
         .status()
         .expect_success()?;
 
-    let target_dir_path = workspace_dir().to_path_buf().plus_iter(&[
+    let target_dir_path = workspace_dir().to_path_buf().plus_iter([
         "target",
         target.target_triple,
         if cargo_args.contains(&String::from("--release")) {

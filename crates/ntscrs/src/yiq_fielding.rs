@@ -378,7 +378,7 @@ impl<'a> YiqView<'a> {
         let (q1, q2) = self.q.split_at_mut(idx * self.dimensions.0);
         let (s1, s2) = self.scratch.split_at_mut(idx * self.dimensions.0);
         (
-            if y1.len() > 0 {
+            if !y1.is_empty() {
                 Some(YiqView {
                     y: y1,
                     i: i1,
@@ -390,7 +390,7 @@ impl<'a> YiqView<'a> {
             } else {
                 None
             },
-            if y2.len() > 0 {
+            if !y2.is_empty() {
                 Some(YiqView {
                     y: y2,
                     i: i2,
@@ -415,7 +415,7 @@ impl<'a> YiqView<'a> {
     /// to the pixels beforehand. This method allows padding bytes of the source buffer to be uninitialized, which *may*
     /// be the case for effect plugin APIs (OpenFX and After Effects, which both leave it ambiguous).
     ///
-    /// Safety:
+    /// # Safety
     /// - `buf` must be a valid pointer to a buffer of length `len`.
     /// - All data within the portions of `buf` within each row, as specified by `row_bytes` and this view's dimensions,
     ///   must be initialized and valid. Data outside of those portions need not be valid.

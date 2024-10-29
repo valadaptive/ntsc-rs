@@ -28,7 +28,7 @@ impl<T> SliceHandle<T> {
 
         Ok(SliceHandle {
             handle: handle as _,
-            _ty: PhantomData::default(),
+            _ty: PhantomData,
             len,
             suite: handle_suite,
         })
@@ -59,7 +59,7 @@ impl<T: Copy> SliceHandle<T> {
             }
         }
 
-        Ok(unsafe { transmute(handle) })
+        Ok(unsafe { transmute::<SliceHandle<MaybeUninit<T>>, SliceHandle<T>>(handle) })
     }
 }
 

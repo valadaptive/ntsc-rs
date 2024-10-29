@@ -20,13 +20,13 @@ fn main() {
 
     match task {
         "macos-ae-plugin" => {
-            macos_ae_plugin::main(&args).unwrap();
+            macos_ae_plugin::main(args).unwrap();
         }
         "macos-bundle" => {
-            macos_bundle::main(&args).unwrap();
+            macos_bundle::main(args).unwrap();
         }
         "build-ofx-plugin" => {
-            build_ofx_plugin::main(&args).unwrap();
+            build_ofx_plugin::main(args).unwrap();
         }
         _ => {
             println!("Invalid xtask: {task}");

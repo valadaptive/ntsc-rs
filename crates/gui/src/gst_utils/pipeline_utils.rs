@@ -329,7 +329,7 @@ pub fn create_pipeline<
                 ("Failed to insert sink"),
                 details: gstreamer::Structure::builder("error-details")
                             .field("error",
-                                   &ErrorValue(Arc::new(Mutex::new(Some(err)))))
+                                   ErrorValue(Arc::new(Mutex::new(Some(err)))))
                             .build()
             );
         }

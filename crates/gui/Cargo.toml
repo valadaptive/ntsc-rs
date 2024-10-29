@@ -35,3 +35,6 @@ name = "ntsc-rs-standalone"
 
 [[bin]]
 name = "ntsc-rs-launcher"
+
+[lints]
+workspace = true

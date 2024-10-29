@@ -12,3 +12,6 @@ plist = {version = "1.7.0", default-features = false}
 
 [[bin]]
 name = "xtask"
+
+[lints]
+workspace = true

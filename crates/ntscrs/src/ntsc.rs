@@ -522,8 +522,7 @@ fn video_noise_line(
         // Yes, they got the lacunarity backwards by making it apply to frequency instead of scale.
         // 2.0 *halves* the scale each time because it doubles the frequency.
         .with_lacunarity(2.0)
-        .generate_into(scratch)
-        .0;
+        .generate_into(scratch);
 
     row.iter_mut().enumerate().for_each(|(x, pixel)| {
         *pixel += scratch[x] * 0.25 * intensity;
@@ -974,8 +973,7 @@ fn vhs_edge_wave(yiq: &mut YiqView, info: &CommonInfo, settings: &VHSEdgeWaveSet
         // 2.0 *halves* the scale each time because it doubles the frequency.
         .with_lacunarity(2.0)
         .with_gain(std::f32::consts::FRAC_1_SQRT_2)
-        .generate_into(noise)
-        .0;
+        .generate_into(noise);
 
     for plane in [&mut yiq.y, &mut yiq.i, &mut yiq.q] {
         plane

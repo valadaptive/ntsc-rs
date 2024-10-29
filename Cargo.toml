@@ -1,3 +1,10 @@
 [workspace]
 members = ["crates/*", "xtask"]
 resolver = "2"
+
+[workspace.lints.clippy]
+too_many_arguments = "allow"
+identity_op = "allow"
+new_without_default = "allow"
+module_inception = "allow"
+needless_range_loop = "allow"

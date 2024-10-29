@@ -18,3 +18,6 @@ pipl = {git = "https://github.com/valadaptive/after-effects", rev = "297897d"}
 [dependencies]
 raw-window-handle = "0.6.2"
 rfd = "0.15.0"
+
+[lints]
+workspace = true

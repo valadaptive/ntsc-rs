@@ -90,7 +90,7 @@ impl RenderJobWidget<'_> {
                                         error = job
                                             .pipeline
                                             .set_state(gstreamer::State::Paused)
-                                            .map_err(|e| GstreamerError::from(e))
+                                            .map_err(GstreamerError::from)
                                             .context(RenderJobPipelineSnafu)
                                             .err();
                                     }
@@ -102,7 +102,7 @@ impl RenderJobWidget<'_> {
                                         error = job
                                             .pipeline
                                             .set_state(gstreamer::State::Playing)
-                                            .map_err(|e| GstreamerError::from(e))
+                                            .map_err(GstreamerError::from)
                                             .context(RenderJobPipelineSnafu)
                                             .err();
                                     }

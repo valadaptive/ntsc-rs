@@ -191,31 +191,31 @@ macro_rules! set_field_enum_impl {
 macro_rules! impl_settings_for {
     ($item:ty, $(($field_setting_id:path, $($field_path:ident).+$(, $is_enum:tt)?)),+$(,)?) => {
         impl $crate::settings::Settings for $item {
-            fn get_field_mut<T: 'static>(&mut self, id: &$crate::settings::SettingID<Self>) -> Result<&mut T, crate::settings::GetSetFieldError> {
+            fn get_field_mut<T: 'static>(&mut self, id: &$crate::settings::SettingID<Self>) -> Result<&mut T, $crate::settings::GetSetFieldError> {
                 match id {
                     $(&$field_setting_id => $crate::get_field_mut_impl!(self.$($field_path).+$(, $is_enum)?),)+
-                    _ => Err(crate::settings::GetSetFieldError::NoSuchID(id.name))
+                    _ => Err($crate::settings::GetSetFieldError::NoSuchID(id.name))
                 }
             }
 
-            fn get_field_ref<T: 'static>(&self, id: &crate::settings::SettingID<Self>) -> Result<&T, crate::settings::GetSetFieldError> {
+            fn get_field_ref<T: 'static>(&self, id: &$crate::settings::SettingID<Self>) -> Result<&T, $crate::settings::GetSetFieldError> {
                 match id {
                     $(&$field_setting_id => $crate::get_field_ref_impl!(self.$($field_path).+$(, $is_enum)?),)+
-                    _ => Err(crate::settings::GetSetFieldError::NoSuchID(id.name))
+                    _ => Err($crate::settings::GetSetFieldError::NoSuchID(id.name))
                 }
             }
 
-            fn get_field_enum(&self, id: &crate::settings::SettingID<Self>) -> Result<u32, crate::settings::GetSetFieldError> {
+            fn get_field_enum(&self, id: &$crate::settings::SettingID<Self>) -> Result<u32, $crate::settings::GetSetFieldError> {
                 match id {
                     $(&$field_setting_id => $crate::get_field_enum_impl!(self.$($field_path).+$(, $is_enum)?),)+
-                    _ => Err(crate::settings::GetSetFieldError::NoSuchID(id.name))
+                    _ => Err($crate::settings::GetSetFieldError::NoSuchID(id.name))
                 }
             }
 
-            fn set_field_enum(&mut self, id: &crate::settings::SettingID<Self>, value: u32) -> Result<(), crate::settings::GetSetFieldError> {
+            fn set_field_enum(&mut self, id: &$crate::settings::SettingID<Self>, value: u32) -> Result<(), $crate::settings::GetSetFieldError> {
                 match id {
                     $(&$field_setting_id => $crate::set_field_enum_impl!(value, self.$($field_path).+$(, $is_enum)?),)+
-                    _ => Err(crate::settings::GetSetFieldError::NoSuchID(id.name))
+                    _ => Err($crate::settings::GetSetFieldError::NoSuchID(id.name))
                 }
             }
         }

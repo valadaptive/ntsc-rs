@@ -386,8 +386,8 @@ impl TransferFunction {
     /// Filter a signal in-place, modifying the given slice.
     /// # Type parameters
     /// - `ROWS` - The number of rows to process at once. This makes SIMD faster by removing loop-carried dependencies:
-    /// once one pixel of each row is done, we can move onto the next row instead of waiting to finish calculating the
-    /// next filter state.
+    ///    once one pixel of each row is done, we can move onto the next row instead of waiting to finish calculating the
+    ///    next filter state.
     /// # Arguments
     /// - `signal` - The slice containing the signal to be filtered.
     /// - `initial` - The initial steady-state value of the filter.

@@ -15,3 +15,6 @@ bindgen = "0.70"
 
 [lib]
 crate-type = ["cdylib"]
+
+[lints]
+workspace = true

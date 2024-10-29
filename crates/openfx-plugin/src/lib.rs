@@ -842,7 +842,6 @@ unsafe fn set_controls_from_settings(
     param_set: OfxParamSetHandle,
     setting_descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
     settings: &NtscEffectFullSettings,
-    time: f64,
 ) -> OfxResult<()> {
     let paramGetHandle = data
         .parameter_suite
@@ -907,7 +906,7 @@ unsafe fn set_controls_from_settings(
                         .get_field_bool(&descriptor.id)
                         .map_err(|_| OfxStat::kOfxStatErrBadIndex)? as i32,
                 ))?;
-                set_controls_from_settings(data, param_set, &children, settings, time)?;
+                set_controls_from_settings(data, param_set, children, settings)?;
             }
         };
     }
@@ -971,13 +970,7 @@ unsafe fn action_instance_changed(
                 .settings_list
                 .from_json(&preset_contents)
                 .map_err(|_| OfxStat::kOfxStatFailed)?;
-            set_controls_from_settings(
-                data,
-                param_set,
-                &data.settings_list.settings,
-                &settings,
-                time,
-            )?;
+            set_controls_from_settings(data, param_set, &data.settings_list.settings, &settings)?;
 
             return Ok(());
         } else if SAVE_PRESET_ID == CStr::from_ptr(target_name) {
@@ -991,7 +984,7 @@ unsafe fn action_instance_changed(
 
             let mut settings = NtscEffectFullSettings::default();
             apply_params(
-                &data.parameter_suite,
+                data.parameter_suite,
                 param_set,
                 time,
                 &data.settings_list.settings,
