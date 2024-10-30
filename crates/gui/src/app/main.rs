@@ -175,10 +175,6 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     let render_settings =
                         eframe::get_value::<RenderSettings>(storage, "render_settings")
                             .unwrap_or_default();
-                    dbg!(eframe::get_value::<RenderSettings>(
-                        storage,
-                        "render_settings"
-                    ));
 
                     (
                         settings,
