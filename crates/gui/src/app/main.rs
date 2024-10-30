@@ -155,31 +155,45 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
             let settings_list = SettingsList::<NtscEffectFullSettings>::new();
             let settings_list_easy = SettingsList::<EasyModeFullSettings>::new();
-            let (settings, easy_mode_settings, mut easy_mode_enabled) = if let Some(storage) =
-                cc.storage
-            {
-                // Load previous effect settings from storage
-                let settings = storage
-                    .get_string("effect_settings")
-                    .and_then(|saved_settings| settings_list.from_json(&saved_settings).ok())
-                    .unwrap_or_default();
-                let easy_mode_settings = storage
-                    .get_string("easy_mode_settings")
-                    .and_then(|saved_settings| settings_list_easy.from_json(&saved_settings).ok())
-                    .unwrap_or_default();
-                let easy_mode_enabled = storage
-                    .get_string("easy_mode_enabled")
-                    .map(|saved_enabled| saved_enabled == "true")
-                    .unwrap_or_default();
+            let (settings, easy_mode_settings, mut easy_mode_enabled, render_settings) =
+                if let Some(storage) = cc.storage {
+                    // Load previous effect settings from storage
+                    let settings = storage
+                        .get_string("effect_settings")
+                        .and_then(|saved_settings| settings_list.from_json(&saved_settings).ok())
+                        .unwrap_or_default();
+                    let easy_mode_settings = storage
+                        .get_string("easy_mode_settings")
+                        .and_then(|saved_settings| {
+                            settings_list_easy.from_json(&saved_settings).ok()
+                        })
+                        .unwrap_or_default();
+                    let easy_mode_enabled = storage
+                        .get_string("easy_mode_enabled")
+                        .map(|saved_enabled| saved_enabled == "true")
+                        .unwrap_or_default();
+                    let render_settings =
+                        eframe::get_value::<RenderSettings>(storage, "render_settings")
+                            .unwrap_or_default();
+                    dbg!(eframe::get_value::<RenderSettings>(
+                        storage,
+                        "render_settings"
+                    ));
 
-                (settings, easy_mode_settings, easy_mode_enabled)
-            } else {
-                (
-                    NtscEffectFullSettings::default(),
-                    EasyModeFullSettings::default(),
-                    true,
-                )
-            };
+                    (
+                        settings,
+                        easy_mode_settings,
+                        easy_mode_enabled,
+                        render_settings,
+                    )
+                } else {
+                    (
+                        NtscEffectFullSettings::default(),
+                        EasyModeFullSettings::default(),
+                        true,
+                        RenderSettings::default(),
+                    )
+                };
 
             easy_mode_enabled &= EXPERIMENTAL_EASY_MODE;
 
@@ -192,6 +206,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 settings,
                 easy_mode_settings,
                 easy_mode_enabled,
+                render_settings,
                 init_state,
             )))
         }),
@@ -208,6 +223,7 @@ impl NtscApp {
         effect_settings: NtscEffectFullSettings,
         easy_mode_settings: EasyModeFullSettings,
         easy_mode_enabled: bool,
+        render_settings: RenderSettings,
         gstreamer_init: GstreamerInitState,
     ) -> Self {
         Self {
@@ -232,7 +248,7 @@ impl NtscApp {
             effect_settings,
             easy_mode_settings,
             presets_state: PresetsState::default(),
-            render_settings: RenderSettings::default(),
+            render_settings,
             render_jobs: Vec::new(),
             settings_json_paste: String::new(),
             last_error: RefCell::new(None),
@@ -2364,6 +2380,8 @@ impl eframe::App for NtscApp {
             storage.set_string("easy_mode_settings", settings_json);
         }
 
-        storage.set_string("easy_mode_enabled", self.easy_mode_enabled.to_string())
+        storage.set_string("easy_mode_enabled", self.easy_mode_enabled.to_string());
+
+        eframe::set_value(storage, "render_settings", &self.render_settings);
     }
 }

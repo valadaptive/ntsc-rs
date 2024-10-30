@@ -2250,6 +2250,8 @@ dependencies = [
  "option-operations",
  "paste",
  "pin-project-lite",
+ "serde",
+ "serde_bytes",
  "smallvec",
  "thiserror",
 ]
@@ -2278,31 +2280,6 @@ dependencies = [
  "gobject-sys 0.20.4",
  "gstreamer-sys",
  "libc",
- "system-deps 7.0.3",
-]
-
-[[package]]
-name = "gstreamer-controller"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2da3abb1ca057724c2bd7dac1719fccbee79b30a5acbef36efee5a575f388a3"
-dependencies = [
- "glib",
- "gstreamer",
- "gstreamer-controller-sys",
-]
-
-[[package]]
-name = "gstreamer-controller-sys"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3af3cfb72cac4326cd56319488b7636363c307c6fe006377bbd380e3e6495ee5"
-dependencies = [
- "glib-sys 0.20.4",
- "gobject-sys 0.20.4",
- "gstreamer-sys",
- "libc",
- "pkg-config",
  "system-deps 7.0.3",
 ]
 
@@ -2380,7 +2357,6 @@ dependencies = [
  "futures-lite 2.3.0",
  "gstreamer",
  "gstreamer-base",
- "gstreamer-controller",
  "gstreamer-video",
  "log",
  "logos",
@@ -2388,6 +2364,7 @@ dependencies = [
  "open",
  "rand",
  "rfd 0.14.1",
+ "serde",
  "snafu",
  "tinyjson",
  "trash",
@@ -3076,6 +3053,7 @@ checksum = "f83d14da390562dca69fc84082e73e548e1ad308d24accdedd2720017cb37824"
 dependencies = [
  "num-integer",
  "num-traits",
+ "serde",
 ]
 
 [[package]]
@@ -4055,6 +4033,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8e3592472072e6e22e0a54d5904d9febf8508f65fb8552499a1abc7d1078c3a"
 dependencies = [
  "serde_derive",
+]
+
+[[package]]
+name = "serde_bytes"
+version = "0.11.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "387cc504cb06bb40a96c8e04e951fe01854cf6bc921053c954e4a606d9675c6a"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

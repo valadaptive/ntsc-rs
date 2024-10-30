@@ -2,8 +2,9 @@ use std::path::PathBuf;
 
 use gstreamer::{ClockTime, Fraction};
 use ntscrs::ntsc::NtscEffect;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct H264Settings {
     // Quality / constant rate factor (0-51)
     pub crf: u8,
@@ -26,7 +27,7 @@ impl Default for H264Settings {
     }
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Ffv1BitDepth {
     #[default]
     Bits8,
@@ -44,7 +45,7 @@ impl Ffv1BitDepth {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Ffv1Settings {
     pub bit_depth: Ffv1BitDepth,
     // Subsample chroma to 4:2:0
@@ -56,7 +57,7 @@ pub struct PngSettings {
     pub seek_to: ClockTime,
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OutputCodec {
     #[default]
     H264,
@@ -107,13 +108,14 @@ pub struct RenderPipelineSettings {
     pub effect_settings: NtscEffect,
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct RenderSettings {
     pub output_codec: OutputCodec,
     // we want to keep these around even if the user changes their mind and selects ffv1, so they don't lose the
     // settings if they change back
     pub h264_settings: H264Settings,
     pub ffv1_settings: Ffv1Settings,
+    #[serde(skip)]
     pub output_path: PathBuf,
     pub duration: ClockTime,
     pub interlaced: bool,
