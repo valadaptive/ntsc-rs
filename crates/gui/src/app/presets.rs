@@ -18,7 +18,7 @@ use snafu::prelude::*;
 use super::{
     error::{
         ApplicationError, CreatePresetSnafu, CreatePresetsDirectorySnafu, DeletePresetSnafu,
-        FsSnafu, JSONParseSnafu, JSONReadSnafu, RenamePresetSnafu,
+        FsSnafu, InstallPresetSnafu, JSONParseSnafu, JSONReadSnafu, RenamePresetSnafu,
     },
     layout_helper::LayoutHelper,
     AppFn, NtscApp,
@@ -56,7 +56,7 @@ pub struct PresetsState {
 }
 
 impl NtscApp {
-    fn load_preset(&mut self, path: PathBuf) {
+    pub fn load_preset(&mut self, path: PathBuf) {
         self.spawn(async {
             let json_path = path.clone();
             let json = unblock(|| fs::read_to_string(json_path))
@@ -350,7 +350,7 @@ impl NtscApp {
                             let preset_path = selected_preset.path.clone();
                             let new_selected_preset = SelectedPreset {path: preset_path.clone(), settings: self.effect_settings.clone() };
                             self.do_fs_operation_then_refresh(async move {
-                                let mut destination = fs::File::create(preset_path).context(CreatePresetSnafu)?;
+                                let mut destination = unblock(|| fs::File::create(preset_path)).await.context(CreatePresetSnafu)?;
                                 preset_json.write_to(&mut destination).context(CreatePresetSnafu)?;
                                 Ok(Some(Box::new(|app: &mut NtscApp| {
                                     app.presets_state.selected_preset = Some(new_selected_preset);
@@ -396,5 +396,26 @@ impl NtscApp {
                 Ok(())
             }) as _)
         })
+    }
+
+    pub fn install_presets<I: IntoIterator<Item = PathBuf> + Send + 'static>(&self, presets: I)
+    where
+        <I as IntoIterator>::IntoIter: Send,
+    {
+        let presets = presets.into_iter();
+        self.do_fs_operation_then_refresh(async move {
+            for preset in presets {
+                let Some(file_name) = preset.file_name() else {
+                    continue;
+                };
+                let mut dst_path = Self::presets_dir().unwrap();
+                dst_path.push(file_name);
+                unblock(|| fs::copy(preset, dst_path))
+                    .await
+                    .context(InstallPresetSnafu)?;
+            }
+
+            Ok(None)
+        });
     }
 }

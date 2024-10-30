@@ -9,6 +9,7 @@ use ntscrs::{
 use presets::PresetsState;
 
 pub mod app_state;
+pub mod dnd_overlay;
 pub mod error;
 pub mod executor;
 pub mod layout_helper;

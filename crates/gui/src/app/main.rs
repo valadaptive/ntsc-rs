@@ -50,6 +50,7 @@ use super::{
         AudioVolume, EffectPreviewMode, EffectPreviewSettings, GstreamerInitState, LeftPanelState,
         VideoScale, VideoZoom,
     },
+    dnd_overlay::UiDndExt,
     error::{ApplicationError, JSONParseSnafu, JSONReadSnafu, JSONSaveSnafu, LoadVideoSnafu},
     executor::AppExecutor,
     layout_helper::{LayoutHelper, TopBottomPanelExt},
@@ -599,6 +600,22 @@ impl NtscApp {
         self.update_effect();
     }
 
+    fn ensure_single_file_dropped(
+        &self,
+        files: Option<Vec<egui::DroppedFile>>,
+    ) -> Option<egui::DroppedFile> {
+        files.and_then(|mut files| {
+            let Some(file) = files.pop() else {
+                return None;
+            };
+            if !files.is_empty() {
+                self.handle_error(&ApplicationError::DroppedMultipleFiles);
+                return None;
+            }
+            return Some(file);
+        })
+    }
+
     pub fn handle_error(&self, err: &dyn Error) {
         *self.last_error.borrow_mut() = Some(format!("{}", err));
     }
@@ -1070,10 +1087,25 @@ impl NtscApp {
                 });
 
                 collapse_state.body_unindented(|ui| {
+                    if let Some(dropped_presets) = ui.show_dnd_overlay("Drop to install presets") {
+                        self.install_presets(
+                            dropped_presets.into_iter().filter_map(|file| file.path),
+                        );
+                    }
+
                     self.show_presets_pane(ui);
                 });
             });
+
         egui::CentralPanel::default().show_inside(ui, |ui| {
+            if let Some(egui::DroppedFile {
+                path: Some(preset_path),
+                ..
+            }) = self.ensure_single_file_dropped(ui.show_dnd_overlay("Drop to load preset"))
+            {
+                self.load_preset(preset_path);
+            }
+
             ui.visuals_mut().clip_rect_margin = 4.0;
             egui::ScrollArea::vertical()
                 .auto_shrink([false, true])
@@ -1829,6 +1861,15 @@ impl NtscApp {
                     egui::ScrollArea::both()
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
+                            if let Some(egui::DroppedFile {
+                                path: Some(dropped_media_path),
+                                ..
+                            }) = self.ensure_single_file_dropped(
+                                ui.show_dnd_overlay("Drop to load media"),
+                            ) {
+                                let res = self.load_video(ui.ctx(), dropped_media_path);
+                                self.handle_result(res);
+                            }
                             ui.with_layout(
                                 egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
                                 |ui| {

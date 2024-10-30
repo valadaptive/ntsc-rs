@@ -48,6 +48,12 @@ pub enum ApplicationError {
     #[snafu(display("Error renaming preset: {source}"))]
     RenamePreset { source: std::io::Error },
 
+    #[snafu(display("Error installing preset: {source}"))]
+    InstallPreset { source: std::io::Error },
+
     #[snafu(display("Filesystem error: {source}"))]
     Fs { source: std::io::Error },
+
+    #[snafu(display("Only one file at a time can be dropped here"))]
+    DroppedMultipleFiles,
 }
