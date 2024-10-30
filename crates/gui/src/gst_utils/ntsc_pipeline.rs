@@ -9,7 +9,9 @@ use gstreamer::{
 };
 use gstreamer_video::{VideoCapsBuilder, VideoInterlaceMode};
 use log::debug;
+use serde::{Deserialize, Serialize};
 use std::{
+    cell::Cell,
     error::Error,
     fmt::Display,
     sync::{atomic::AtomicBool, Arc, Mutex},
@@ -56,9 +58,56 @@ pub struct VideoElemMetadata {
     pub interlace_mode: Option<VideoInterlaceMode>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct VideoScale {
+    pub scanlines: usize,
+    pub filter: VideoScaleFilter,
+}
+
+impl Default for VideoScale {
+    fn default() -> Self {
+        Self {
+            scanlines: 480,
+            filter: Default::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum VideoScaleFilter {
+    Nearest,
+    #[default]
+    Bilinear,
+    Bicubic,
+}
+
+impl VideoScaleFilter {
+    pub fn as_string_value(&self) -> &'static str {
+        match self {
+            Self::Nearest => "nearest-neighbour",
+            Self::Bilinear => "bilinear",
+            Self::Bicubic => "catrom",
+        }
+    }
+
+    pub fn label_and_tooltip(&self) -> (&'static str, &'static str) {
+        match self {
+            Self::Nearest => ("Nearest", "Nearest-neighbor (pixelated) scaling. Note that this is still slower than Bilinear"),
+            Self::Bilinear => ("Bilinear", "Lower-quality but faster scaling filter"),
+            Self::Bicubic => ("Bicubic", "Sharper scaling filter; ~20% slower than Bilinear"),
+        }
+    }
+
+    pub fn values() -> &'static [Self] {
+        &[Self::Nearest, Self::Bilinear, Self::Bicubic]
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct NtscPipeline {
     pub inner: Pipeline,
+    /// Incremented and set as a custom property on the caps filter to force renegotiation.
+    caps_generation: Cell<u32>,
 }
 
 impl NtscPipeline {
@@ -82,7 +131,7 @@ impl NtscPipeline {
         video_sink: VideoElemCallback,
         bus_handler: BusHandler,
         still_image_duration: Option<gstreamer::ClockTime>,
-        initial_scale: Option<usize>,
+        initial_scale: Option<VideoScale>,
         initial_still_image_framerate: gstreamer::Fraction,
         callback: Option<PipelineCallback>,
     ) -> Result<Self, GstreamerError> {
@@ -198,9 +247,18 @@ impl NtscPipeline {
                             let video_rate = gstreamer::ElementFactory::make("videorate")
                                 .name("video_rate")
                                 .build()?;
+
                             let video_scale = gstreamer::ElementFactory::make("videoscale")
                                 .name("video_scale")
+                                .property_from_str(
+                                    "method",
+                                    initial_scale
+                                        .map(|scale| scale.filter)
+                                        .unwrap_or_default()
+                                        .as_string_value(),
+                                )
                                 .build()?;
+
                             let caps_filter = gstreamer::ElementFactory::make("capsfilter")
                                 .name("caps_filter")
                                 .build()?;
@@ -258,7 +316,7 @@ impl NtscPipeline {
                                     interlace_mode,
                                 },
                             )?;
-                            framerate_caps_filter.link(&video_sink)?;
+                            video_elements.last().unwrap().link(&video_sink)?;
 
                             for e in video_elements {
                                 e.sync_state_with_parent()?;
@@ -272,7 +330,8 @@ impl NtscPipeline {
                                 .expect("queue has no sinkpad");
 
                             if let (Some(caps), Some(initial_scale)) = (caps, initial_scale) {
-                                if let Some((width, height)) = scale_from_caps(caps, initial_scale)
+                                if let Some((width, height)) =
+                                    scale_from_caps(caps, initial_scale.scanlines)
                                 {
                                     caps_filter.set_property(
                                         "caps",
@@ -398,7 +457,10 @@ impl NtscPipeline {
             bus_handler(bus, msg)
         });
 
-        Ok(Self { inner: pipeline })
+        Ok(Self {
+            inner: pipeline,
+            caps_generation: Cell::new(0),
+        })
     }
 
     pub fn set_still_image_framerate(
@@ -442,29 +504,37 @@ impl NtscPipeline {
     pub fn rescale_video(
         &self,
         seek_pos: ClockTime,
-        scanlines: Option<usize>,
+        scale: Option<VideoScale>,
     ) -> Result<(), GstreamerError> {
         let pipeline = &self.inner;
         let caps_filter = pipeline.by_name("caps_filter").unwrap();
 
-        if let Some(scanlines) = scanlines {
-            let scale_caps = pipeline
-                .by_name("video_scale")
-                .and_then(|elem| elem.static_pad("sink"))
-                .and_then(|pad| pad.current_caps());
-            let scale_caps = match scale_caps {
-                Some(caps) => caps,
-                None => return Ok(()),
+        if let Some(scale) = scale {
+            let Some(scale_elem) = pipeline.by_name("video_scale") else {
+                return Ok(());
+            };
+            let Some(scale_caps) = scale_elem
+                .static_pad("sink")
+                .and_then(|pad| pad.current_caps())
+            else {
+                return Ok(());
             };
 
-            if let Some((dst_width, dst_height)) = scale_from_caps(&scale_caps, scanlines) {
+            let caps_generation = self.caps_generation.get().wrapping_add(1);
+            self.caps_generation.set(caps_generation);
+            if let Some((dst_width, dst_height)) = scale_from_caps(&scale_caps, scale.scanlines) {
                 caps_filter.set_property(
                     "caps",
                     gstreamer_video::VideoCapsBuilder::default()
                         .width(dst_width)
                         .height(dst_height)
+                        // The videoscale element's properties do not take effect until caps are renegotiated, which
+                        // doesn't happen if the old and new caps are equal. Increment the custom "generation" field on
+                        // the filtered caps to force renegotiation to actually occur.
+                        .field("generation", caps_generation)
                         .build(),
                 );
+                scale_elem.set_property_from_str("method", scale.filter.as_string_value());
             }
         } else {
             caps_filter.set_property("caps", gstreamer_video::VideoCapsBuilder::default().build());

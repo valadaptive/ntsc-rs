@@ -1,9 +1,10 @@
 use std::thread::JoinHandle;
 
 use eframe::egui::{pos2, Rect};
+use serde::{Deserialize, Serialize};
 use snafu::ResultExt;
 
-use crate::gst_utils::gstreamer_error::GstreamerError;
+use crate::gst_utils::{gstreamer_error::GstreamerError, ntsc_pipeline::VideoScale};
 
 use super::error::{ApplicationError, GstreamerInitSnafu};
 
@@ -13,9 +14,9 @@ pub struct VideoZoom {
     pub fit: bool,
 }
 
-#[derive(Debug)]
-pub struct VideoScale {
-    pub scale: usize,
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct VideoScaleState {
+    pub scale: VideoScale,
     pub enabled: bool,
 }
 

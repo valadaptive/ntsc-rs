@@ -43,6 +43,6 @@ impl UiDndExt for egui::Ui {
             });
         });
 
-        return None;
+        None
     }
 }

@@ -14,7 +14,7 @@ use crate::{
     app::render_settings::RenderPipelineSettings,
     gst_utils::{
         gstreamer_error::GstreamerError,
-        ntsc_pipeline::{NtscPipeline, VideoElemMetadata},
+        ntsc_pipeline::{NtscPipeline, VideoElemMetadata, VideoScale},
         ntscrs_filter::NtscFilterSettings,
     },
 };
@@ -75,7 +75,7 @@ impl RenderJob {
         src_path: &Path,
         settings: RenderPipelineSettings,
         still_image_settings: &StillImageSettings,
-        scale: Option<usize>,
+        scale: Option<VideoScale>,
     ) -> Result<Self, GstreamerError> {
         let src = gstreamer::ElementFactory::make("filesrc")
             .property("location", src_path)

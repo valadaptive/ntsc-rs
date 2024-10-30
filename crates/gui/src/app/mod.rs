@@ -31,7 +31,7 @@ pub struct NtscApp {
     pub pipeline: Option<pipeline_info::PipelineInfo>,
     pub undoer: Undoer<NtscEffectFullSettings>,
     pub video_zoom: app_state::VideoZoom,
-    pub video_scale: app_state::VideoScale,
+    pub video_scale: app_state::VideoScaleState,
     pub audio_volume: app_state::AudioVolume,
     pub effect_preview: app_state::EffectPreviewSettings,
     pub left_panel_state: app_state::LeftPanelState,

@@ -25,7 +25,7 @@ use crate::{
         egui_sink::{EffectPreviewSetting, EguiCtx, EguiSink, SinkTexture},
         elements,
         gstreamer_error::GstreamerError,
-        ntsc_pipeline::{NtscPipeline, PipelineError, VideoElemMetadata},
+        ntsc_pipeline::{NtscPipeline, PipelineError, VideoElemMetadata, VideoScaleFilter},
         ntscrs_filter::NtscFilterSettings,
     },
     widgets::{
@@ -47,7 +47,7 @@ use log::debug;
 use super::{
     app_state::{
         AudioVolume, EffectPreviewMode, EffectPreviewSettings, GstreamerInitState, LeftPanelState,
-        VideoScale, VideoZoom,
+        VideoScaleState, VideoZoom,
     },
     dnd_overlay::UiDndExt,
     error::{ApplicationError, JSONParseSnafu, JSONReadSnafu, JSONSaveSnafu, LoadVideoSnafu},
@@ -154,41 +154,49 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
             let settings_list = SettingsList::<NtscEffectFullSettings>::new();
             let settings_list_easy = SettingsList::<EasyModeFullSettings>::new();
-            let (settings, easy_mode_settings, mut easy_mode_enabled, render_settings) =
-                if let Some(storage) = cc.storage {
-                    // Load previous effect settings from storage
-                    let settings = storage
-                        .get_string("effect_settings")
-                        .and_then(|saved_settings| settings_list.from_json(&saved_settings).ok())
+            let (
+                settings,
+                easy_mode_settings,
+                mut easy_mode_enabled,
+                render_settings,
+                scale_settings,
+            ) = if let Some(storage) = cc.storage {
+                // Load previous effect settings from storage
+                let settings = storage
+                    .get_string("effect_settings")
+                    .and_then(|saved_settings| settings_list.from_json(&saved_settings).ok())
+                    .unwrap_or_default();
+                let easy_mode_settings = storage
+                    .get_string("easy_mode_settings")
+                    .and_then(|saved_settings| settings_list_easy.from_json(&saved_settings).ok())
+                    .unwrap_or_default();
+                let easy_mode_enabled = storage
+                    .get_string("easy_mode_enabled")
+                    .map(|saved_enabled| saved_enabled == "true")
+                    .unwrap_or_default();
+                let render_settings =
+                    eframe::get_value::<RenderSettings>(storage, "render_settings")
                         .unwrap_or_default();
-                    let easy_mode_settings = storage
-                        .get_string("easy_mode_settings")
-                        .and_then(|saved_settings| {
-                            settings_list_easy.from_json(&saved_settings).ok()
-                        })
+                let scale_settings =
+                    eframe::get_value::<VideoScaleState>(storage, "scale_settings")
                         .unwrap_or_default();
-                    let easy_mode_enabled = storage
-                        .get_string("easy_mode_enabled")
-                        .map(|saved_enabled| saved_enabled == "true")
-                        .unwrap_or_default();
-                    let render_settings =
-                        eframe::get_value::<RenderSettings>(storage, "render_settings")
-                            .unwrap_or_default();
 
-                    (
-                        settings,
-                        easy_mode_settings,
-                        easy_mode_enabled,
-                        render_settings,
-                    )
-                } else {
-                    (
-                        NtscEffectFullSettings::default(),
-                        EasyModeFullSettings::default(),
-                        true,
-                        RenderSettings::default(),
-                    )
-                };
+                (
+                    settings,
+                    easy_mode_settings,
+                    easy_mode_enabled,
+                    render_settings,
+                    scale_settings,
+                )
+            } else {
+                (
+                    NtscEffectFullSettings::default(),
+                    EasyModeFullSettings::default(),
+                    true,
+                    RenderSettings::default(),
+                    VideoScaleState::default(),
+                )
+            };
 
             easy_mode_enabled &= EXPERIMENTAL_EASY_MODE;
 
@@ -202,6 +210,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 easy_mode_settings,
                 easy_mode_enabled,
                 render_settings,
+                scale_settings,
                 init_state,
             )))
         }),
@@ -219,6 +228,7 @@ impl NtscApp {
         easy_mode_settings: EasyModeFullSettings,
         easy_mode_enabled: bool,
         render_settings: RenderSettings,
+        scale_settings: VideoScaleState,
         gstreamer_init: GstreamerInitState,
     ) -> Self {
         Self {
@@ -232,10 +242,7 @@ impl NtscApp {
                 scale: 1.0,
                 fit: true,
             },
-            video_scale: VideoScale {
-                scale: 480,
-                enabled: false,
-            },
+            video_scale: scale_settings,
             audio_volume: AudioVolume::default(),
             effect_preview: EffectPreviewSettings::default(),
             left_panel_state: LeftPanelState::default(),
@@ -541,14 +548,12 @@ impl NtscApp {
         files: Option<Vec<egui::DroppedFile>>,
     ) -> Option<egui::DroppedFile> {
         files.and_then(|mut files| {
-            let Some(file) = files.pop() else {
-                return None;
-            };
+            let file = files.pop()?;
             if !files.is_empty() {
                 self.handle_error(&ApplicationError::DroppedMultipleFiles);
                 return None;
             }
-            return Some(file);
+            Some(file)
         })
     }
 
@@ -1048,6 +1053,51 @@ impl NtscApp {
                 .show(ui, |ui| {
                     Self::setup_control_rows(ui);
 
+                    ui.horizontal(|ui| {
+                        let scale_checkbox = ui.checkbox(&mut self.video_scale.enabled, "Scale to").on_hover_text("Scale the video prior to applying the effect. Real NTSC footage is 480 lines tall. This applies to both the preview and the final render, and is not saved as part of presets.");
+                        ui.add_enabled_ui(self.video_scale.enabled, |ui| {
+                            let drag_resp = ui.add(
+                                egui::DragValue::new(&mut self.video_scale.scale.scanlines)
+                                    .range(1..=usize::MAX),
+                            );
+                            ui.label("lines");
+                            let mut filter_changed = false;
+                            let filter_resp = egui::ComboBox::from_id_salt("video_scale_filter")
+                                .selected_text(self.video_scale.scale.filter.label_and_tooltip().0)
+                                .show_ui(ui, |ui| {
+                                    for value in VideoScaleFilter::values() {
+                                        let (label_text, tooltip) = value.label_and_tooltip();
+                                        let label = ui
+                                            .selectable_label(
+                                                *value == self.video_scale.scale.filter,
+                                                label_text,
+                                            )
+                                            .on_hover_text(tooltip);
+
+                                        if label.clicked() {
+                                            filter_changed = true;
+                                            self.video_scale.scale.filter = *value;
+                                        }
+                                    }
+                                });
+                            filter_resp.response.on_hover_text("Resizing filter");
+                            if drag_resp.changed() || scale_checkbox.changed() || filter_changed {
+                                if let Some(info) = &self.pipeline {
+                                    let res = info.pipeline.rescale_video(
+                                        info.last_seek_pos,
+                                        if self.video_scale.enabled {
+                                            Some(self.video_scale.scale)
+                                        } else {
+                                            None
+                                        },
+                                    );
+                                    self.handle_result(res);
+                                }
+                            }
+                        });
+                    });
+
+
                     let Self {
                         settings_list,
                         effect_settings,
@@ -1060,6 +1110,8 @@ impl NtscApp {
                         .as_ref()
                         .and_then(|pipeline| pipeline.metadata.lock().unwrap().interlace_mode)
                         .unwrap_or(VideoInterlaceMode::Progressive);
+
+                    ui.separator();
 
                     let mut settings_changed = false;
 
@@ -1635,29 +1687,6 @@ impl NtscApp {
 
                     ui.separator();
 
-                    let scale_checkbox = ui.checkbox(&mut self.video_scale.enabled, "Scale to");
-                    ui.add_enabled_ui(self.video_scale.enabled, |ui| {
-                        let drag_resp = ui.add(
-                            egui::DragValue::new(&mut self.video_scale.scale).range(1..=usize::MAX),
-                        );
-                        if drag_resp.changed() || scale_checkbox.changed() {
-                            if let Some(info) = &self.pipeline {
-                                let res = info.pipeline.rescale_video(
-                                    info.last_seek_pos,
-                                    if self.video_scale.enabled {
-                                        Some(self.video_scale.scale)
-                                    } else {
-                                        None
-                                    },
-                                );
-                                self.handle_result(res);
-                            }
-                        }
-                        ui.label("lines");
-                    });
-
-                    ui.separator();
-
                     let has_audio = self
                         .pipeline
                         .as_ref()
@@ -1854,11 +1883,11 @@ impl NtscApp {
                                         let texture_actual_size = logical_size;
                                         // scale_factor is usually 1.0, but while the user is dragging the "Video scale"
                                         // value, gstreamer may take a bit to update the video scale.
-                                        let scale_factor =
-                                            self.video_scale.scale as f32 / texture_actual_size.y;
+                                        let scale_factor = self.video_scale.scale.scanlines as f32
+                                            / texture_actual_size.y;
                                         vec2(
                                             (texture_actual_size.x * scale_factor).round(),
-                                            self.video_scale.scale as f32,
+                                            self.video_scale.scale.scanlines as f32,
                                         )
                                     } else {
                                         logical_size
@@ -2302,5 +2331,6 @@ impl eframe::App for NtscApp {
         storage.set_string("easy_mode_enabled", self.easy_mode_enabled.to_string());
 
         eframe::set_value(storage, "render_settings", &self.render_settings);
+        eframe::set_value(storage, "scale_settings", &self.video_scale);
     }
 }
