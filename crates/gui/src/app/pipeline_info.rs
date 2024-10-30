@@ -4,10 +4,13 @@ use std::{
 };
 
 use eframe::egui;
-use gstreamer::{prelude::*, ClockTime};
+use gstreamer::ClockTime;
 use gstreamer_video::VideoInterlaceMode;
 
-use crate::gst_utils::{gstreamer_error::GstreamerError, pipeline_utils::PipelineError};
+use crate::gst_utils::{
+    gstreamer_error::GstreamerError,
+    ntsc_pipeline::{NtscPipeline, PipelineError},
+};
 
 #[derive(Debug, Default)]
 pub struct PipelineMetadata {
@@ -26,7 +29,7 @@ pub enum PipelineStatus {
 }
 
 pub struct PipelineInfo {
-    pub pipeline: gstreamer::Pipeline,
+    pub pipeline: NtscPipeline,
     pub state: Arc<Mutex<PipelineStatus>>,
     pub path: PathBuf,
     pub egui_sink: gstreamer::Element,

@@ -14,8 +14,8 @@ use crate::{
     app::render_settings::RenderPipelineSettings,
     gst_utils::{
         gstreamer_error::GstreamerError,
+        ntsc_pipeline::{NtscPipeline, VideoElemMetadata},
         ntscrs_filter::NtscFilterSettings,
-        pipeline_utils::{create_pipeline, VideoElemMetadata},
     },
 };
 
@@ -41,7 +41,7 @@ pub enum RenderJobState {
 #[derive(Debug)]
 pub struct RenderJob {
     pub settings: RenderPipelineSettings,
-    pub pipeline: gstreamer::Pipeline,
+    pub pipeline: NtscPipeline,
     pub state: Arc<Mutex<RenderJobState>>,
     pub last_progress: f64,
     /// Used for estimating time remaining. A queue that holds (progress, timestamp) pairs.
@@ -54,7 +54,7 @@ pub struct RenderJob {
 impl RenderJob {
     fn new(
         settings: RenderPipelineSettings,
-        pipeline: gstreamer::Pipeline,
+        pipeline: NtscPipeline,
         state: Arc<Mutex<RenderJobState>>,
     ) -> Self {
         Self {
@@ -139,7 +139,7 @@ impl RenderJob {
 
         let is_png = matches!(settings.codec_settings, RenderPipelineCodec::Png(_));
 
-        let pipeline = create_pipeline(
+        let pipeline = NtscPipeline::try_new(
             src,
             move |pipeline| {
                 let (audio_out, _) = output_elems_cell

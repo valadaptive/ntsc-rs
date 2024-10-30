@@ -1,7 +1,7 @@
 use ntscrs::settings::ParseSettingsError;
 use snafu::Snafu;
 
-use crate::gst_utils::{gstreamer_error::GstreamerError, pipeline_utils::PipelineError};
+use crate::gst_utils::{gstreamer_error::GstreamerError, ntsc_pipeline::PipelineError};
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub(crate)))]

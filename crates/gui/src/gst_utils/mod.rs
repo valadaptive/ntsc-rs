@@ -1,8 +1,8 @@
 pub mod clock_format;
 pub mod egui_sink;
 pub mod gstreamer_error;
+pub mod ntsc_pipeline;
 pub mod ntscrs_filter;
-pub mod pipeline_utils;
 pub mod process_gst_frame;
 pub mod video_pad_filter;
 

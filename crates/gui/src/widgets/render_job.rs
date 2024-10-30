@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use eframe::egui::{self, InnerResponse, Response};
-use gstreamer::{prelude::*, ClockTime};
+use gstreamer::ClockTime;
 use snafu::ResultExt;
 
 use crate::{

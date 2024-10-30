@@ -16,7 +16,7 @@ use eframe::egui::{
 };
 use futures_lite::Future;
 use gstreamer::{glib::subclass::types::ObjectSubclassExt, prelude::*, ClockTime, Fraction};
-use gstreamer_video::{VideoCapsBuilder, VideoInterlaceMode};
+use gstreamer_video::VideoInterlaceMode;
 
 use crate::{
     expression_parser::eval_expression_string,
@@ -25,9 +25,8 @@ use crate::{
         egui_sink::{EffectPreviewSetting, EguiCtx, EguiSink, SinkTexture},
         elements,
         gstreamer_error::GstreamerError,
+        ntsc_pipeline::{NtscPipeline, PipelineError, VideoElemMetadata},
         ntscrs_filter::NtscFilterSettings,
-        pipeline_utils::{create_pipeline, PipelineError, VideoElemMetadata},
-        scale_from_caps,
     },
     widgets::{
         render_job::{RenderJobResponse, RenderJobWidget},
@@ -296,81 +295,6 @@ impl NtscApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(Self::APP_ID.to_string()));
     }
 
-    fn rescale_video(
-        pipeline: &gstreamer::Pipeline,
-        seek_pos: ClockTime,
-        scanlines: Option<usize>,
-    ) -> Result<(), GstreamerError> {
-        let caps_filter = pipeline.by_name("caps_filter").unwrap();
-
-        if let Some(scanlines) = scanlines {
-            let scale_caps = pipeline
-                .by_name("video_scale")
-                .and_then(|elem| elem.static_pad("sink"))
-                .and_then(|pad| pad.current_caps());
-            let scale_caps = match scale_caps {
-                Some(caps) => caps,
-                None => return Ok(()),
-            };
-
-            if let Some((dst_width, dst_height)) = scale_from_caps(&scale_caps, scanlines) {
-                caps_filter.set_property(
-                    "caps",
-                    gstreamer_video::VideoCapsBuilder::default()
-                        .width(dst_width)
-                        .height(dst_height)
-                        .build(),
-                );
-            }
-        } else {
-            caps_filter.set_property("caps", gstreamer_video::VideoCapsBuilder::default().build());
-        }
-
-        pipeline.seek_simple(
-            gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
-            pipeline.query_position::<ClockTime>().unwrap_or(seek_pos),
-        )?;
-
-        Ok(())
-    }
-
-    fn set_still_image_framerate(
-        pipeline: &gstreamer::Pipeline,
-        framerate: gstreamer::Fraction,
-    ) -> Result<Option<gstreamer::Fraction>, GstreamerError> {
-        let Some(caps_filter) = pipeline.by_name("framerate_caps_filter") else {
-            return Ok(None);
-        };
-
-        caps_filter.set_property(
-            "caps",
-            VideoCapsBuilder::default().framerate(framerate).build(),
-        );
-        // This seek is necessary to prevent caps negotiation from failing due to race conditions, for some reason.
-        // It seems like in some cases, there would be "tearing" in the caps between different elements, where some
-        // elements' caps would use the old framerate and some would use the new framerate. This would cause caps
-        // negotiation to fail, even though the caps filter sends a "reconfigure" event. This in turn woulc make the
-        // entire pipeline error out.
-        if let Some(seek_pos) = pipeline.query_position::<ClockTime>() {
-            pipeline.seek_simple(
-                gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
-                seek_pos,
-            )?;
-            Ok(Some(framerate))
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn set_pipeline_volume(pipeline: &gstreamer::Pipeline, volume: f64, mute: bool) {
-        let Some(audio_volume) = pipeline.by_name("audio_volume") else {
-            return;
-        };
-
-        audio_volume.set_property("volume", volume);
-        audio_volume.set_property("mute", mute);
-    }
-
     fn sink_preview_mode(preview_settings: &EffectPreviewSettings) -> EffectPreviewSetting {
         match preview_settings.mode {
             EffectPreviewMode::Enabled => EffectPreviewSetting::Enabled,
@@ -427,7 +351,7 @@ impl NtscApp {
         let audio_sink_for_closure = audio_sink.clone();
         let video_sink_for_closure = video_sink.clone();
 
-        let pipeline = create_pipeline(
+        let pipeline = NtscPipeline::try_new(
             src.clone(),
             move |pipeline| {
                 pipeline.add(&audio_sink_for_closure)?;
@@ -1420,6 +1344,7 @@ impl NtscApp {
                 .pipeline
                 .as_ref()?
                 .pipeline
+                .inner
                 .by_name("video_queue")?
                 .static_pad("sink")?
                 .current_caps()?;
@@ -1481,7 +1406,7 @@ impl NtscApp {
                                             gstreamer::Fraction::approximate_f64(new_framerate);
                                         if let Some(f) = framerate_fraction {
                                             let changed_framerate =
-                                                Self::set_still_image_framerate(&info.pipeline, f);
+                                                info.pipeline.set_still_image_framerate(f);
                                             if let Ok(Some(new_framerate)) = changed_framerate {
                                                 metadata.framerate = Some(new_framerate);
                                             }
@@ -1716,10 +1641,9 @@ impl NtscApp {
                             egui::DragValue::new(&mut self.video_scale.scale).range(1..=usize::MAX),
                         );
                         if drag_resp.changed() || scale_checkbox.changed() {
-                            if let Some(pipeline) = &self.pipeline {
-                                let res = Self::rescale_video(
-                                    &pipeline.pipeline,
-                                    pipeline.last_seek_pos,
+                            if let Some(info) = &self.pipeline {
+                                let res = info.pipeline.rescale_video(
+                                    info.last_seek_pos,
                                     if self.video_scale.enabled {
                                         Some(self.video_scale.scale)
                                     } else {
@@ -1795,8 +1719,7 @@ impl NtscApp {
 
                         if update_volume {
                             if let Some(pipeline_info) = &self.pipeline {
-                                NtscApp::set_pipeline_volume(
-                                    &pipeline_info.pipeline,
+                                pipeline_info.pipeline.set_volume(
                                     // Unlogarithmify volume (at least to my ears, this gives more control at the low end
                                     // of the slider)
                                     10f64.powf(self.audio_volume.gain - 1.0).max(0.0),
@@ -2333,10 +2256,10 @@ impl eframe::App for NtscApp {
             match state {
                 PipelineStatus::Loading => {}
                 PipelineStatus::Loaded => {
-                    let pipeline = self.pipeline.as_ref().unwrap();
-                    let mut at_eos = pipeline.at_eos.lock().unwrap();
+                    let info = self.pipeline.as_ref().unwrap();
+                    let mut at_eos = info.at_eos.lock().unwrap();
                     if *at_eos {
-                        let _ = pipeline.pipeline.set_state(gstreamer::State::Paused);
+                        let _ = info.pipeline.set_state(gstreamer::State::Paused);
                         *at_eos = false;
                     }
                 }
