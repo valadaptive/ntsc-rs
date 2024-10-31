@@ -361,7 +361,7 @@ pub fn main() -> Result<()> {
                     chroma_subsampling,
                 }),
             },
-            output_path,
+            output_path: output_path.clone(),
             interlacing: RenderInterlaceMode::from_use_field(settings.use_field, interlace),
             effect_settings: settings.into(),
         },
@@ -386,7 +386,11 @@ pub fn main() -> Result<()> {
             ));
         }
         RenderJobState::Complete { end_time } => {
-            writeln!(term, "Finished rendering in {end_time:.0} seconds")?;
+            writeln!(
+                term,
+                "Finished rendering in {end_time:.0} second(s) to {}",
+                output_path.as_os_str().to_string_lossy()
+            )?;
             term.flush()?;
         }
         RenderJobState::Error(err) => {
