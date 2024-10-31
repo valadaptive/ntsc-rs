@@ -253,7 +253,7 @@ pub fn main() -> Result<()> {
     let input_path = matches
         .get_one::<PathBuf>("input")
         .expect("input path is present");
-    let output_path = matches
+    let mut output_path = matches
         .get_one::<PathBuf>("output")
         .expect("output path is present")
         .to_owned();
@@ -308,6 +308,24 @@ pub fn main() -> Result<()> {
         style("s").blue()
     )?;
     term.flush()?;
+
+    if output_path.extension().is_none() {
+        output_path.set_extension(codec.extension());
+    }
+
+    if let Some(extension) = output_path.extension() {
+        if extension != codec.extension() {
+            writeln!(
+                term,
+                "{}",
+                style(format!(
+                    "Warning: the provided output file name's extension (.{}) does not match the file extension for the container being used (.{})",
+                    extension.to_string_lossy(),
+                    codec.extension()
+                )).yellow()
+            )?;
+        }
+    }
 
     if let (Ok(true), false) = (output_path.try_exists(), overwrite) {
         let should_exit = if term.is_term() {
