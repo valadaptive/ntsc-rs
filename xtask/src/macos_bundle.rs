@@ -38,7 +38,7 @@ pub fn command() -> clap::Command {
         )
 }
 
-/// Build the plugin for a given target, in either debug or release mode. This is called once in most cases, but when
+/// Build the app for a given target, in either debug or release mode. This is called once in most cases, but when
 /// creating a macOS universal binary, it's called twice--once per architecture.
 /// This returns the path to the built binary.
 fn build_for_target(target: &str, release_mode: bool) -> std::io::Result<PathBuf> {
@@ -72,10 +72,7 @@ fn build_for_target(target: &str, release_mode: bool) -> std::io::Result<PathBuf
         },
     ]);
 
-    let mut built_app_path = target_dir_path.clone();
-    built_app_path.push("ntsc-rs-standalone");
-
-    Ok(built_app_path)
+    Ok(target_dir_path)
 }
 
 /// Use the `sips` utility built into macOS to resize an image (used for the application icon).
@@ -104,8 +101,8 @@ pub fn main(args: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
     // Build x86_64 and aarch64 binaries.
     // TODO: unlike the other macOS xtasks, this doesn't yet support choosing the targets.
     println!("Building binaries...");
-    let x86_64_path = build_for_target("x86_64-apple-darwin", release_mode)?;
-    let aarch64_path = build_for_target("aarch64-apple-darwin", release_mode)?;
+    let x86_64_dir = build_for_target("x86_64-apple-darwin", release_mode)?;
+    let aarch64_dir = build_for_target("aarch64-apple-darwin", release_mode)?;
 
     // Extract gui version from Cargo.toml.
     println!("Getting version for Info.plist and creating bundle directories...");
@@ -179,20 +176,22 @@ pub fn main(args: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
     plist::Value::Dictionary(info_plist_contents)
         .to_file_xml(contents_dir_path.plus("Info.plist"))?;
 
-    let app_executable_path = macos_dir_path.plus("ntsc-rs-standalone");
+    let app_executables = ["ntsc-rs-standalone", "ntsc-rs-cli"];
 
-    println!("Creating universal binary...");
-    // Combine x86_64 and aarch64 binaries and place the result in the bundle.
-    Command::new("lipo")
-        .args(&[
-            OsString::from("-create"),
-            OsString::from("-output"),
-            app_executable_path.clone().into(),
-            x86_64_path.into(),
-            aarch64_path.into(),
-        ])
-        .status()
-        .expect_success()?;
+    for binary_name in app_executables {
+        println!("Creating universal binary ({binary_name})...");
+        // Combine x86_64 and aarch64 binaries and place the result in the bundle.
+        Command::new("lipo")
+            .args(&[
+                OsString::from("-create"),
+                OsString::from("-output"),
+                macos_dir_path.plus(binary_name).into(),
+                x86_64_dir.plus(binary_name).into(),
+                aarch64_dir.plus(binary_name).into(),
+            ])
+            .status()
+            .expect_success()?;
+    }
 
     // Copy gstreamer libraries into the bundle.
     println!("Copying gstreamer libraries...");
@@ -241,15 +240,19 @@ pub fn main(args: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
     // and it *seems* to work fine. GStreamer includes many binaries which would also need to be `install_name_tool`'d
     // and apparently the paths *to* those binaries need to be properly set via environment variables(?), but we don't
     // copy any binaries anyway (see the above recursive copy, which only copies .dylibs), so hopefully it's okay.
-    println!("Adding gstreamer rpath...");
-    Command::new("install_name_tool")
-        .args([
-            OsString::from("-add_rpath"),
-            OsString::from("@executable_path/../Frameworks/GStreamer.framework/Versions/1.0/lib"),
-            OsString::from(&app_executable_path),
-        ])
-        .status()
-        .expect_success()?;
+    for binary_name in app_executables {
+        println!("Adding gstreamer rpath ({binary_name})...");
+        Command::new("install_name_tool")
+            .args([
+                OsString::from("-add_rpath"),
+                OsString::from(
+                    "@executable_path/../Frameworks/GStreamer.framework/Versions/1.0/lib",
+                ),
+                OsString::from(macos_dir_path.plus(binary_name)),
+            ])
+            .status()
+            .expect_success()?;
+    }
 
     // Create the iconset. Adapted from https://stackoverflow.com/a/20703594.
 

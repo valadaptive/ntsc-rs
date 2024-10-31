@@ -223,7 +223,7 @@ macro_rules! impl_settings_for {
 }
 
 /// Menu item for a SettingKind::Enumeration.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MenuItem {
     pub label: &'static str,
     pub description: Option<&'static str>,
@@ -232,7 +232,7 @@ pub struct MenuItem {
 
 /// All of the types a setting can take. API consumers can map this to the UI elements available in whatever they're
 /// porting ntsc-rs to.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SettingKind<T: Settings> {
     /// Selection of specific options, preferably in a specific order.
     Enumeration {
@@ -344,7 +344,7 @@ pub trait Settings: Default {
 
 /// A single setting, which includes the data common to all settings (its name, optional description/tooltip, and ID)
 /// along with a SettingKind which contains data specific to the type of setting.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SettingDescriptor<T: Settings> {
     pub label: &'static str,
     pub description: Option<&'static str>,
@@ -430,6 +430,7 @@ impl GetAndExpect for HashMap<String, JsonValue> {
 }
 
 /// Introspectable list of settings and their types and ranges.
+#[derive(Debug, Clone)]
 pub struct SettingsList<T: Settings> {
     pub settings: Box<[SettingDescriptor<T>]>,
 }

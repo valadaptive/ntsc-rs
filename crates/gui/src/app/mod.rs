@@ -20,8 +20,10 @@ pub mod presets;
 pub mod render_job;
 pub mod render_settings;
 pub mod third_party_licenses_dialog;
+pub mod ui_context;
 
 pub type AppFn = Box<dyn FnOnce(&mut NtscApp) -> Result<(), error::ApplicationError> + Send>;
+pub type ApplessFn = Box<dyn FnOnce() -> Result<(), error::ApplicationError> + Send>;
 
 pub struct NtscApp {
     pub gstreamer_init: GstreamerInitState,

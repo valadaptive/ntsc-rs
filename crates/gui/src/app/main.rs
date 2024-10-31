@@ -25,6 +25,7 @@ use crate::{
         egui_sink::{EffectPreviewSetting, EguiCtx, EguiSink, SinkTexture},
         elements,
         gstreamer_error::GstreamerError,
+        init::initialize_gstreamer,
         ntsc_pipeline::{NtscPipeline, PipelineError, VideoElemMetadata, VideoScaleFilter},
         ntscrs_filter::NtscFilterSettings,
     },
@@ -37,7 +38,7 @@ use crate::{
 
 use ntscrs::settings::{
     easy::{self, EasyModeFullSettings},
-    standard::{setting_id, NtscEffectFullSettings, UseField},
+    standard::{setting_id, NtscEffectFullSettings},
     SettingDescriptor, SettingKind, Settings, SettingsList,
 };
 use snafu::ResultExt;
@@ -64,44 +65,6 @@ use super::{
 };
 
 const EXPERIMENTAL_EASY_MODE: bool = false;
-
-fn initialize_gstreamer() -> Result<(), GstreamerError> {
-    gstreamer::init()?;
-
-    gstreamer::Element::register(
-        None,
-        "eguisink",
-        gstreamer::Rank::NONE,
-        elements::EguiSink::static_type(),
-    )?;
-
-    gstreamer::Element::register(
-        None,
-        "ntscfilter",
-        gstreamer::Rank::NONE,
-        elements::NtscFilter::static_type(),
-    )?;
-
-    gstreamer::Element::register(
-        None,
-        "videopadfilter",
-        gstreamer::Rank::NONE,
-        elements::VideoPadFilter::static_type(),
-    )?;
-
-    // PulseAudio has a severe bug that will greatly delay initial playback to the point of unusability:
-    // https://gitlab.freedesktop.org/pulseaudio/pulseaudio/-/issues/1383
-    // A fix was merged a *year* ago, but the Pulse devs, in their infinite wisdom, won't give it to us until their
-    // next major release, the first RC of which will apparently arrive "soon":
-    // https://gitlab.freedesktop.org/pulseaudio/pulseaudio/-/issues/3757#note_2038416
-    // Until then, disable it and pray that someone writes a PipeWire sink so we don't have to deal with any more
-    // bugs like this
-    if let Some(sink) = gstreamer::ElementFactory::find("pulsesink") {
-        sink.set_rank(gstreamer::Rank::NONE);
-    }
-
-    Ok(())
-}
 
 fn format_percentage(n: f64, prec: RangeInclusive<usize>) -> String {
     format!("{:.*}%", prec.start().max(&2) - 2, n * 100.0)
@@ -484,13 +447,6 @@ impl NtscApp {
         })
     }
 
-    fn interlaced_output_allowed(&self) -> bool {
-        matches!(
-            self.effect_settings.use_field,
-            UseField::InterleavedUpper | UseField::InterleavedLower
-        )
-    }
-
     fn create_render_job(
         &mut self,
         ctx: &egui::Context,
@@ -518,7 +474,7 @@ impl NtscApp {
         };
 
         RenderJob::create(
-            self.executor.make_spawner(),
+            &self.executor.make_spawner(),
             ctx,
             src_path,
             settings,
@@ -1181,7 +1137,7 @@ impl NtscApp {
             match self.render_settings.output_codec {
                 OutputCodec::H264 => {
                     ui.add(
-                        egui::Slider::new(&mut self.render_settings.h264_settings.crf, 0..=50)
+                        egui::Slider::new(&mut self.render_settings.h264_settings.quality, 0..=50)
                             .text("Quality"),
                     ).on_hover_text("Video quality factor, where 0 is the worst quality and 50 is the best. Higher quality videos take up more space.");
                     ui.add(
@@ -1317,7 +1273,7 @@ impl NtscApp {
 
             ui
                 .add_enabled(
-                    self.interlaced_output_allowed(),
+                    self.effect_settings.use_field.interlaced_output_allowed(),
                     egui::Checkbox::new(&mut self.render_settings.interlaced, "Interlaced output")
                 )
                 .on_disabled_hover_text("To enable interlaced output, set the \"Use field\" setting to \"Interleaved\".");
@@ -1333,19 +1289,7 @@ impl NtscApp {
                 let render_job = self.create_render_job(
                     ui.ctx(),
                     &src_path.unwrap().clone(),
-                    RenderPipelineSettings {
-                        codec_settings: (&self.render_settings).into(),
-                        output_path: self.render_settings.output_path.clone(),
-                        interlacing: match (
-                            self.interlaced_output_allowed() && self.render_settings.interlaced,
-                            self.effect_settings.use_field
-                        ) {
-                            (true, UseField::InterleavedUpper) => RenderInterlaceMode::TopFieldFirst,
-                            (true, UseField::InterleavedLower) => RenderInterlaceMode::BottomFieldFirst,
-                            _ => RenderInterlaceMode::Progressive,
-                        },
-                        effect_settings: (&self.effect_settings).into(),
-                    },
+                    RenderPipelineSettings::from_gui_settings(&self.effect_settings, &self.render_settings),
                 );
                 match render_job {
                     Ok(render_job) => {

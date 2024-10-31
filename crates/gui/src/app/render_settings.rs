@@ -1,25 +1,26 @@
 use std::path::PathBuf;
 
 use gstreamer::{ClockTime, Fraction};
-use ntscrs::ntsc::NtscEffect;
+use ntscrs::ntsc::{NtscEffect, NtscEffectFullSettings, UseField};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct H264Settings {
-    // Quality / constant rate factor (0-51)
-    pub crf: u8,
-    // 0-8 for libx264 presets veryslow-ultrafast
+    /// Quality (the inverse of the constant rate factor). Although libx264 says it ranges from 0-51, its actual range
+    /// appears to be 0-50 inclusive. It's flipped from CRF so 50 is lossless and 0 is worst.
+    pub quality: u8,
+    /// 0-8 for libx264 presets veryslow-ultrafast
     pub encode_speed: u8,
-    // Enable 10-bit color
+    /// Enable 10-bit color
     pub ten_bit: bool,
-    // Subsample chroma to 4:2:0
+    /// Subsample chroma to 4:2:0
     pub chroma_subsampling: bool,
 }
 
 impl Default for H264Settings {
     fn default() -> Self {
         Self {
-            crf: 23,
+            quality: 27,
             encode_speed: 5,
             ten_bit: false,
             chroma_subsampling: true,
@@ -27,7 +28,7 @@ impl Default for H264Settings {
     }
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Ffv1BitDepth {
     #[default]
     Bits8,
@@ -57,7 +58,7 @@ pub struct PngSettings {
     pub seek_to: ClockTime,
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OutputCodec {
     #[default]
     H264,
@@ -87,11 +88,25 @@ pub enum RenderPipelineCodec {
     Png(PngSettings),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RenderInterlaceMode {
+    #[default]
     Progressive,
     TopFieldFirst,
     BottomFieldFirst,
+}
+
+impl RenderInterlaceMode {
+    pub fn from_use_field(use_field: UseField, enable_interlacing: bool) -> Self {
+        match (
+            use_field.interlaced_output_allowed() && enable_interlacing,
+            use_field,
+        ) {
+            (true, UseField::InterleavedUpper) => RenderInterlaceMode::TopFieldFirst,
+            (true, UseField::InterleavedLower) => RenderInterlaceMode::BottomFieldFirst,
+            _ => RenderInterlaceMode::Progressive,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -106,6 +121,23 @@ pub struct RenderPipelineSettings {
     pub output_path: PathBuf,
     pub interlacing: RenderInterlaceMode,
     pub effect_settings: NtscEffect,
+}
+
+impl RenderPipelineSettings {
+    pub fn from_gui_settings(
+        effect_settings: &NtscEffectFullSettings,
+        render_settings: &RenderSettings,
+    ) -> Self {
+        Self {
+            codec_settings: render_settings.into(),
+            output_path: render_settings.output_path.clone(),
+            interlacing: RenderInterlaceMode::from_use_field(
+                effect_settings.use_field,
+                render_settings.interlaced,
+            ),
+            effect_settings: effect_settings.into(),
+        }
+    }
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]

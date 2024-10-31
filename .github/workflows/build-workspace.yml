@@ -43,12 +43,18 @@ jobs:
         name: ntsc-rs-linux-openfx
         path: crates/openfx-plugin/build/
 
+    - name: Package Linux binaries
+      run: |
+        mkdir ntsc-rs-linux-standalone
+        cp target/release/ntsc-rs-standalone ntsc-rs-linux-standalone
+        cp target/release/ntsc-rs-cli ntsc-rs-linux-standalone
+
     - name: Archive Linux binary
       uses: actions/upload-artifact@v4
       if: ${{ github.ref_type == 'tag' }}
       with:
         name: ntsc-rs-linux-standalone
-        path: target/release/ntsc-rs-standalone
+        path: ntsc-rs-standalone
 
   build-windows:
     runs-on: windows-2019
@@ -131,6 +137,7 @@ jobs:
         robocopy $Env:GSTREAMER_1_0_ROOT_MSVC_X86_64 .\ *.dll /s /copy:DT; if ($lastexitcode -lt 8) { $global:LASTEXITCODE = $null }
         robocopy $Env:GSTREAMER_1_0_ROOT_MSVC_X86_64\share\licenses .\licenses /s /copy:DT; if ($lastexitcode -lt 8) { $global:LASTEXITCODE = $null }
         cp ..\target\release\ntsc-rs-standalone.exe .\bin\
+        cp ..\target\release\ntsc-rs-cli.exe .\bin\
         cp ..\target\release\ntsc-rs-launcher.exe .\
 
     - name: Archive Windows binary

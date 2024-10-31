@@ -11,10 +11,12 @@ use gstreamer_video::{VideoCapsBuilder, VideoInterlaceMode};
 use log::debug;
 use serde::{Deserialize, Serialize};
 use std::{
-    cell::Cell,
     error::Error,
     fmt::Display,
-    sync::{atomic::AtomicBool, Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, AtomicU32},
+        Arc, Mutex,
+    },
 };
 
 #[derive(Clone, Debug, glib::Boxed)]
@@ -107,7 +109,7 @@ impl VideoScaleFilter {
 pub struct NtscPipeline {
     pub inner: Pipeline,
     /// Incremented and set as a custom property on the caps filter to force renegotiation.
-    caps_generation: Cell<u32>,
+    caps_generation: Arc<AtomicU32>,
 }
 
 impl NtscPipeline {
@@ -459,7 +461,7 @@ impl NtscPipeline {
 
         Ok(Self {
             inner: pipeline,
-            caps_generation: Cell::new(0),
+            caps_generation: Arc::new(AtomicU32::new(0)),
         })
     }
 
@@ -520,8 +522,12 @@ impl NtscPipeline {
                 return Ok(());
             };
 
-            let caps_generation = self.caps_generation.get().wrapping_add(1);
-            self.caps_generation.set(caps_generation);
+            let caps_generation = self
+                .caps_generation
+                .load(std::sync::atomic::Ordering::Acquire)
+                .wrapping_add(1);
+            self.caps_generation
+                .store(caps_generation, std::sync::atomic::Ordering::Release);
             if let Some((dst_width, dst_height)) = scale_from_caps(&scale_caps, scale.scanlines) {
                 caps_filter.set_property(
                     "caps",

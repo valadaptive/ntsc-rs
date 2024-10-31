@@ -31,6 +31,13 @@ impl UseField {
             UseField::InterleavedLower => YiqField::InterleavedLower,
         }
     }
+
+    pub fn interlaced_output_allowed(&self) -> bool {
+        matches!(
+            self,
+            UseField::InterleavedUpper | UseField::InterleavedLower
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]

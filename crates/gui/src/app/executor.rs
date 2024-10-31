@@ -10,7 +10,7 @@ use futures_lite::{Future, FutureExt};
 use gstreamer::glib::clone::Downgrade;
 use log::trace;
 
-use super::AppFn;
+use super::{AppFn, ApplessFn, NtscApp};
 
 struct AppExecutorInner {
     executor: Arc<Executor<'static>>,
@@ -116,5 +116,21 @@ impl AppTaskSpawner {
         };
 
         exec.lock().unwrap().spawn(future);
+    }
+}
+
+pub trait ApplessExecutor: Send + Sync {
+    fn spawn(&self, future: impl Future<Output = Option<ApplessFn>> + 'static + Send);
+}
+
+impl ApplessExecutor for AppExecutor {
+    fn spawn(&self, future: impl Future<Output = Option<ApplessFn>> + 'static + Send) {
+        self.spawn(async { future.await.map(|cb| Box::new(|_: &mut NtscApp| cb()) as _) });
+    }
+}
+
+impl ApplessExecutor for AppTaskSpawner {
+    fn spawn(&self, future: impl Future<Output = Option<ApplessFn>> + 'static + Send) {
+        self.spawn(async { future.await.map(|cb| Box::new(|_: &mut NtscApp| cb()) as _) });
     }
 }

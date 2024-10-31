@@ -1,11 +1,13 @@
 use std::{
     collections::VecDeque,
+    future::Future,
     path::Path,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex, MutexGuard, OnceLock},
+    task::{Poll, Waker},
 };
 
-use eframe::egui;
-use gstreamer::prelude::*;
+use futures_lite::FutureExt;
+use gstreamer::{prelude::*, ClockTime};
 use gstreamer_video::{VideoFormat, VideoInterlaceMode};
 use log::debug;
 use snafu::ResultExt;
@@ -21,13 +23,20 @@ use crate::{
 
 use super::{
     error::{ApplicationError, CreatePipelineSnafu, CreateRenderJobSnafu},
-    executor::AppTaskSpawner,
+    executor::ApplessExecutor,
     render_settings::{
         Ffv1BitDepth, H264Settings, PngSettings, RenderInterlaceMode, RenderPipelineCodec,
         StillImageSettings,
     },
-    NtscApp,
+    ui_context::UIContext,
 };
+
+#[derive(Debug, Clone, Copy)]
+pub struct RenderJobProgress {
+    pub progress: f64,
+    pub position: Option<ClockTime>,
+    pub duration: Option<ClockTime>,
+}
 
 #[derive(Debug, Clone)]
 pub enum RenderJobState {
@@ -49,6 +58,7 @@ pub struct RenderJob {
     pub start_time: Option<f64>,
     pause_time: Option<f64>,
     pub estimated_time_remaining: Option<f64>,
+    waker: Arc<Mutex<Option<Waker>>>,
 }
 
 impl RenderJob {
@@ -56,6 +66,7 @@ impl RenderJob {
         settings: RenderPipelineSettings,
         pipeline: NtscPipeline,
         state: Arc<Mutex<RenderJobState>>,
+        waker: Arc<Mutex<Option<Waker>>>,
     ) -> Self {
         Self {
             settings,
@@ -66,12 +77,13 @@ impl RenderJob {
             start_time: None,
             pause_time: None,
             estimated_time_remaining: None,
+            waker,
         }
     }
 
     pub fn create(
-        executor: AppTaskSpawner,
-        ctx: &egui::Context,
+        executor: &(impl ApplessExecutor + Clone + 'static),
+        ctx: &(impl UIContext + 'static),
         src_path: &Path,
         settings: RenderPipelineSettings,
         still_image_settings: &StillImageSettings,
@@ -136,6 +148,8 @@ impl RenderJob {
         let exec = executor.clone();
         let exec_for_handler = executor.clone();
         let ctx_for_handler = ctx.clone();
+        let waker = Arc::new(Mutex::new(None::<Waker>));
+        let waker_for_handler = waker.clone();
 
         let is_png = matches!(settings.codec_settings, RenderPipelineCodec::Png(_));
 
@@ -190,7 +204,7 @@ impl RenderJob {
                             // CRF mode
                             .property("pass", GstX264EncPass.to_value_by_nick("quant").unwrap())
                             // invert CRF (so that low numbers = low quality)
-                            .property("quantizer", 50 - h264_settings.crf as u32)
+                            .property("quantizer", 50 - h264_settings.quality as u32)
                             .property(
                                 "speed-preset",
                                 GstX264EncPreset
@@ -332,6 +346,7 @@ impl RenderJob {
                 let job_state = &job_state_for_handler;
                 let exec = &exec;
                 let ctx = &ctx_for_handler;
+                let waker = &waker_for_handler;
 
                 let handle_msg = move |_bus, msg: &gstreamer::Message| -> Option<()> {
                     debug!("{:?}", msg);
@@ -342,6 +357,9 @@ impl RenderJob {
                         if !matches!(*job_state, RenderJobState::Error(_)) {
                             *job_state = RenderJobState::Error(Arc::new(err.error().into()));
                             ctx.request_repaint();
+                            if let Some(waker) = &*waker.lock().unwrap() {
+                                waker.wake_by_ref();
+                            }
                         }
                     }
 
@@ -350,7 +368,7 @@ impl RenderJob {
                         let pipeline_for_handler = pipeline.clone();
                         if let gstreamer::MessageView::Eos(_) = msg.view() {
                             let job_state_inner = Arc::clone(job_state);
-                            let end_time = ctx.input(|input| input.time);
+                            let end_time = ctx.current_time();
                             exec.spawn(async move {
                                 let _ = pipeline_for_handler.set_state(gstreamer::State::Null);
                                 *job_state_inner.lock().unwrap() =
@@ -361,7 +379,7 @@ impl RenderJob {
 
                         if let gstreamer::MessageView::StateChanged(state_changed) = msg.view() {
                             if state_changed.pending() == gstreamer::State::Null {
-                                let end_time = ctx.input(|input| input.time);
+                                let end_time = ctx.current_time();
                                 *job_state.lock().unwrap() = RenderJobState::Complete { end_time };
                             } else {
                                 *job_state.lock().unwrap() = match state_changed.current() {
@@ -369,7 +387,7 @@ impl RenderJob {
                                     gstreamer::State::Playing => RenderJobState::Rendering,
                                     gstreamer::State::Ready => RenderJobState::Waiting,
                                     gstreamer::State::Null => {
-                                        let end_time = ctx.input(|input| input.time);
+                                        let end_time = ctx.current_time();
                                         RenderJobState::Complete { end_time }
                                     }
                                     gstreamer::State::VoidPending => {
@@ -378,6 +396,9 @@ impl RenderJob {
                                 };
                             }
                             ctx.request_repaint();
+                            if let Some(waker) = &*waker.lock().unwrap() {
+                                waker.wake_by_ref();
+                            }
                         }
                     }
 
@@ -397,28 +418,25 @@ impl RenderJob {
             still_image_settings.framerate,
             Some(move |p: Result<gstreamer::Pipeline, _>| {
                 exec_for_handler.spawn(async move {
-                    Some(
-                        Box::new(move |_: &mut NtscApp| -> Result<(), ApplicationError> {
-                            let pipeline = p.context(CreatePipelineSnafu)?;
+                    Some(Box::new(move || -> Result<(), ApplicationError> {
+                        let pipeline = p.context(CreatePipelineSnafu)?;
 
-                            if let Some(seek_to) = seek_to {
-                                pipeline
-                                    .seek_simple(
-                                        gstreamer::SeekFlags::FLUSH
-                                            | gstreamer::SeekFlags::ACCURATE,
-                                        seek_to,
-                                    )
-                                    .map_err(|e| e.into())
-                                    .context(CreateRenderJobSnafu)?;
-                            }
-
+                        if let Some(seek_to) = seek_to {
                             pipeline
-                                .set_state(gstreamer::State::Playing)
+                                .seek_simple(
+                                    gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
+                                    seek_to,
+                                )
                                 .map_err(|e| e.into())
                                 .context(CreateRenderJobSnafu)?;
-                            Ok(())
-                        }) as _,
-                    )
+                        }
+
+                        pipeline
+                            .set_state(gstreamer::State::Playing)
+                            .map_err(|e| e.into())
+                            .context(CreateRenderJobSnafu)?;
+                        Ok(())
+                    }) as _)
                 });
             }),
         )?;
@@ -429,6 +447,7 @@ impl RenderJob {
             settings.as_ref().clone(),
             pipeline,
             job_state,
+            waker,
         ))
     }
 
@@ -451,6 +470,45 @@ impl RenderJob {
             (12, false) => &[VideoFormat::Y44412be, VideoFormat::Y44412le],
             (12, true) => &[VideoFormat::I42012be, VideoFormat::I42012le],
             _ => panic!("No pixel format for bit depth {bit_depth}"),
+        }
+    }
+
+    pub fn update_progress(&mut self, ctx: &(impl UIContext + 'static)) -> RenderJobProgress {
+        let job_state = self.state.lock().unwrap().clone();
+
+        let (progress, job_position, job_duration) = match job_state {
+            RenderJobState::Waiting => (0.0, None, None),
+            RenderJobState::Paused | RenderJobState::Rendering | RenderJobState::Error(_) => {
+                let job_position = self.pipeline.query_position::<ClockTime>();
+                let job_duration = self.pipeline.query_duration::<ClockTime>();
+
+                (
+                    if let (Some(job_position), Some(job_duration)) = (job_position, job_duration) {
+                        job_position.nseconds() as f64 / job_duration.nseconds() as f64
+                    } else {
+                        self.last_progress
+                    },
+                    job_position,
+                    job_duration,
+                )
+            }
+            RenderJobState::Complete { .. } => (1.0, None, None),
+        };
+
+        if matches!(
+            job_state,
+            RenderJobState::Rendering | RenderJobState::Waiting
+        ) {
+            let current_time = ctx.current_time();
+            self.update_estimated_time_remaining(progress, current_time);
+        }
+
+        self.last_progress = progress;
+
+        RenderJobProgress {
+            progress,
+            position: job_position,
+            duration: job_duration,
         }
     }
 
@@ -502,5 +560,52 @@ impl RenderJob {
 impl Drop for RenderJob {
     fn drop(&mut self) {
         let _ = self.pipeline.set_state(gstreamer::State::Null);
+    }
+}
+
+impl Future for RenderJob {
+    type Output = RenderJobState;
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        *self.waker.lock().unwrap() = Some(cx.waker().clone());
+
+        let state = self.state.lock().unwrap();
+        match &*state {
+            RenderJobState::Waiting | RenderJobState::Rendering | RenderJobState::Paused => {
+                Poll::Pending
+            }
+            RenderJobState::Complete { .. } | RenderJobState::Error(..) => {
+                Poll::Ready(state.clone())
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SharedRenderJob(Arc<Mutex<RenderJob>>);
+
+impl SharedRenderJob {
+    pub fn new(render_job: RenderJob) -> Self {
+        Self(Arc::new(Mutex::new(render_job)))
+    }
+
+    pub fn lock(&self) -> MutexGuard<'_, RenderJob> {
+        self.0.lock().unwrap()
+    }
+}
+
+impl Future for SharedRenderJob {
+    type Output = RenderJobState;
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        let this = self.as_ref();
+        let mut this = this.0.lock().unwrap();
+        this.poll(cx)
     }
 }

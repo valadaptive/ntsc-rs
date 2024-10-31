@@ -7,7 +7,7 @@ use snafu::ResultExt;
 use crate::{
     app::{
         error::{ApplicationError, RenderJobPipelineSnafu},
-        render_job::{RenderJob, RenderJobState},
+        render_job::{RenderJob, RenderJobProgress, RenderJobState},
     },
     gst_utils::gstreamer_error::GstreamerError,
 };
@@ -47,36 +47,11 @@ impl RenderJobWidget<'_> {
                 .show(ui, |ui| {
                     let job_state = job.state.lock().unwrap().clone();
 
-                    let (progress, job_position, job_duration) = match job_state {
-                        RenderJobState::Waiting => (0.0, None, None),
-                        RenderJobState::Paused
-                        | RenderJobState::Rendering
-                        | RenderJobState::Error(_) => {
-                            let job_position = job.pipeline.query_position::<ClockTime>();
-                            let job_duration = job.pipeline.query_duration::<ClockTime>();
-
-                            (
-                                if let (Some(job_position), Some(job_duration)) =
-                                    (job_position, job_duration)
-                                {
-                                    job_position.nseconds() as f64 / job_duration.nseconds() as f64
-                                } else {
-                                    job.last_progress
-                                },
-                                job_position,
-                                job_duration,
-                            )
-                        }
-                        RenderJobState::Complete { .. } => (1.0, None, None),
-                    };
-
-                    if matches!(
-                        job_state,
-                        RenderJobState::Rendering | RenderJobState::Waiting
-                    ) {
-                        let current_time = ui.ctx().input(|input| input.time);
-                        job.update_estimated_time_remaining(progress, current_time);
-                    }
+                    let RenderJobProgress {
+                        progress,
+                        position: job_position,
+                        duration: job_duration,
+                    } = job.update_progress(ui.ctx());
 
                     ui.horizontal(|ui| {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -158,8 +133,6 @@ impl RenderJobWidget<'_> {
                             ui.label(format!("Time remaining: {time_remaining:.0} seconds"));
                         }
                     }
-
-                    job.last_progress = progress;
                 });
 
             (closed, error)
