@@ -148,7 +148,7 @@ dependencies = [
 [[package]]
 name = "after-effects"
 version = "0.2.1"
-source = "git+https://github.com/valadaptive/after-effects?rev=297897d#297897d0c0e2321b59661963f03a88349504e104"
+source = "git+https://github.com/valadaptive/after-effects?rev=71cf55e#71cf55e0eabe3100ec342855b293f1751e90b3d9"
 dependencies = [
  "after-effects-sys",
  "bincode",
@@ -3493,7 +3493,7 @@ dependencies = [
 [[package]]
 name = "pipl"
 version = "0.1.1"
-source = "git+https://github.com/valadaptive/after-effects?rev=297897d#297897d0c0e2321b59661963f03a88349504e104"
+source = "git+https://github.com/valadaptive/after-effects?rev=71cf55e#71cf55e0eabe3100ec342855b293f1751e90b3d9"
 dependencies = [
  "bitflags 2.6.0",
  "byteorder",
@@ -3637,7 +3637,7 @@ dependencies = [
 [[package]]
 name = "premiere"
 version = "0.2.1"
-source = "git+https://github.com/valadaptive/after-effects?rev=297897d#297897d0c0e2321b59661963f03a88349504e104"
+source = "git+https://github.com/valadaptive/after-effects?rev=71cf55e#71cf55e0eabe3100ec342855b293f1751e90b3d9"
 dependencies = [
  "base64 0.22.1",
  "bincode",

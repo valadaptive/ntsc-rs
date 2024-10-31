@@ -318,8 +318,12 @@ impl Plugin {
         extra: SmartRenderExtra,
         params: &mut Parameters<ParamID>,
     ) -> Result<(), Error> {
-        let input_world = extra.callbacks().checkout_layer_pixels(0)?;
-        let output_world = extra.callbacks().checkout_output()?;
+        let Some(input_world) = extra.callbacks().checkout_layer_pixels(0)? else {
+            return Ok(());
+        };
+        let Some(output_world) = extra.callbacks().checkout_output()? else {
+            return Ok(());
+        };
 
         let src_pixel_format = input_world.pixel_format()?;
         let dst_pixel_format = output_world.pixel_format()?;

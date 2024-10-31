@@ -8,12 +8,12 @@ license = "MIT OR ISC OR Apache-2.0"
 crate-type = ["cdylib"]
 
 [target.'cfg(any(windows, target_os="macos"))'.dependencies]
-after-effects = {git = "https://github.com/valadaptive/after-effects", rev = "297897d"}
-premiere = {git = "https://github.com/valadaptive/after-effects", rev = "297897d"}
+after-effects = {git = "https://github.com/valadaptive/after-effects", rev = "71cf55e", features = ["catch-panics"]}
+premiere = {git = "https://github.com/valadaptive/after-effects", rev = "71cf55e"}
 ntscrs = { path = "../ntscrs" }
 
 [target.'cfg(any(windows, target_os="macos"))'.build-dependencies]
-pipl = {git = "https://github.com/valadaptive/after-effects", rev = "297897d"}
+pipl = {git = "https://github.com/valadaptive/after-effects", rev = "71cf55e"}
 
 [dependencies]
 raw-window-handle = "0.6.2"
