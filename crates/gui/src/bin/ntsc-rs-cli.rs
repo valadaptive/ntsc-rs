@@ -327,7 +327,18 @@ pub fn main() -> Result<()> {
         }
     }
 
-    if let (Ok(true), false) = (output_path.try_exists(), overwrite) {
+    let output_path_metadata = fs::metadata(&output_path);
+    if output_path_metadata
+        .as_ref()
+        .is_ok_and(|metadata| metadata.is_dir())
+    {
+        return Err(Report::msg(format!(
+            "Output path {} is a folder",
+            output_path.as_os_str().to_string_lossy()
+        )));
+    }
+
+    if let (Ok(_), false) = (output_path_metadata, overwrite) {
         let should_exit = if term.is_term() {
             loop {
                 write!(
