@@ -12,7 +12,7 @@ use std::{
 
 use clap::{
     builder::{EnumValueParser, PathBufValueParser, PossibleValue},
-    command, Arg, ArgGroup, ValueEnum,
+    command, Arg, ArgAction, ArgGroup, ValueEnum,
 };
 use color_eyre::eyre::{Report, Result, WrapErr};
 use console::{style, StyledObject, Term};
@@ -139,6 +139,13 @@ pub fn main() -> Result<()> {
                 .required(true),
         )
         .arg(
+            Arg::new("overwrite")
+                .short('y')
+                .long("overwrite")
+                .action(ArgAction::SetTrue)
+                .help("If the output file already exists, overwrite it without first prompting the user.")
+        )
+        .arg(
             Arg::new("settings-path")
                 .short('p')
                 .long("settings-path")
@@ -171,7 +178,7 @@ pub fn main() -> Result<()> {
                 .long("duration")
                 .help("Duration to use if the input is a still image")
                 .value_parser(clock_time_parser_clap)
-                .default_value("5"),
+                .default_value("00:05.00"),
         )
         .arg(
             Arg::new("scale")
@@ -190,7 +197,7 @@ pub fn main() -> Result<()> {
             Arg::new("interlace")
                 .long("interlace")
                 .help("Interlace progressive (non-interlaced) input media. Has no effect on media that's already interlaced.")
-                .action(clap::ArgAction::SetTrue),
+                .action(ArgAction::SetTrue),
         )
         .next_help_heading("Codec settings")
         .arg(
@@ -205,7 +212,7 @@ pub fn main() -> Result<()> {
             Arg::new("chroma-subsampling")
                 .long("chroma-subsampling")
                 .help("Encode the chrominance (color) information at a lower resolution than the luminance (brightness). Maximizes playback compatibility for H.264 videos when enabled. Also works with FFV1.")
-                .action(clap::ArgAction::SetTrue),
+                .action(ArgAction::SetTrue),
         )
         .arg(
             Arg::new("quality")
@@ -250,6 +257,7 @@ pub fn main() -> Result<()> {
         .get_one::<PathBuf>("output")
         .expect("output path is present")
         .to_owned();
+    let overwrite = matches.get_flag("overwrite");
     let framerate = matches
         .get_one::<u32>("fps")
         .expect("framerate is present")
@@ -300,6 +308,35 @@ pub fn main() -> Result<()> {
         style("s").blue()
     )?;
     term.flush()?;
+
+    if let (Ok(true), false) = (output_path.try_exists(), overwrite) {
+        let should_exit = if term.is_term() {
+            loop {
+                write!(
+                    term,
+                    "{} already exists. Overwrite? [y/N] ",
+                    output_path.as_os_str().to_string_lossy()
+                )?;
+                term.flush()?;
+                let mut response = String::new();
+                io::stdin().read_line(&mut response)?;
+                response.make_ascii_lowercase();
+                let response = response.trim();
+                if response == "y" || response == "yes" {
+                    break false;
+                } else if response == "n" || response == "no" {
+                    break true;
+                }
+            }
+        } else {
+            true
+        };
+        if should_exit {
+            term.write_line("Not overwriting existing file. Exiting.")?;
+            term.flush()?;
+            return Ok(());
+        }
+    }
 
     initialize_gstreamer()?;
 

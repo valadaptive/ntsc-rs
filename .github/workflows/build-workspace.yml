@@ -54,7 +54,7 @@ jobs:
       if: ${{ github.ref_type == 'tag' }}
       with:
         name: ntsc-rs-linux-standalone
-        path: ntsc-rs-standalone
+        path: ntsc-rs-linux-standalone
 
   build-windows:
     runs-on: windows-2019
