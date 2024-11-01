@@ -1,4 +1,5 @@
 use std::{
+    fmt::Write as FmtWrite,
     fs,
     io::{self, Write},
     path::PathBuf,
@@ -15,7 +16,7 @@ use clap::{
     command, Arg, ArgAction, ArgGroup, ValueEnum,
 };
 use color_eyre::eyre::{Report, Result, WrapErr};
-use console::{style, StyledObject, Term};
+use console::{measure_text_width, style, truncate_str, StyledObject, Term};
 use gstreamer::ClockTime;
 use gui::{
     app::{
@@ -532,24 +533,37 @@ impl CliOutput {
     }
 
     fn draw_progress(
-        term: &mut impl Write,
+        term: &mut Term,
         position: ClockTime,
         duration: ClockTime,
         progress: f64,
         eta: Option<f64>,
     ) -> io::Result<()> {
-        write!(
-            term,
-            "{} {:.2} / {:.2} | {:.0}%",
-            Self::progress_bar(40, progress),
+        let width = term.size().1 as usize;
+        let mut progress_text = format!(
+            "{:>.2} / {:>.2} | {:>3.0}%",
             position,
             duration,
             progress * 100.0
-        )?;
-
+        );
         if let Some(eta) = eta {
-            write!(term, " | {:.0} seconds remaining", eta)?;
+            write!(progress_text, " | {:>4.0} seconds remaining", eta).unwrap();
         }
+        let truncated_text = truncate_str(&progress_text, width, "…");
+        let remaining_width = width
+            .saturating_sub(measure_text_width(&truncated_text))
+            .saturating_sub(1);
+        write!(
+            term,
+            "{}{}{}",
+            if remaining_width > 0 {
+                Self::progress_bar(remaining_width, progress)
+            } else {
+                style(String::from(""))
+            },
+            if remaining_width > 0 { " " } else { "" },
+            truncated_text
+        )?;
 
         Ok(())
     }
