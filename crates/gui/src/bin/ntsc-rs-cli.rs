@@ -572,21 +572,24 @@ impl CliOutput {
         let mut bar = String::new();
         let completed_width = (width as f64 * progress).min(width as f64);
         let num_blocks = completed_width as usize;
-        let block_part = (completed_width.fract() * 8.0) as usize;
 
         bar.push_str(&"█".repeat(num_blocks));
-        let partial_block = match block_part {
-            0 => ' ',
-            1 => '▏',
-            2 => '▎',
-            3 => '▍',
-            4 => '▌',
-            5 => '▋',
-            6 => '▊',
-            7 => '▉',
-            _ => ' ',
-        };
-        bar.push(partial_block);
+        if num_blocks < width {
+            let block_part = (completed_width.fract() * 8.0) as usize;
+            let partial_block = match block_part {
+                0 => ' ',
+                1 => '▏',
+                2 => '▎',
+                3 => '▍',
+                4 => '▌',
+                5 => '▋',
+                6 => '▊',
+                7 => '▉',
+                _ => ' ',
+            };
+            bar.push(partial_block);
+        }
+
         bar.push_str(&" ".repeat((width - num_blocks).saturating_sub(1)));
 
         console::style(bar).bg(console::Color::Color256(8))

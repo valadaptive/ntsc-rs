@@ -246,9 +246,6 @@ impl NtscPipeline {
                                 gstreamer_video::VideoOrientationMethod::Auto,
                             )
                             .build()?;*/
-                            let video_rate = gstreamer::ElementFactory::make("videorate")
-                                .name("video_rate")
-                                .build()?;
 
                             let video_scale = gstreamer::ElementFactory::make("videoscale")
                                 .name("video_scale")
@@ -264,6 +261,10 @@ impl NtscPipeline {
                             let caps_filter = gstreamer::ElementFactory::make("capsfilter")
                                 .name("caps_filter")
                                 .build()?;
+
+                            let video_rate = gstreamer::ElementFactory::make("videorate")
+                                .name("video_rate")
+                                .build()?;
                             let framerate_caps_filter =
                                 gstreamer::ElementFactory::make("capsfilter")
                                     .name("framerate_caps_filter")
@@ -273,9 +274,9 @@ impl NtscPipeline {
                                 &video_queue,
                                 //&video_flip,
                                 &video_convert,
-                                &video_rate,
                                 &video_scale,
                                 &caps_filter,
+                                &video_rate,
                                 &framerate_caps_filter,
                             ];
                             pipeline.add_many(video_elements)?;
