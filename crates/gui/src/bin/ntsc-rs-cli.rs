@@ -571,6 +571,8 @@ impl CliOutput {
         );
         if let Some(eta) = eta {
             write!(progress_text, " | {:>4.0} seconds remaining", eta).unwrap();
+        } else {
+            write!(progress_text, " |    ? seconds remaining").unwrap();
         }
         let truncated_text = truncate_str(&progress_text, width, "…");
         let remaining_width = width
