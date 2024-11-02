@@ -37,5 +37,13 @@ pub fn initialize_gstreamer() -> Result<(), GstreamerError> {
         sink.set_rank(gstreamer::Rank::NONE);
     }
 
+    // nvh264dec is flaky and seemingly creates spurious caps events with memory:CUDAMemory late in the caps negotiation
+    // progress, causing caps negotiation to fail (see
+    // https://gitlab.freedesktop.org/gstreamer/gstreamer/-/issues/2644). This doesn't occur all the time and points to
+    // some sort of race condition.
+    if let Some(dec) = gstreamer::ElementFactory::find("nvh264dec") {
+        dec.set_rank(gstreamer::Rank::NONE);
+    }
+
     Ok(())
 }
