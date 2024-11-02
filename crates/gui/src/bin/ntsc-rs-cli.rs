@@ -145,6 +145,15 @@ pub fn main() -> Result<()> {
                 .long("overwrite")
                 .action(ArgAction::SetTrue)
                 .help("If the output file already exists, overwrite it without first prompting the user.")
+                .conflicts_with("no-overwrite")
+        )
+        .arg(
+            Arg::new("no-overwrite")
+                .short('n')
+                .long("no-overwrite")
+                .action(ArgAction::SetTrue)
+                .help("If the output file already exists, exit immediately without first prompting the user.")
+                .conflicts_with("overwrite")
         )
         .arg(
             Arg::new("settings-path")
@@ -259,6 +268,7 @@ pub fn main() -> Result<()> {
         .expect("output path is present")
         .to_owned();
     let overwrite = matches.get_flag("overwrite");
+    let no_overwrite = matches.get_flag("no-overwrite");
     let framerate = matches
         .get_one::<u32>("fps")
         .expect("framerate is present")
@@ -340,7 +350,7 @@ pub fn main() -> Result<()> {
     }
 
     if let (Ok(_), false) = (output_path_metadata, overwrite) {
-        let should_exit = if term.is_term() {
+        let should_exit = if term.is_term() && !no_overwrite {
             loop {
                 write!(
                     term,
