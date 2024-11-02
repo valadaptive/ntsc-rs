@@ -1,10 +1,13 @@
 pub mod targets;
 
 use std::{
+    collections::HashSet,
     path::{Path, PathBuf},
     process::ExitStatus,
     sync::OnceLock,
 };
+
+use walkdir::{DirEntry, WalkDir};
 
 static WORKSPACE_DIR: OnceLock<PathBuf> = OnceLock::new();
 
@@ -66,4 +69,35 @@ impl StatusExt for std::io::Result<ExitStatus> {
             }
         }
     }
+}
+
+pub fn copy_recursive(
+    from: impl AsRef<Path>,
+    to: impl AsRef<Path>,
+    mut predicate: impl FnMut(&DirEntry) -> bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut created_dirs = HashSet::new();
+    for file in WalkDir::new(from.as_ref()).into_iter() {
+        let file = file?;
+
+        let ty = file.file_type();
+        if !ty.is_file() {
+            continue;
+        }
+        if !predicate(&file) {
+            continue;
+        }
+        let src_path = file.path();
+        let rel_path = src_path.strip_prefix(from.as_ref())?;
+        let dst_path = to.as_ref().plus(rel_path);
+        let dst_dir = dst_path.parent().unwrap().to_path_buf();
+        // Avoid making one create_dir_all call per file (could be expensive?)
+        let dst_dir_does_not_exist = created_dirs.insert(dst_dir.clone());
+        if dst_dir_does_not_exist {
+            std::fs::create_dir_all(&dst_dir)?;
+        }
+        std::fs::copy(src_path, &dst_path)?;
+    }
+
+    Ok(())
 }

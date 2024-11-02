@@ -1,16 +1,14 @@
 //! Builds and bundles the standalone GUI as a macOS .app bundle.
 
-use crate::util::{workspace_dir, PathBufExt, StatusExt};
+use crate::util::{copy_recursive, workspace_dir, PathBufExt, StatusExt};
 
-use std::collections::HashSet;
 use std::error::Error;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use clap::builder::PathBufValueParser;
-use walkdir::WalkDir;
 
 pub fn command() -> clap::Command {
     clap::Command::new("macos-bundle")
@@ -195,51 +193,28 @@ pub fn main(args: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
 
     // Copy gstreamer libraries into the bundle.
     println!("Copying gstreamer libraries...");
-    let src_lib_path = PathBuf::from("/Library/Frameworks/GStreamer.framework/Versions/1.0/lib");
-    let dst_lib_path = contents_dir_path.plus_iter([
-        "Frameworks",
-        "GStreamer.framework",
-        "Versions",
-        "1.0",
-        "lib",
-    ]);
-    let mut created_dirs = HashSet::<PathBuf>::new();
-    for file in WalkDir::new(&src_lib_path).into_iter() {
-        let file = match file {
-            Ok(entry) => entry,
-            Err(e) => return Err(Box::new(e)),
-        };
+    let src_gst_path = PathBuf::from("/Library/Frameworks/GStreamer.framework/Versions/1.0");
+    let dst_gst_path =
+        contents_dir_path.plus_iter(["Frameworks", "GStreamer.framework", "Versions", "1.0"]);
+    let src_lib_path = src_gst_path.plus("lib");
+    let dst_lib_path = dst_gst_path.plus("lib");
+    // We only want dylibs, not the static libs also present.
+    copy_recursive(&src_lib_path, &dst_lib_path, |entry| {
+        entry.path().extension() == Some(OsStr::new("dylib"))
+    })?;
 
-        let ty = file.file_type();
-        if !ty.is_file() {
-            continue;
-        }
-        let src_path = file.path();
-        let rel_lib_path = src_path.strip_prefix(&src_lib_path)?;
-        let Some(ext) = rel_lib_path.extension() else {
-            continue;
-        };
-        // We only want dylibs, not the static libs also present.
-        if ext != "dylib" {
-            continue;
-        }
-        let dst_path = dst_lib_path.plus(rel_lib_path);
-        let dst_dir = dst_path.parent().unwrap().to_path_buf();
-        // Avoid making one create_dir_all call per file (could be expensive?)
-        let dst_dir_does_not_exist = created_dirs.insert(dst_dir.clone());
-        if dst_dir_does_not_exist {
-            std::fs::create_dir_all(&dst_dir)?;
-        }
-        std::fs::copy(src_path, &dst_path)?;
-    }
+    let src_libexec_path = src_gst_path.plus("libexec");
+    let dst_libexec_path = dst_gst_path.plus("libexec");
+    copy_recursive(&src_libexec_path, &dst_libexec_path, |_| true)?;
 
-    // Add gstreamer rpath to the executable, so it can load the gstreamer libraries.
-    // According to https://gstreamer.freedesktop.org/documentation/deploying/mac-osx.html?gi-language=c#location-of-dependent-dynamic-libraries,
+    // Add gstreamer rpath to the executable, so it can load the gstreamer libraries. According to
+    // https://gstreamer.freedesktop.org/documentation/deploying/mac-osx.html?gi-language=c#location-of-dependent-dynamic-libraries,
     // macOS doesn't locate libraries relative to the executable. That page's prescribed solution is a convoluted
     // `osxrelocator.py` script that I've seen several versions of floating around, but I just use `install_name_tool`
-    // and it *seems* to work fine. GStreamer includes many binaries which would also need to be `install_name_tool`'d
-    // and apparently the paths *to* those binaries need to be properly set via environment variables(?), but we don't
-    // copy any binaries anyway (see the above recursive copy, which only copies .dylibs), so hopefully it's okay.
+    // and it *seems* to work fine. GStreamer includes many binaries which the page says also need to be
+    // `install_name_tool`'d but it seems they now perform that step themselves. They also mention that you need to set
+    // some environment variables to pick up on binaries also distributed with GStreamer, but they have seemingly made
+    // those paths relative on their end too.
     for binary_name in app_executables {
         println!("Adding gstreamer rpath ({binary_name})...");
         Command::new("install_name_tool")
