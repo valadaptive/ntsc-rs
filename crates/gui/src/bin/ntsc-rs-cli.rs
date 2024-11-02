@@ -477,7 +477,7 @@ impl CliOutput {
         }));
         let inner_for_handle = inner.clone();
         let handle = thread::spawn(move || {
-            let inner_is_term = inner_for_handle.lock().unwrap().term.is_term() && false;
+            let inner_is_term = inner_for_handle.lock().unwrap().term.is_term();
             // If we're not in a real terminal, don't do anything; just wait until we're closed
             if !inner_is_term {
                 return loop {
