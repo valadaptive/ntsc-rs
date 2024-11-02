@@ -476,42 +476,55 @@ impl CliOutput {
             term,
         }));
         let inner_for_handle = inner.clone();
-        let handle = thread::spawn(move || loop {
-            match receiver.recv_timeout(Duration::from_secs_f64(1.0 / 30.0)) {
-                Ok(false) | Err(RecvTimeoutError::Timeout) => {}
-                _ => break Ok(()),
-            }
-            let inner = &mut *inner_for_handle.lock().unwrap();
-            if let Some(job) = inner.render_job.as_ref() {
-                let mut job = job.lock();
-                let is_in_progress = {
-                    let state = &*job.state.lock().unwrap();
-                    matches!(
-                        state,
-                        RenderJobState::Paused
-                            | RenderJobState::Rendering
-                            | RenderJobState::Waiting
-                    )
-                };
-                if is_in_progress {
-                    let progress = job.update_progress(inner);
-                    let eta = job.estimated_time_remaining;
-
-                    inner.term.clear_line()?;
-                    inner.term.hide_cursor()?;
-
-                    if let (Some(position), Some(duration)) = (progress.position, progress.duration)
-                    {
-                        Self::draw_progress(
-                            &mut inner.term,
-                            position,
-                            duration,
-                            progress.progress,
-                            eta,
-                        )?;
+        let handle = thread::spawn(move || {
+            let inner_is_term = inner_for_handle.lock().unwrap().term.is_term() && false;
+            // If we're not in a real terminal, don't do anything; just wait until we're closed
+            if !inner_is_term {
+                return loop {
+                    match receiver.recv() {
+                        Ok(false) => {}
+                        _ => break Ok(()),
                     }
+                };
+            }
+            loop {
+                match receiver.recv_timeout(Duration::from_secs_f64(1.0 / 30.0)) {
+                    Ok(false) | Err(RecvTimeoutError::Timeout) => {}
+                    _ => break Ok(()),
+                }
+                let inner = &mut *inner_for_handle.lock().unwrap();
+                if let Some(job) = inner.render_job.as_ref() {
+                    let mut job = job.lock();
+                    let is_in_progress = {
+                        let state = &*job.state.lock().unwrap();
+                        matches!(
+                            state,
+                            RenderJobState::Paused
+                                | RenderJobState::Rendering
+                                | RenderJobState::Waiting
+                        )
+                    };
+                    if is_in_progress {
+                        let progress = job.update_progress(inner);
+                        let eta = job.estimated_time_remaining;
 
-                    inner.term.flush()?;
+                        inner.term.clear_line()?;
+                        inner.term.hide_cursor()?;
+
+                        if let (Some(position), Some(duration)) =
+                            (progress.position, progress.duration)
+                        {
+                            Self::draw_progress(
+                                &mut inner.term,
+                                position,
+                                duration,
+                                progress.progress,
+                                eta,
+                            )?;
+                        }
+
+                        inner.term.flush()?;
+                    }
                 }
             }
         });
