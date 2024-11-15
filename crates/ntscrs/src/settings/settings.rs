@@ -103,9 +103,8 @@ impl<T: Settings> SettingID<T> {
 }
 
 // These macros are used to implement getting and setting various fields on the settings struct based on `SettingID`s.
-// Enums require special handling because ToPrimitive and FromPrimitive are used for conversion there, and those traits
-// are not object-safe (or otherwise have various ?Sized issues). For all other setting types, we can just use Any to
-// do dynamic typing.
+// Enums require special handling because FromPrimitive is used for conversion there, and that trait is not object-safe
+// (or otherwise have various ?Sized issues). For all other setting types, we can just use Any to do dynamic typing.
 
 #[macro_export]
 macro_rules! get_field_ref_impl {
@@ -163,10 +162,7 @@ macro_rules! get_field_enum_impl {
     };
 
     ($($field_path:ident).+, IS_AN_ENUM) => {
-        {
-            use num_traits::ToPrimitive;
-            Ok($($field_path).+.to_u32().expect("enum fields should be representable as u32"))
-        }
+        Ok($($field_path).+ as u32)
     };
 }
 

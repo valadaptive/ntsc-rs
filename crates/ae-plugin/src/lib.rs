@@ -22,7 +22,6 @@ use ntscrs::{
         self, AfterEffectsU16, Bgrx16, Bgrx32f, Bgrx8, BlitInfo, DeinterlaceMode, Xrgb16AE,
         Xrgb32f, Xrgb8, YiqField, YiqView,
     },
-    ToPrimitive,
 };
 use raw_window_handle::Win32WindowHandle;
 use window_handle::WindowAndDisplayHandle;

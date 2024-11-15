@@ -1,5 +1,4 @@
 use macros::FullSettings;
-use num_traits::ToPrimitive;
 
 use crate::{
     impl_settings_for,
@@ -227,35 +226,35 @@ impl SettingsList<EasyModeFullSettings> {
                         MenuItem {
                             label: "Alternating",
                             description: Some("Skip every other row, alternating between skipping even and odd rows."),
-                            index: UseField::Alternating.to_u32().unwrap(),
+                            index: UseField::Alternating as u32,
                         },
                         MenuItem {
                             label: "Upper only",
                             description: Some("Skip every lower row, keeping the upper ones."),
-                            index: UseField::Upper.to_u32().unwrap(),
+                            index: UseField::Upper as u32,
                         },
                         MenuItem {
                             label: "Lower only",
                             description: Some("Skip every upper row, keeping the lower ones."),
-                            index: UseField::Lower.to_u32().unwrap(),
+                            index: UseField::Lower as u32,
                         },
                         MenuItem {
                             label: "Interleaved (upper first)",
                             description: Some("Treat the video as interlaced, with the upper field as the earlier frame."),
-                            index: UseField::InterleavedUpper.to_u32().unwrap(),
+                            index: UseField::InterleavedUpper as u32,
                         },
                         MenuItem {
                             label: "Interleaved (lower first)",
                             description: Some("Treat the video as interlaced, with the lower field as the earlier frame."),
-                            index: UseField::InterleavedLower.to_u32().unwrap(),
+                            index: UseField::InterleavedLower as u32,
                         },
                         MenuItem {
                             label: "Both",
                             description: Some("Use all rows; don't skip any."),
-                            index: UseField::Both.to_u32().unwrap(),
+                            index: UseField::Both as u32,
                         },
                     ],
-                    default_value: default_settings.use_field.to_u32().unwrap(),
+                    default_value: default_settings.use_field as u32,
                 },
                 id: setting_id::USE_FIELD,
             },
@@ -267,15 +266,15 @@ impl SettingsList<EasyModeFullSettings> {
                         MenuItem {
                             label: "Constant K (blurry)",
                             description: Some("Simple constant-k filter. Produces longer, blurry results."),
-                            index: FilterType::ConstantK.to_u32().unwrap(),
+                            index: FilterType::ConstantK as u32,
                         },
                         MenuItem {
                             label: "Butterworth (sharper)",
                             description: Some("Filter with a sharper falloff. Produces sharpened, less blurry results."),
-                            index: FilterType::Butterworth.to_u32().unwrap(),
+                            index: FilterType::Butterworth as u32,
                         },
                     ],
-                    default_value: default_settings.filter_type.to_u32().unwrap(),
+                    default_value: default_settings.filter_type as u32,
                 },
                 id: setting_id::FILTER_TYPE,
             },
@@ -307,25 +306,25 @@ impl SettingsList<EasyModeFullSettings> {
                         MenuItem {
                             label: "Box",
                             description: Some("Simple horizontal box blur."),
-                            index: ChromaDemodulationFilter::Box.to_u32().unwrap()
+                            index: ChromaDemodulationFilter::Box as u32
                         },
                         MenuItem {
                             label: "Notch",
                             description: Some("Notch filter. Sharper than a box blur, but with ringing artifacts."),
-                            index: ChromaDemodulationFilter::Notch.to_u32().unwrap()
+                            index: ChromaDemodulationFilter::Notch as u32
                         },
                         MenuItem {
                             label: "1-line comb",
                             description: Some("Average the current row with the previous one, phase-cancelling the chrominance signals. Only works if the scanline phase shift is 180 degrees."),
-                            index: ChromaDemodulationFilter::OneLineComb.to_u32().unwrap()
+                            index: ChromaDemodulationFilter::OneLineComb as u32
                         },
                         MenuItem {
                             label: "2-line comb",
                             description: Some("Average the current row with the previous and next ones, phase-cancelling the chrominance signals. Only works if the scanline phase shift is 180 degrees."),
-                            index: ChromaDemodulationFilter::TwoLineComb.to_u32().unwrap()
+                            index: ChromaDemodulationFilter::TwoLineComb as u32
                         }
                     ],
-                    default_value: default_settings.chroma_demodulation_filter.to_u32().unwrap(),
+                    default_value: default_settings.chroma_demodulation_filter as u32,
                 },
                 id: setting_id::CHROMA_DEMODULATION_FILTER,
             },
@@ -419,17 +418,17 @@ impl SettingsList<EasyModeFullSettings> {
                                     MenuItem {
                                         label: "SP (Standard Play)",
                                         description: None,
-                                        index: VHSTapeSpeed::SP.to_u32().unwrap(),
+                                        index: VHSTapeSpeed::SP as u32,
                                     },
                                     MenuItem {
                                         label: "LP (Long Play)",
                                         description: None,
-                                        index: VHSTapeSpeed::LP.to_u32().unwrap(),
+                                        index: VHSTapeSpeed::LP as u32,
                                     },
                                     MenuItem {
                                         label: "EP (Extended Play)",
                                         description: None,
-                                        index: VHSTapeSpeed::EP.to_u32().unwrap(),
+                                        index: VHSTapeSpeed::EP as u32,
                                     },
                                     MenuItem {
                                         label: "None",
@@ -437,7 +436,7 @@ impl SettingsList<EasyModeFullSettings> {
                                         index: 0,
                                     },
                                 ],
-                                default_value: default_settings.vhs_settings.settings.tape_speed.to_u32().unwrap(),
+                                default_value: default_settings.vhs_settings.settings.tape_speed as u32,
                             },
                             id: setting_id::VHS_TAPE_SPEED
                         },

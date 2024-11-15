@@ -1,10 +1,9 @@
 use crate::{impl_settings_for, settings::SettingsBlock, yiq_fielding::YiqField};
 use macros::FullSettings;
-use num_traits::ToPrimitive;
 
 use super::{MenuItem, SettingDescriptor, SettingKind, SettingsList};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive)]
 pub enum UseField {
     Alternating = 0,
     Upper,
@@ -40,20 +39,20 @@ impl UseField {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive)]
 pub enum FilterType {
     ConstantK = 0,
     Butterworth,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive)]
 pub enum LumaLowpass {
     None,
     Box,
     Notch,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive)]
 pub enum PhaseShift {
     Degrees0,
     Degrees90,
@@ -61,7 +60,7 @@ pub enum PhaseShift {
     Degrees270,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive)]
 pub enum VHSTapeSpeed {
     NONE,
     SP,
@@ -153,14 +152,14 @@ impl Default for VHSSettings {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive)]
 pub enum ChromaLowpass {
     None,
     Light,
     Full,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive)]
 pub enum ChromaDemodulationFilter {
     Box,
     Notch,
@@ -588,35 +587,35 @@ impl SettingsList<NtscEffectFullSettings> {
                         MenuItem {
                             label: "Alternating",
                             description: Some("Skip every other row, alternating between skipping even and odd rows."),
-                            index: UseField::Alternating.to_u32().unwrap(),
+                            index: UseField::Alternating as u32,
                         },
                         MenuItem {
                             label: "Upper only",
                             description: Some("Skip every lower row, keeping the upper ones."),
-                            index: UseField::Upper.to_u32().unwrap(),
+                            index: UseField::Upper as u32,
                         },
                         MenuItem {
                             label: "Lower only",
                             description: Some("Skip every upper row, keeping the lower ones."),
-                            index: UseField::Lower.to_u32().unwrap(),
+                            index: UseField::Lower as u32,
                         },
                         MenuItem {
                             label: "Interleaved (upper first)",
                             description: Some("Treat the video as interlaced, with the upper field as the earlier frame."),
-                            index: UseField::InterleavedUpper.to_u32().unwrap(),
+                            index: UseField::InterleavedUpper as u32,
                         },
                         MenuItem {
                             label: "Interleaved (lower first)",
                             description: Some("Treat the video as interlaced, with the lower field as the earlier frame."),
-                            index: UseField::InterleavedLower.to_u32().unwrap(),
+                            index: UseField::InterleavedLower as u32,
                         },
                         MenuItem {
                             label: "Both",
                             description: Some("Use all rows; don't skip any."),
-                            index: UseField::Both.to_u32().unwrap(),
+                            index: UseField::Both as u32,
                         },
                     ],
-                    default_value: default_settings.use_field.to_u32().unwrap(),
+                    default_value: default_settings.use_field as u32,
                 },
                 id: setting_id::USE_FIELD,
             },
@@ -628,15 +627,15 @@ impl SettingsList<NtscEffectFullSettings> {
                         MenuItem {
                             label: "Constant K (blurry)",
                             description: Some("Simple constant-k filter. Produces longer, blurry results."),
-                            index: FilterType::ConstantK.to_u32().unwrap(),
+                            index: FilterType::ConstantK as u32,
                         },
                         MenuItem {
                             label: "Butterworth (sharper)",
                             description: Some("Filter with a sharper falloff. Produces sharpened, less blurry results."),
-                            index: FilterType::Butterworth.to_u32().unwrap(),
+                            index: FilterType::Butterworth as u32,
                         },
                     ],
-                    default_value: default_settings.filter_type.to_u32().unwrap(),
+                    default_value: default_settings.filter_type as u32,
                 },
                 id: setting_id::FILTER_TYPE,
             },
@@ -648,20 +647,20 @@ impl SettingsList<NtscEffectFullSettings> {
                         MenuItem {
                             label: "Notch",
                             description: Some("Apply a notch filter to the input luminance signal. Sharp, but has ringing artifacts."),
-                            index: LumaLowpass::Notch.to_u32().unwrap(),
+                            index: LumaLowpass::Notch as u32,
                         },
                         MenuItem {
                             label: "Box",
                             description: Some("Apply a simple box filter to the input luminance signal."),
-                            index: LumaLowpass::Box.to_u32().unwrap(),
+                            index: LumaLowpass::Box as u32,
                         },
                         MenuItem {
                             label: "None",
                             description: Some("Do not filter the luminance signal. Adds rainbow artifacts."),
-                            index: LumaLowpass::None.to_u32().unwrap(),
+                            index: LumaLowpass::None as u32,
                         },
                     ],
-                    default_value: default_settings.input_luma_filter.to_u32().unwrap(),
+                    default_value: default_settings.input_luma_filter as u32,
                 },
                 id: setting_id::INPUT_LUMA_FILTER,
             },
@@ -673,20 +672,20 @@ impl SettingsList<NtscEffectFullSettings> {
                         MenuItem {
                             label: "Full",
                             description: Some("Full-intensity low-pass filter."),
-                            index: ChromaLowpass::Full.to_u32().unwrap(),
+                            index: ChromaLowpass::Full as u32,
                         },
                         MenuItem {
                             label: "Light",
                             description: Some("Less intense low-pass filter."),
-                            index: ChromaLowpass::Light.to_u32().unwrap(),
+                            index: ChromaLowpass::Light as u32,
                         },
                         MenuItem {
                             label: "None",
                             description: Some("No low-pass filter."),
-                            index: ChromaLowpass::None.to_u32().unwrap(),
+                            index: ChromaLowpass::None as u32,
                         },
                     ],
-                    default_value: default_settings.chroma_lowpass_in.to_u32().unwrap(),
+                    default_value: default_settings.chroma_lowpass_in as u32,
                 },
                 id: setting_id::CHROMA_LOWPASS_IN,
             },
@@ -756,25 +755,25 @@ impl SettingsList<NtscEffectFullSettings> {
                         MenuItem {
                             label: "0 degrees",
                             description: None,
-                            index: PhaseShift::Degrees0.to_u32().unwrap(),
+                            index: PhaseShift::Degrees0 as u32,
                         },
                         MenuItem {
                             label: "90 degrees",
                             description: None,
-                            index: PhaseShift::Degrees90.to_u32().unwrap(),
+                            index: PhaseShift::Degrees90 as u32,
                         },
                         MenuItem {
                             label: "180 degrees",
                             description: None,
-                            index: PhaseShift::Degrees180.to_u32().unwrap(),
+                            index: PhaseShift::Degrees180 as u32,
                         },
                         MenuItem {
                             label: "270 degrees",
                             description: None,
-                            index: PhaseShift::Degrees270.to_u32().unwrap(),
+                            index: PhaseShift::Degrees270 as u32,
                         },
                     ],
-                    default_value: default_settings.video_scanline_phase_shift.to_u32().unwrap(),
+                    default_value: default_settings.video_scanline_phase_shift as u32,
                 },
                 id: setting_id::VIDEO_SCANLINE_PHASE_SHIFT,
             },
@@ -795,25 +794,25 @@ impl SettingsList<NtscEffectFullSettings> {
                         MenuItem {
                             label: "Box",
                             description: Some("Simple horizontal box blur."),
-                            index: ChromaDemodulationFilter::Box.to_u32().unwrap()
+                            index: ChromaDemodulationFilter::Box as u32
                         },
                         MenuItem {
                             label: "Notch",
                             description: Some("Notch filter. Sharper than a box blur, but with ringing artifacts."),
-                            index: ChromaDemodulationFilter::Notch.to_u32().unwrap()
+                            index: ChromaDemodulationFilter::Notch as u32
                         },
                         MenuItem {
                             label: "1-line comb",
                             description: Some("Average the current row with the previous one, phase-cancelling the chrominance signals. Only works if the scanline phase shift is 180 degrees."),
-                            index: ChromaDemodulationFilter::OneLineComb.to_u32().unwrap()
+                            index: ChromaDemodulationFilter::OneLineComb as u32
                         },
                         MenuItem {
                             label: "2-line comb",
                             description: Some("Average the current row with the previous and next ones, phase-cancelling the chrominance signals. Only works if the scanline phase shift is 180 degrees."),
-                            index: ChromaDemodulationFilter::TwoLineComb.to_u32().unwrap()
+                            index: ChromaDemodulationFilter::TwoLineComb as u32
                         }
                     ],
-                    default_value: default_settings.chroma_demodulation.to_u32().unwrap(),
+                    default_value: default_settings.chroma_demodulation as u32,
                 },
                 id: setting_id::CHROMA_DEMODULATION,
             },
@@ -1044,17 +1043,17 @@ impl SettingsList<NtscEffectFullSettings> {
                                     MenuItem {
                                         label: "SP (Standard Play)",
                                         description: None,
-                                        index: VHSTapeSpeed::SP.to_u32().unwrap(),
+                                        index: VHSTapeSpeed::SP as u32,
                                     },
                                     MenuItem {
                                         label: "LP (Long Play)",
                                         description: None,
-                                        index: VHSTapeSpeed::LP.to_u32().unwrap(),
+                                        index: VHSTapeSpeed::LP as u32,
                                     },
                                     MenuItem {
                                         label: "EP (Extended Play)",
                                         description: None,
-                                        index: VHSTapeSpeed::EP.to_u32().unwrap(),
+                                        index: VHSTapeSpeed::EP as u32,
                                     },
                                     MenuItem {
                                         label: "None",
@@ -1062,7 +1061,7 @@ impl SettingsList<NtscEffectFullSettings> {
                                         index: 0,
                                     },
                                 ],
-                                default_value: default_settings.vhs_settings.settings.tape_speed.to_u32().unwrap(),
+                                default_value: default_settings.vhs_settings.settings.tape_speed as u32,
                             },
                             id: setting_id::VHS_TAPE_SPEED
                         },
@@ -1144,20 +1143,20 @@ impl SettingsList<NtscEffectFullSettings> {
                         MenuItem {
                             label: "Full",
                             description: Some("Full-intensity low-pass filter."),
-                            index: ChromaLowpass::Full.to_u32().unwrap(),
+                            index: ChromaLowpass::Full as u32,
                         },
                         MenuItem {
                             label: "Light",
                             description: Some("Less intense low-pass filter."),
-                            index: ChromaLowpass::Light.to_u32().unwrap(),
+                            index: ChromaLowpass::Light as u32,
                         },
                         MenuItem {
                             label: "None",
                             description: Some("No low-pass filter."),
-                            index: ChromaLowpass::None.to_u32().unwrap(),
+                            index: ChromaLowpass::None as u32,
                         },
                     ],
-                    default_value: default_settings.chroma_lowpass_out.to_u32().unwrap(),
+                    default_value: default_settings.chroma_lowpass_out as u32,
                 },
                 id: setting_id::CHROMA_LOWPASS_OUT,
             },
