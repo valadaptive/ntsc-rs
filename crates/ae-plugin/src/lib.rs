@@ -54,7 +54,7 @@ trait IDExt {
 
 impl<T: Settings> IDExt for SettingID<T> {
     fn ae_id(&self) -> i32 {
-        self.id.to_i32().unwrap() + 1
+        self.id as i32 + 1
     }
 }
 
