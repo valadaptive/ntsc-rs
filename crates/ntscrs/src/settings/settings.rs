@@ -400,7 +400,7 @@ impl From<GetSetFieldError> for ParseSettingsError {
 }
 
 /// Convenience trait for asserting the "shape" of the JSON we're parsing is what we expect.
-trait GetAndExpect {
+pub(super) trait GetAndExpect {
     fn get_and_expect<T: InnerAsRef + Clone>(
         &self,
         key: &str,
@@ -475,7 +475,7 @@ impl<T: Settings> SettingsList<T> {
 
     /// Recursive method for reading the settings within a given list of descriptors (either top-level or within a
     /// group) from a given JSON map and using them to update the given settings struct.
-    fn settings_from_json(
+    pub(super) fn settings_from_json(
         json: &HashMap<String, JsonValue>,
         descriptors: &[SettingDescriptor<T>],
         settings: &mut T,
@@ -525,7 +525,7 @@ impl<T: Settings> SettingsList<T> {
     }
 
     /// Parse settings from a given string of JSON and return a new settings struct.
-    pub fn from_json(&self, json: &str) -> Result<T, ParseSettingsError> {
+    pub fn from_json_generic(&self, json: &str) -> Result<T, ParseSettingsError> {
         let parsed = json.parse::<JsonValue>()?;
 
         let parsed_map = parsed.get::<HashMap<_, _>>().ok_or_else(|| {

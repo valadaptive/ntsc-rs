@@ -1,7 +1,12 @@
+use std::collections::HashMap;
+
 use crate::{impl_settings_for, settings::SettingsBlock, yiq_fielding::YiqField};
 use macros::FullSettings;
+use tinyjson::JsonValue;
 
-use super::{MenuItem, SettingDescriptor, SettingKind, SettingsList};
+use super::{
+    GetAndExpect, MenuItem, ParseSettingsError, SettingDescriptor, SettingKind, SettingsList,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive)]
 pub enum UseField {
@@ -1171,5 +1176,206 @@ impl SettingsList<NtscEffectFullSettings> {
         SettingsList {
             settings: v.into_boxed_slice(),
         }
+    }
+
+    pub fn from_json(&self, json: &str) -> Result<NtscEffectFullSettings, ParseSettingsError> {
+        let parsed = json.parse::<JsonValue>()?;
+
+        let parsed_map = parsed.get::<HashMap<_, _>>().ok_or_else(|| {
+            ParseSettingsError::InvalidSettingType {
+                key: "<root>".to_string(),
+                expected: "object",
+            }
+        })?;
+
+        if parsed_map.contains_key("_composite_preemphasis") {
+            return Self::from_ntscqt_json(parsed_map);
+        }
+
+        let version = parsed_map
+            .get_and_expect::<f64>("version")?
+            .ok_or_else(|| ParseSettingsError::MissingField { field: "version" })?;
+        if version != 1.0 {
+            return Err(ParseSettingsError::UnsupportedVersion { version });
+        }
+
+        let mut dst_settings = Default::default();
+        Self::settings_from_json(parsed_map, &self.settings, &mut dst_settings)?;
+
+        Ok(dst_settings)
+    }
+
+    pub fn from_ntscqt_json(
+        json: &HashMap<String, JsonValue>,
+    ) -> Result<NtscEffectFullSettings, ParseSettingsError> {
+        let mut settings = NtscEffectFullSettings::default();
+        settings.use_field = UseField::Upper;
+        settings.filter_type = FilterType::ConstantK;
+        settings.input_luma_filter = LumaLowpass::Box;
+        settings.chroma_lowpass_in = {
+            let in_lowpass = json
+                .get_and_expect::<bool>("_composite_in_chroma_lowpass")?
+                .unwrap_or_default();
+            if in_lowpass {
+                ChromaLowpass::Full
+            } else {
+                ChromaLowpass::None
+            }
+        };
+        settings.chroma_demodulation = ChromaDemodulationFilter::Box;
+        settings.luma_smear = 0.0;
+        settings.composite_preemphasis = json
+            .get_and_expect::<f64>("_composite_preemphasis")?
+            .unwrap_or_default() as f32;
+        settings.video_scanline_phase_shift = match json
+            .get_and_expect::<f64>("_video_scanline_phase_shift")?
+            .unwrap_or_default()
+        {
+            90.0 => PhaseShift::Degrees90,
+            180.0 => PhaseShift::Degrees180,
+            270.0 => PhaseShift::Degrees270,
+            _ => PhaseShift::Degrees0,
+        };
+        settings.video_scanline_phase_shift_offset = json
+            .get_and_expect::<f64>("_video_scanline_phase_shift_offset")?
+            .unwrap_or_default() as i32;
+        settings.head_switching = SettingsBlock {
+            enabled: json
+                .get_and_expect::<bool>("_vhs_head_switching")?
+                .unwrap_or_default(),
+            settings: HeadSwitchingSettingsFullSettings {
+                height: 6,
+                offset: 0,
+                horiz_shift: 6.0,
+                mid_line: SettingsBlock {
+                    enabled: false,
+                    settings: Default::default(),
+                },
+            },
+        };
+        settings.tracking_noise.enabled = false;
+        settings.composite_noise = SettingsBlock {
+            enabled: true,
+            settings: FbmNoiseSettings {
+                frequency: 0.1,
+                intensity: json
+                    .get_and_expect::<f64>("_video_noise")?
+                    .unwrap_or_default() as f32
+                    / 50000.0,
+                detail: 3,
+            },
+        };
+        settings.ringing = SettingsBlock {
+            enabled: true,
+            settings: {
+                let ringing2 = json
+                    .get_and_expect::<bool>("_enable_ringing2")?
+                    .unwrap_or_default();
+                if ringing2 {
+                    let power = json
+                        .get_and_expect::<f64>("_ringing_power")?
+                        .unwrap_or_default() as f32;
+                    let shift = json
+                        .get_and_expect::<f64>("_ringing_shift")?
+                        .unwrap_or_default() as f32;
+
+                    let frequency = ((shift * 0.75) + 0.25).clamp(0.0, 1.0);
+
+                    RingingSettings {
+                        frequency,
+                        power: 6.0,
+                        intensity: power * 0.1,
+                    }
+                } else {
+                    RingingSettings {
+                        frequency: json.get_and_expect::<f64>("_ringing")?.unwrap_or_default()
+                            as f32
+                            / 3.0,
+                        power: 5.0,
+                        intensity: 2.0,
+                    }
+                }
+            },
+        };
+        settings.luma_noise.enabled = false;
+        settings.chroma_noise = SettingsBlock {
+            enabled: true,
+            settings: FbmNoiseSettings {
+                frequency: 0.2,
+                intensity: (json
+                    .get_and_expect::<f64>("_video_chroma_noise")?
+                    .unwrap_or_default()
+                    * (0.4 / 16384.0)) as f32,
+                detail: 1,
+            },
+        };
+        settings.snow_intensity = 0.0;
+        settings.chroma_phase_noise_intensity = (json
+            .get_and_expect::<f64>("_video_chroma_phase_noise")?
+            .unwrap_or_default()
+            * 0.005) as f32;
+        settings.chroma_phase_error = 0.0;
+        settings.chroma_delay_horizontal = json
+            .get_and_expect::<f64>("_color_bleed_horiz")?
+            .unwrap_or_default() as f32;
+        settings.chroma_delay_vertical = json
+            .get_and_expect::<f64>("_color_bleed_vert")?
+            .unwrap_or_default() as i32;
+        settings.vhs_settings = SettingsBlock {
+            enabled: json
+                .get_and_expect::<bool>("_emulating_vhs")?
+                .unwrap_or_default(),
+            settings: VHSSettingsFullSettings {
+                tape_speed: match json.get_and_expect::<f64>("_output_vhs_tape_speed")? {
+                    Some(1.0) => VHSTapeSpeed::LP,
+                    Some(2.0) => VHSTapeSpeed::EP,
+                    _ => VHSTapeSpeed::SP,
+                },
+                chroma_loss: (json
+                    .get_and_expect::<f64>("_video_chroma_loss")?
+                    .unwrap_or_default()
+                    / 100000.0) as f32,
+                sharpen: SettingsBlock {
+                    enabled: true,
+                    settings: VHSSharpenSettings {
+                        intensity: json
+                            .get_and_expect::<f64>("_vhs_out_sharpen")?
+                            .unwrap_or_default() as f32,
+                        frequency: 1.0,
+                    },
+                },
+                edge_wave: SettingsBlock {
+                    enabled: true,
+                    settings: VHSEdgeWaveSettings {
+                        intensity: (json
+                            .get_and_expect::<f64>("_vhs_edge_wave")?
+                            .unwrap_or_default()
+                            * 0.5) as f32,
+                        speed: 10.0,
+                        frequency: 0.125,
+                        detail: 3,
+                    },
+                },
+            },
+        };
+        settings.chroma_vert_blend = json
+            .get_and_expect::<bool>("_vhs_chroma_vert_blend")?
+            .unwrap_or_default();
+        settings.chroma_lowpass_out = {
+            let chroma_lowpass_out = json
+                .get_and_expect::<bool>("_composite_out_chroma_lowpass")?
+                .unwrap_or_default();
+            let chroma_lowpass_out_lite = json
+                .get_and_expect::<bool>("_composite_out_chroma_lowpass_lite")?
+                .unwrap_or_default();
+            match (chroma_lowpass_out, chroma_lowpass_out_lite) {
+                (true, false) => ChromaLowpass::Full,
+                (true, true) => ChromaLowpass::Light,
+                _ => ChromaLowpass::None,
+            }
+        };
+        settings.bandwidth_scale = 1.0;
+
+        Ok(settings)
     }
 }

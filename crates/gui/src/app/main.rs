@@ -131,7 +131,9 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     .unwrap_or_default();
                 let easy_mode_settings = storage
                     .get_string("easy_mode_settings")
-                    .and_then(|saved_settings| settings_list_easy.from_json(&saved_settings).ok())
+                    .and_then(|saved_settings| {
+                        settings_list_easy.from_json_generic(&saved_settings).ok()
+                    })
                     .unwrap_or_default();
                 let easy_mode_enabled = storage
                     .get_string("easy_mode_enabled")

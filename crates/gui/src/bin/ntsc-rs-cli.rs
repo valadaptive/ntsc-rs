@@ -36,13 +36,13 @@ use gui::{
 };
 use ntscrs::{
     ntsc::NtscEffectFullSettings,
-    settings::{ParseSettingsError, Settings, SettingsList},
+    settings::{ParseSettingsError, SettingsList},
 };
 
-fn parse_settings<T: Settings>(
-    settings_list: &SettingsList<T>,
+fn parse_settings(
+    settings_list: &SettingsList<NtscEffectFullSettings>,
     json: &str,
-) -> Result<T, ParseSettingsError> {
+) -> Result<NtscEffectFullSettings, ParseSettingsError> {
     settings_list.from_json(json)
 }
 
