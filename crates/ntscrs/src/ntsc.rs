@@ -1,4 +1,5 @@
 use std::convert::identity;
+use std::sync::OnceLock;
 use std::{collections::VecDeque, ops::RangeInclusive};
 
 use core::f32::consts::PI;
@@ -15,6 +16,8 @@ use crate::{
 };
 
 pub use crate::settings::standard::*;
+
+static NUM_THREADS: OnceLock<Option<usize>> = OnceLock::new();
 
 // 315/88 Mhz rate * 4
 // TODO: why do we multiply by 4? composite-video-simulator does this for every filter and ntscqt defines NTSC_RATE the
@@ -1331,10 +1334,20 @@ impl NtscEffect {
     /// Apply the effect to YIQ image data.
     pub fn apply_effect_to_yiq(&self, yiq: &mut YiqView, frame_num: usize) {
         // On Windows debug builds, the stack overflows with the default stack size
-        let pool = rayon::ThreadPoolBuilder::new()
-            .stack_size(2 * 1024 * 1024)
-            .build()
-            .unwrap();
+        let mut pool = rayon::ThreadPoolBuilder::new().stack_size(2 * 1024 * 1024);
+
+        // Use physical core count instead of logical core count. Hyperthreading seems to be ~20-25% slower, at least on
+        // a Ryzen 7 7700X.
+        if let Some(num_threads) = *NUM_THREADS.get_or_init(|| {
+            if std::env::var("RAYON_NUM_THREADS").is_ok() {
+                return None;
+            }
+            Some(num_cpus::get_physical())
+        }) {
+            pool = pool.num_threads(num_threads);
+        }
+
+        let pool = pool.build().unwrap();
         pool.scope(|_| match yiq.field {
             YiqField::Upper | YiqField::Lower | YiqField::Both => {
                 self.apply_effect_to_yiq_field(yiq, frame_num);
