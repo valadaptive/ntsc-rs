@@ -58,7 +58,7 @@ struct LexerWrapper<'a> {
 }
 
 impl<'a> LexerWrapper<'a> {
-    fn new_from_str(string: &'a str) -> Result<LexerWrapper, ParseError> {
+    fn new_from_str(string: &'a str) -> Result<LexerWrapper<'a>, ParseError> {
         let mut lexer = Token::lexer(string);
         let cur = None;
         let next = lexer.next();
