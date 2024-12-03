@@ -32,6 +32,7 @@ pub trait F32x4:
 
     /// Safety:
     /// You must ensure that whatever flavor of SIMD vector you're creating is supported by the current CPU.
+    #[inline(always)]
     unsafe fn load4(src: &[f32; 4]) -> Self {
         Self::load(src.as_slice())
     }
@@ -42,12 +43,6 @@ pub trait F32x4:
 
     fn store(self, dst: &mut [f32]);
     fn store1(self, dst: &mut f32);
-
-    /// Safety:
-    /// You must ensure that whatever flavor of SIMD vector you're creating is supported by the current CPU.
-    unsafe fn zero() -> Self {
-        Self::set1(0.0)
-    }
 
     /// Safety:
     /// You must ensure that whatever flavor of SIMD vector you're creating is supported by the current CPU.
@@ -85,10 +80,6 @@ pub mod x86_64 {
 
     pub type AvxF32x4 = IntelF32x4<true>;
     pub type SseF32x4 = IntelF32x4<false>;
-
-    const fn _mm_shuffle(x: i32, y: i32, z: i32, w: i32) -> i32 {
-        (x << 0) | (y << 2) | (z << 4) | (w << 6)
-    }
 
     impl<const USE_AVX2: bool> From<__m128> for IntelF32x4<USE_AVX2> {
         #[inline(always)]
