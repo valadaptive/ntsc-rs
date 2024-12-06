@@ -73,24 +73,18 @@ impl AppExecutor {
 
         let mut queued = Vec::new();
 
-        exec.tasks.retain_mut(|task| {
-            if !task.is_finished() {
-                return true;
+        exec.tasks.retain_mut(|task| match task.poll(&mut context) {
+            Poll::Ready(cb) => {
+                trace!(
+                    "finished task on frame {}",
+                    exec.egui_ctx.cumulative_pass_nr()
+                );
+                if let Some(cb) = cb {
+                    queued.push(cb);
+                }
+                false
             }
-            trace!(
-                "finished task on frame {}",
-                exec.egui_ctx.cumulative_pass_nr()
-            );
-
-            let Poll::Ready(cb) = task.poll(&mut context) else {
-                panic!("task is finished but poll is not ready");
-            };
-
-            if let Some(cb) = cb {
-                queued.push(cb);
-            }
-
-            false
+            Poll::Pending => true,
         });
 
         queued
