@@ -288,12 +288,7 @@ impl NtscApp {
 
         let audio_sink = gstreamer::ElementFactory::make("autoaudiosink").build()?;
 
-        let tex = ctx.load_texture(
-            "preview",
-            egui::ColorImage::from_rgb([1, 1], &[0, 0, 0]),
-            egui::TextureOptions::LINEAR,
-        );
-        let tex_sink = SinkTexture::new(tex.clone());
+        let tex_sink = SinkTexture::new();
         let egui_ctx = EguiCtx(Some(ctx.clone()));
         let video_sink = gstreamer::ElementFactory::make("eguisink")
             .property("texture", tex_sink)
@@ -441,10 +436,9 @@ impl NtscApp {
             pipeline,
             state: pipeline_info_state,
             path,
-            egui_sink: video_sink,
+            egui_sink: video_sink.downcast::<elements::EguiSink>().unwrap(),
             at_eos,
             last_seek_pos: ClockTime::ZERO,
-            preview: tex,
             metadata,
         })
     }
@@ -1794,16 +1788,9 @@ impl NtscApp {
                                         return;
                                     };
 
-                                    let texture = {
-                                        let egui_sink =
-                                            egui_sink.downcast_ref::<elements::EguiSink>().unwrap();
-                                        let egui_sink = EguiSink::from_obj(egui_sink);
-                                        egui_sink.get_texture()
-                                    };
+                                    let texture = egui_sink.property::<SinkTexture>("texture");
 
-                                    let (Some(mut preview), true) =
-                                        (texture.handle, texture.rendered_at_least_once)
-                                    else {
+                                    let Some(mut preview) = texture.handle else {
                                         ui.add(egui::Spinner::new());
                                         return;
                                     };

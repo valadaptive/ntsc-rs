@@ -1,5 +1,5 @@
-use eframe::egui::{Context, Rect, TextureFilter, TextureOptions};
-use eframe::epaint::{Color32, ColorImage, TextureHandle};
+use eframe::egui::{ColorImage, Context, Rect, TextureFilter, TextureOptions};
+use eframe::epaint::{Color32, TextureHandle};
 use gstreamer::{glib, PadTemplate};
 use gstreamer::{prelude::*, Fraction};
 use gstreamer_video::subclass::prelude::*;
@@ -17,15 +17,13 @@ use super::process_gst_frame::process_gst_frame;
 pub struct SinkTexture {
     pub handle: Option<TextureHandle>,
     pub pixel_aspect_ratio: Option<Fraction>,
-    pub rendered_at_least_once: bool,
 }
 
 impl SinkTexture {
-    pub fn new(handle: TextureHandle) -> Self {
+    pub fn new() -> Self {
         Self {
-            handle: Some(handle),
+            handle: None,
             pixel_aspect_ratio: None,
-            rendered_at_least_once: false,
         }
     }
 }
@@ -42,7 +40,7 @@ pub enum EffectPreviewSetting {
 impl Debug for SinkTexture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SinkTexture")
-            .field("rendered_at_least_once", &self.rendered_at_least_once)
+            .field("pixel_aspect_ratio", &self.pixel_aspect_ratio)
             .finish()
     }
 }
@@ -112,10 +110,6 @@ impl EguiSink {
         Ok(image)
     }
 
-    pub fn get_texture(&self) -> SinkTexture {
-        self.texture.lock().unwrap().clone()
-    }
-
     pub fn update_texture(&self) -> Result<(), gstreamer::FlowError> {
         let mut tex = self.texture.lock().unwrap();
         let vframe = self.last_frame.lock().unwrap();
@@ -154,18 +148,24 @@ impl EguiSink {
             }
         }
 
-        tex.handle.as_mut().ok_or(gstreamer::FlowError::Error)?.set(
-            image,
-            TextureOptions {
-                magnification: TextureFilter::Nearest,
-                minification: TextureFilter::Linear,
-                ..Default::default()
-            },
-        );
-        tex.rendered_at_least_once = true;
-        if let Some(ctx) = &self.ctx.lock().unwrap().0 {
-            ctx.request_repaint();
+        let Some(ctx) = &self.ctx.lock().unwrap().0 else {
+            return Err(gstreamer::FlowError::Error);
+        };
+
+        let options = TextureOptions {
+            magnification: TextureFilter::Nearest,
+            minification: TextureFilter::Linear,
+            ..Default::default()
+        };
+        match &mut tex.handle {
+            Some(handle) => {
+                handle.set(image, options);
+            }
+            None => {
+                tex.handle = Some(ctx.load_texture("preview", image, options));
+            }
         }
+        ctx.request_repaint();
 
         Ok(())
     }
@@ -240,7 +240,7 @@ impl VideoSinkImpl for EguiSink {
         let mut last_frame = self.last_frame.lock().unwrap();
         let should_rerender = match last_frame.as_ref() {
             Some((last, last_frame_num)) => {
-                last.buffer() != buffer.as_ref() || *last_frame_num != frame_num
+                *last_frame_num != frame_num || last.buffer() != buffer.as_ref()
             }
             None => true,
         };

@@ -3,11 +3,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use eframe::egui;
 use gstreamer::ClockTime;
 use gstreamer_video::VideoInterlaceMode;
 
 use crate::gst_utils::{
+    elements::EguiSink,
     gstreamer_error::GstreamerError,
     ntsc_pipeline::{NtscPipeline, PipelineError},
 };
@@ -32,9 +32,8 @@ pub struct PipelineInfo {
     pub pipeline: NtscPipeline,
     pub state: Arc<Mutex<PipelineStatus>>,
     pub path: PathBuf,
-    pub egui_sink: gstreamer::Element,
+    pub egui_sink: EguiSink,
     pub last_seek_pos: ClockTime,
-    pub preview: egui::TextureHandle,
     pub at_eos: Arc<Mutex<bool>>,
     pub metadata: Arc<Mutex<PipelineMetadata>>,
 }
