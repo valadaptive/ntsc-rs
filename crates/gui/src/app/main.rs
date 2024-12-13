@@ -1049,7 +1049,6 @@ impl NtscApp {
                         });
                     });
 
-
                     let Self {
                         settings_list,
                         effect_settings,

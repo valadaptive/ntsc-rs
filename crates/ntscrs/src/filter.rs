@@ -1,11 +1,9 @@
-use std::mem::MaybeUninit;
-
 use crate::f32x4::{get_supported_simd_type, F32x4, SupportedSimdType};
 
 /// Multiplies two polynomials (lowest coefficients first).
 /// Note that this function does not trim trailing zero coefficients--see below for that.
 /// This is how filters are multiplied--a transfer function is a fraction of polynomials.
-pub fn polynomial_multiply(a: &[f32], b: &[f32]) -> Vec<f32> {
+fn polynomial_multiply(a: &[f32], b: &[f32]) -> Vec<f32> {
     let degree = a.len() + b.len() - 1;
 
     let mut out = vec![0f32; degree];
@@ -28,30 +26,15 @@ fn trim_zeros(input: &[f32]) -> &[f32] {
     &input[0..=end]
 }
 
-// TODO: this is a copy of Rust's each_mut, which was stabilized in 1.77.
-// We should probably just use that function.
-fn each_mut<T, const N: usize>(arr: &mut [T; N]) -> [&mut T; N] {
-    // Unlike in `map`, we don't need a guard here, as dropping a reference
-    // is a noop.
-    let mut out = unsafe { MaybeUninit::<[MaybeUninit<&mut T>; N]>::uninit().assume_init() };
-    for (src, dst) in arr.iter_mut().zip(&mut out) {
-        dst.write(src);
-    }
-
-    // SAFETY: All elements of `dst` are properly initialized and
-    // `MaybeUninit<T>` has the same layout as `T`, so this cast is valid.
-    unsafe { (&mut out as *mut _ as *mut [&mut T; N]).read() }
-}
-
 /// Rational transfer function for an IIR filter in the z-transform domain.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct TransferFunction {
     /// Coefficients for the numerator polynomial. Padded with trailing zeros to match the number of coefficients
     /// in the denominator.
-    pub num: Vec<f32>,
+    num: Vec<f32>,
     /// Coefficients for the denominator polynomial.
-    pub den: Vec<f32>,
+    den: Vec<f32>,
 }
 
 impl TransferFunction {
@@ -68,7 +51,9 @@ impl TransferFunction {
 
         // Resize to 4 so we can use the SIMD implementation. This is faster than the scalar implementation, even if
         // we only use 2 coefficients.
-        if den.len() == 2 || den.len() == 3 {
+        if get_supported_simd_type() != SupportedSimdType::None
+            && (den.len() == 2 || den.len() == 3)
+        {
             den.resize(4, 0.0);
         }
 
@@ -255,7 +240,7 @@ impl TransferFunction {
         z_rows.iter_mut().zip(initial).for_each(|(z, initial)| {
             *z = self.initial_condition(initial).try_into().unwrap();
         });
-        let z_rows_ref = each_mut::<[f32; SIZE], ROWS>(&mut z_rows).map(|z| z.as_mut_slice());
+        let z_rows_ref = z_rows.each_mut().map(|z| z.as_mut_slice());
 
         Self::filter_signal_in_place_impl::<ROWS>(
             signal, &self.num, &self.den, z_rows_ref, scale, delay,
@@ -282,11 +267,7 @@ impl TransferFunction {
         scale: f32,
         delay: usize,
     ) {
-        let mut z_rows = [[0f32; 4]; ROWS];
-        z_rows.iter_mut().zip(initial).for_each(|(z, initial)| {
-            *z = self.initial_condition(initial).try_into().unwrap();
-        });
-        let mut z = z_rows;
+        let mut z = initial.map(|initial| S::load(&self.initial_condition(initial)));
 
         let mut num: [f32; 4] = [0f32; 4];
         num.copy_from_slice(&self.num);
@@ -298,13 +279,13 @@ impl TransferFunction {
         let den = S::load(&den);
         let scale_b = S::set1(scale);
         let width = signal[0].len();
+        let is_unit_scale = scale == 1.0;
 
         for i in 0..(width + delay) {
             for j in 0..ROWS {
-                let mut zmm = S::load4(&z[j]);
-                // Either the loop bound extending past items.len() or the min() call seems to prevent the optimizer from
-                // determining that we're in-bounds here. Since i.min(items.len() - 1) never exceeds items.len() - 1 by
-                // definition, this is safe.
+                let mut zmm = z[j];
+                // While the compiler cannot elide this bounds check in the scalar version either, here it is probably
+                // also because it doesn't know that each row of the signal has the same length.
                 let sample = S::load1(signal[j].get_unchecked(i.min(width - 1)));
                 let filt_sample = num.mul_add(sample, zmm).swizzle(0, 0, 0, 0);
 
@@ -318,11 +299,17 @@ impl TransferFunction {
                 // Zero out the last element
                 zmm = zmm.insert::<3>(0.0);
 
-                zmm.store(&mut z[j]);
+                z[j] = zmm;
 
                 if i >= delay {
-                    let samp_diff = filt_sample - sample;
-                    let final_samp = samp_diff.mul_add(scale_b, sample);
+                    // If the filter scale is 1.0, we can skip scaling the sample. Either this branch is easily
+                    // predicted or hoisted by the compiler, and this is ~4.5% faster.
+                    let final_samp = if is_unit_scale {
+                        filt_sample
+                    } else {
+                        let samp_diff = filt_sample - sample;
+                        samp_diff.mul_add(scale_b, sample)
+                    };
                     final_samp.store1(signal[j].get_unchecked_mut(i - delay));
                 }
             }
@@ -402,6 +389,12 @@ impl TransferFunction {
         delay: usize,
     ) {
         let filter_len = usize::max(self.num.len(), self.den.len());
+
+        // Ensure the chunks are actually of equal length
+        let width = signal[0].len();
+        for i in 1..ROWS {
+            assert_eq!(signal[i].len(), width);
+        }
 
         if filter_len == 4 {
             #[cfg(target_arch = "x86_64")]
