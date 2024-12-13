@@ -1173,7 +1173,7 @@ impl<'a> EffectApplicationParams<'a> {
     }
 }
 
-impl<'a> EffectStorageParams<'a> {
+impl EffectStorageParams<'_> {
     unsafe fn write_to_output<D: PixelFormat>(mut self) -> OfxResult<()> {
         let dstHeight = (self.dst_bounds.y2 - self.dst_bounds.y1) as usize;
         let srcWidth = (self.src_bounds.x2 - self.src_bounds.x1) as usize;

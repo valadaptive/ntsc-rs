@@ -42,7 +42,7 @@ impl<'a> SplitScreen<'a> {
     }
 }
 
-impl<'a> Widget for SplitScreen<'a> {
+impl Widget for SplitScreen<'_> {
     fn ui(self, ui: &mut egui::Ui) -> egui::Response {
         let desired_size = ui.available_size();
 

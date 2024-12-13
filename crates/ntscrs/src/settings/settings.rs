@@ -1,13 +1,13 @@
+//! This is used to dynamically inform API consumers of the settings that can be passed to ntsc-rs. This lets various
+//! UIs and effect plugins to query this set of settings and display them in their preferred format without having to
+//! duplicate a bunch of code.
+// TODO: replace with a bunch of metaprogramming macro magic?
+
 use std::{
     collections::HashMap, error::Error, fmt::Display, marker::PhantomData, ops::RangeInclusive,
 };
 
 use tinyjson::{InnerAsRef, JsonParseError, JsonValue};
-
-/// This is used to dynamically inform API consumers of the settings that can be passed to ntsc-rs. This lets various
-/// UIs and effect plugins to query this set of settings and display them in their preferred format without having to
-/// duplicate a bunch of code.
-// TODO: replace with a bunch of metaprogramming macro magic?
 
 // These are the individual setting definitions. The descriptions of what they do are included below, so I mostly won't
 // repeat them here.

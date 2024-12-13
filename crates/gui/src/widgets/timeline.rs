@@ -189,7 +189,7 @@ fn make_cursor_shape(
     })
 }
 
-impl<'a> Widget for Timeline<'a> {
+impl Widget for Timeline<'_> {
     fn ui(mut self, ui: &mut egui::Ui) -> egui::Response {
         let old_value = get(&mut self.get_set_value);
 

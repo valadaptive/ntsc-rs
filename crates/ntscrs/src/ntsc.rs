@@ -652,11 +652,7 @@ fn head_switching(
     // Handle cases where the number of affected rows exceeds the number of actual rows in the image
     let start_row = height.max(num_affected_rows) - num_affected_rows;
     let affected_rows = &mut yiq.y[start_row * width..];
-    let cut_off_rows = if num_affected_rows > height {
-        num_affected_rows - height
-    } else {
-        0
-    };
+    let cut_off_rows = num_affected_rows.saturating_sub(height);
 
     let seeder = Seeder::new(info.seed)
         .mix(noise_seeds::HEAD_SWITCHING)
@@ -815,11 +811,7 @@ fn tracking_noise(
 
     // Handle cases where the number of affected rows exceeds the number of actual rows in the image
     let start_row = height.max(num_rows) - num_rows;
-    let cut_off_rows = if num_rows > height {
-        num_rows - height
-    } else {
-        0
-    };
+    let cut_off_rows = num_rows.saturating_sub(height);
     let affected_rows = &mut yiq.y[start_row * width..];
     let scratch_rows = &mut yiq.scratch[start_row * width..];
 

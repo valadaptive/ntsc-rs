@@ -1194,7 +1194,7 @@ impl SettingsList<NtscEffectFullSettings> {
 
         let version = parsed_map
             .get_and_expect::<f64>("version")?
-            .ok_or_else(|| ParseSettingsError::MissingField { field: "version" })?;
+            .ok_or(ParseSettingsError::MissingField { field: "version" })?;
         if version != 1.0 {
             return Err(ParseSettingsError::UnsupportedVersion { version });
         }

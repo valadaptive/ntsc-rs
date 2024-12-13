@@ -13,7 +13,7 @@ static WORKSPACE_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 /// Return the path to the root Cargo workspace, even if we're in a subcrate.
 pub fn workspace_dir() -> &'static Path {
-    return WORKSPACE_DIR.get_or_init(|| {
+    WORKSPACE_DIR.get_or_init(|| {
         let output = std::process::Command::new(env!("CARGO"))
             .arg("locate-project")
             .arg("--workspace")
@@ -23,7 +23,7 @@ pub fn workspace_dir() -> &'static Path {
             .stdout;
         let cargo_path = Path::new(std::str::from_utf8(&output).unwrap().trim());
         cargo_path.parent().unwrap().to_path_buf()
-    });
+    })
 }
 
 pub trait PathBufExt {
