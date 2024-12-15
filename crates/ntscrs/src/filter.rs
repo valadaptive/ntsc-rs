@@ -396,76 +396,50 @@ impl TransferFunction {
             assert_eq!(signal[i].len(), width);
         }
 
-        if filter_len == 4 {
-            #[cfg(target_arch = "x86_64")]
-            match get_supported_simd_type() {
-                SupportedSimdType::Sse41 => {
-                    unsafe {
-                        self.filter_signal_dispatch_sse41::<ROWS>(signal, initial, scale, delay);
-                    }
-                    return;
+        match filter_len {
+            // Specialize fixed-size implementations for filter sizes 1-8
+            1 => self.filter_signal_in_place_fixed_size::<1, ROWS>(signal, initial, scale, delay),
+            2 => self.filter_signal_in_place_fixed_size::<2, ROWS>(signal, initial, scale, delay),
+            3 => self.filter_signal_in_place_fixed_size::<3, ROWS>(signal, initial, scale, delay),
+            // Use SIMD implementation for filters of length 4, if possible
+            4 => match get_supported_simd_type() {
+                #[cfg(target_arch = "x86_64")]
+                SupportedSimdType::Sse41 => unsafe {
+                    self.filter_signal_dispatch_sse41::<ROWS>(signal, initial, scale, delay)
+                },
+                #[cfg(target_arch = "x86_64")]
+                SupportedSimdType::Avx2 => unsafe {
+                    self.filter_signal_dispatch_avx2::<ROWS>(signal, initial, scale, delay)
+                },
+                #[cfg(target_arch = "aarch64")]
+                SupportedSimdType::Neon => unsafe {
+                    self.filter_signal_dispatch_neon::<ROWS>(signal, initial, scale, delay)
+                },
+                SupportedSimdType::None => {
+                    self.filter_signal_in_place_fixed_size::<4, ROWS>(signal, initial, scale, delay)
                 }
-                SupportedSimdType::Avx2 => {
-                    unsafe {
-                        self.filter_signal_dispatch_avx2::<ROWS>(signal, initial, scale, delay);
-                    }
-                    return;
-                }
-                _ => {}
-            }
-
-            #[cfg(target_arch = "aarch64")]
-            if get_supported_simd_type() == SupportedSimdType::Neon {
-                unsafe {
-                    self.filter_signal_dispatch_neon::<ROWS>(signal, initial, scale, delay);
-                }
-                return;
-            }
-
-            self.filter_signal_in_place_fixed_size::<4, ROWS>(signal, initial, scale, delay);
-        } else {
-            match filter_len {
-                // Specialize fixed-size implementations for filter sizes 1-8
-                1 => {
-                    self.filter_signal_in_place_fixed_size::<1, ROWS>(signal, initial, scale, delay)
-                }
-                2 => {
-                    self.filter_signal_in_place_fixed_size::<2, ROWS>(signal, initial, scale, delay)
-                }
-                3 => {
-                    self.filter_signal_in_place_fixed_size::<3, ROWS>(signal, initial, scale, delay)
-                }
-                // 4 is covered in the branch above
-                5 => {
-                    self.filter_signal_in_place_fixed_size::<5, ROWS>(signal, initial, scale, delay)
-                }
-                6 => {
-                    self.filter_signal_in_place_fixed_size::<6, ROWS>(signal, initial, scale, delay)
-                }
-                7 => {
-                    self.filter_signal_in_place_fixed_size::<7, ROWS>(signal, initial, scale, delay)
-                }
-                8 => {
-                    self.filter_signal_in_place_fixed_size::<8, ROWS>(signal, initial, scale, delay)
-                }
-                _ => {
-                    // Fall back to the general-length implementation
-                    let mut z: [Vec<f32>; ROWS] = initial
-                        .into_iter()
-                        .map(|init| self.initial_condition(init))
-                        .collect::<Vec<Vec<_>>>()
-                        .try_into()
-                        .unwrap();
-                    let z: [&mut [f32]; ROWS] = z
-                        .iter_mut()
-                        .map(|z| z.as_mut_slice())
-                        .collect::<Vec<_>>()
-                        .try_into()
-                        .unwrap();
-                    Self::filter_signal_in_place_impl::<ROWS>(
-                        signal, &self.num, &self.den, z, scale, delay,
-                    );
-                }
+            },
+            5 => self.filter_signal_in_place_fixed_size::<5, ROWS>(signal, initial, scale, delay),
+            6 => self.filter_signal_in_place_fixed_size::<6, ROWS>(signal, initial, scale, delay),
+            7 => self.filter_signal_in_place_fixed_size::<7, ROWS>(signal, initial, scale, delay),
+            8 => self.filter_signal_in_place_fixed_size::<8, ROWS>(signal, initial, scale, delay),
+            _ => {
+                // Fall back to the general-length implementation
+                let mut z: [Vec<f32>; ROWS] = initial
+                    .into_iter()
+                    .map(|init| self.initial_condition(init))
+                    .collect::<Vec<Vec<_>>>()
+                    .try_into()
+                    .unwrap();
+                let z: [&mut [f32]; ROWS] = z
+                    .iter_mut()
+                    .map(|z| z.as_mut_slice())
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .unwrap();
+                Self::filter_signal_in_place_impl::<ROWS>(
+                    signal, &self.num, &self.den, z, scale, delay,
+                )
             }
         }
     }
