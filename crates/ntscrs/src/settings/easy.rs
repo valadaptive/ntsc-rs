@@ -509,7 +509,7 @@ impl From<&EasyModeFullSettings> for NtscEffectFullSettings {
             chroma_lowpass_in: ChromaLowpass::None,
             chroma_demodulation: easy_settings.chroma_demodulation_filter,
             luma_smear: easy_settings.luma_smear,
-            composite_preemphasis: easy_settings.saturation,
+            composite_sharpening: easy_settings.saturation,
             video_scanline_phase_shift: PhaseShift::Degrees180,
             video_scanline_phase_shift_offset: 0,
             head_switching: SettingsBlock {

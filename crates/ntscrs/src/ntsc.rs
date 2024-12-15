@@ -1,4 +1,5 @@
 use std::convert::identity;
+use std::f32::consts::FRAC_1_SQRT_2;
 use std::sync::OnceLock;
 use std::{collections::VecDeque, ops::RangeInclusive};
 
@@ -71,16 +72,22 @@ pub fn make_notch_filter(freq: f32, quality: f32) -> TransferFunction {
 
 /// Create a 2nd-order Butterworth filter.
 pub fn make_butterworth_filter(cutoff: f32, rate: f32) -> TransferFunction {
-    let coeffs = biquad::Coefficients::<f32>::from_params(
-        biquad::Type::LowPass,
-        biquad::Hertz::<f32>::from_hz(rate).unwrap(),
-        biquad::Hertz::<f32>::from_hz(cutoff.min(rate * 0.5)).unwrap(),
-        biquad::Q_BUTTERWORTH_F32,
-    )
-    .unwrap();
+    // Adapted from biquad-rs
+    // https://github.com/korken89/biquad-rs/blob/aebd893a5c7e84ed1941b28b417cdbd1f3f530ae/src/coefficients.rs#L142
+    let freq = (2.0 * cutoff).min(rate) / rate;
+    let freq = freq * PI;
+    let (omega_s, omega_c) = freq.sin_cos();
+    let q_value = FRAC_1_SQRT_2;
+    let alpha = omega_s / (2.0 * q_value);
+    let gain = (1.0 + alpha).recip();
+
     TransferFunction::new(
-        [coeffs.b0, coeffs.b1, coeffs.b2],
-        [1.0, coeffs.a1, coeffs.a2],
+        [
+            (1.0 - omega_c) * 0.5 * gain,
+            (1.0 - omega_c) * gain,
+            (1.0 - omega_c) * 0.5 * gain,
+        ],
+        [1.0, -2.0 * omega_c * gain, (1.0 - alpha) * gain],
     )
 }
 
@@ -1067,7 +1074,7 @@ impl NtscEffect {
             self.video_scanline_phase_shift_offset,
         );
 
-        if self.composite_preemphasis != 0.0 {
+        if self.composite_sharpening != 0.0 {
             let preemphasis_filter = make_lowpass(
                 (315000000.0 / 88.0 / 2.0) * self.bandwidth_scale,
                 NTSC_RATE * self.bandwidth_scale,
@@ -1077,7 +1084,7 @@ impl NtscEffect {
                 width,
                 &preemphasis_filter,
                 InitialCondition::Zero,
-                -self.composite_preemphasis,
+                -self.composite_sharpening,
                 0,
             );
         }

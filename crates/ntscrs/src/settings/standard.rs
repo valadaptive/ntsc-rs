@@ -259,7 +259,7 @@ pub mod setting_id {
     type NtscSettingID = SettingID<NtscEffectFullSettings>;
 
     pub const CHROMA_LOWPASS_IN: NtscSettingID = SettingID::new(0, "chroma_lowpass_in");
-    pub const COMPOSITE_PREEMPHASIS: NtscSettingID = SettingID::new(1, "composite_preemphasis");
+    pub const COMPOSITE_SHARPENING: NtscSettingID = SettingID::new(1, "composite_preemphasis");
     pub const VIDEO_SCANLINE_PHASE_SHIFT: NtscSettingID = SettingID::new(2, "video_scanline_phase_shift");
     pub const VIDEO_SCANLINE_PHASE_SHIFT_OFFSET: NtscSettingID = SettingID::new(3, "video_scanline_phase_shift_offset");
     pub const COMPOSITE_NOISE_INTENSITY: NtscSettingID = SettingID::new(4, "composite_noise_intensity");
@@ -329,7 +329,7 @@ pub struct NtscEffect {
     pub chroma_lowpass_in: ChromaLowpass,
     pub chroma_demodulation: ChromaDemodulationFilter,
     pub luma_smear: f32,
-    pub composite_preemphasis: f32,
+    pub composite_sharpening: f32,
     pub video_scanline_phase_shift: PhaseShift,
     pub video_scanline_phase_shift_offset: i32,
     #[settings_block(nested)]
@@ -368,7 +368,7 @@ impl Default for NtscEffect {
             chroma_demodulation: ChromaDemodulationFilter::Notch,
             luma_smear: 0.5,
             chroma_lowpass_out: ChromaLowpass::Full,
-            composite_preemphasis: 1.0,
+            composite_sharpening: 1.0,
             video_scanline_phase_shift: PhaseShift::Degrees180,
             video_scanline_phase_shift_offset: 0,
             head_switching: Some(HeadSwitchingSettings::default()),
@@ -405,7 +405,7 @@ impl Default for NtscEffect {
 impl_settings_for!(
     NtscEffectFullSettings,
     (setting_id::CHROMA_LOWPASS_IN, chroma_lowpass_in, IS_AN_ENUM),
-    (setting_id::COMPOSITE_PREEMPHASIS, composite_preemphasis),
+    (setting_id::COMPOSITE_SHARPENING, composite_sharpening),
     (
         setting_id::VIDEO_SCANLINE_PHASE_SHIFT,
         video_scanline_phase_shift,
@@ -671,7 +671,7 @@ impl SettingsList<NtscEffectFullSettings> {
             },
             SettingDescriptor {
                 label: "Chroma low-pass in",
-                description: Some("Apply a low-pass filter to the input chroma signal."),
+                description: Some("Apply a low-pass filter to the input chrominance (color) signal."),
                 kind: SettingKind::Enumeration {
                     options: vec![
                         MenuItem {
@@ -695,18 +695,18 @@ impl SettingsList<NtscEffectFullSettings> {
                 id: setting_id::CHROMA_LOWPASS_IN,
             },
             SettingDescriptor {
-                label: "Composite preemphasis",
+                label: "Composite signal sharpening",
                 description: Some("Boost high frequencies in the NTSC signal, sharpening the image and intensifying colors."),
                 kind: SettingKind::FloatRange {
                     range: -1.0..=2.0,
                     logarithmic: false,
-                    default_value: default_settings.composite_preemphasis,
+                    default_value: default_settings.composite_sharpening,
                 },
-                id: setting_id::COMPOSITE_PREEMPHASIS,
+                id: setting_id::COMPOSITE_SHARPENING,
             },
 
             SettingDescriptor {
-                label: "Composite noise",
+                label: "Composite signal noise",
                 description: Some("Noise applied to the composite NTSC signal."),
                 kind: SettingKind::Group {
                     children: vec![
@@ -754,7 +754,7 @@ impl SettingsList<NtscEffectFullSettings> {
             },
             SettingDescriptor {
                 label: "Scanline phase shift",
-                description: Some("Phase shift of the chrominance signal each scanline. Usually 180 degrees."),
+                description: Some("Phase shift of the chrominance (color) signal each scanline. Usually 180 degrees."),
                 kind: SettingKind::Enumeration {
                     options: vec![
                         MenuItem {
@@ -808,12 +808,12 @@ impl SettingsList<NtscEffectFullSettings> {
                         },
                         MenuItem {
                             label: "1-line comb",
-                            description: Some("Average the current row with the previous one, phase-cancelling the chrominance signals. Only works if the scanline phase shift is 180 degrees."),
+                            description: Some("Average the current row with the previous one, phase-cancelling the chrominance (color) signals. Only works if the scanline phase shift is 180 degrees."),
                             index: ChromaDemodulationFilter::OneLineComb as u32
                         },
                         MenuItem {
                             label: "2-line comb",
-                            description: Some("Average the current row with the previous and next ones, phase-cancelling the chrominance signals. Only works if the scanline phase shift is 180 degrees."),
+                            description: Some("Average the current row with the previous and next ones, phase-cancelling the chrominance (color) signals. Only works if the scanline phase shift is 180 degrees."),
                             index: ChromaDemodulationFilter::TwoLineComb as u32
                         }
                     ],
@@ -972,7 +972,7 @@ impl SettingsList<NtscEffectFullSettings> {
             },
             SettingDescriptor {
                 label: "Chroma noise",
-                description: Some("Noise applied to the chrominance signal."),
+                description: Some("Noise applied to the chrominance (color) signal."),
                 kind: SettingKind::Group {
                     children: vec![
                         SettingDescriptor {
@@ -1000,7 +1000,7 @@ impl SettingsList<NtscEffectFullSettings> {
             },
             SettingDescriptor {
                 label: "Chroma phase error",
-                description: Some("Phase error for the chrominance signal."),
+                description: Some("Phase error for the chrominance (color) signal."),
                 kind: SettingKind::Percentage {
                     logarithmic: false,
                     default_value: default_settings.chroma_phase_error,
@@ -1009,7 +1009,7 @@ impl SettingsList<NtscEffectFullSettings> {
             },
             SettingDescriptor {
                 label: "Chroma phase noise",
-                description: Some("Noise applied per-scanline to the phase of the chrominance signal."),
+                description: Some("Noise applied per-scanline to the phase of the chrominance (color) signal."),
                 kind: SettingKind::Percentage {
                     logarithmic: true,
                     default_value: default_settings.chroma_phase_noise_intensity,
@@ -1018,7 +1018,7 @@ impl SettingsList<NtscEffectFullSettings> {
             },
             SettingDescriptor {
                 label: "Chroma delay (horizontal)",
-                description: Some("Horizontal offset of the chrominance signal."),
+                description: Some("Horizontal offset of the chrominance (color) signal."),
                 kind: SettingKind::FloatRange {
                     range: -40.0..=40.0,
                     logarithmic: false,
@@ -1028,7 +1028,7 @@ impl SettingsList<NtscEffectFullSettings> {
             },
             SettingDescriptor {
                 label: "Chroma delay (vertical)",
-                description: Some("Vertical offset of the chrominance signal. Usually increases with VHS generation loss."),
+                description: Some("Vertical offset of the chrominance (color) signal. Usually increases with VHS generation loss."),
                 kind: SettingKind::IntRange {
                     range: -20..=20,
                     default_value: default_settings.chroma_delay_vertical,
@@ -1072,7 +1072,7 @@ impl SettingsList<NtscEffectFullSettings> {
                         },
                         SettingDescriptor {
                             label: "Chroma loss",
-                            description: Some("Chance that the chrominance signal is completely lost in each scanline."),
+                            description: Some("Chance that the chrominance (color) signal is completely lost in each scanline."),
                             kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.vhs_settings.settings.chroma_loss },
                             id: setting_id::VHS_CHROMA_LOSS
                         },
@@ -1224,7 +1224,7 @@ impl SettingsList<NtscEffectFullSettings> {
         };
         settings.chroma_demodulation = ChromaDemodulationFilter::Box;
         settings.luma_smear = 0.0;
-        settings.composite_preemphasis = json
+        settings.composite_sharpening = json
             .get_and_expect::<f64>("_composite_preemphasis")?
             .unwrap_or_default() as f32;
         settings.video_scanline_phase_shift = match json
