@@ -22,7 +22,7 @@ use crate::{
 };
 
 use super::{
-    error::{ApplicationError, CreatePipelineSnafu, CreateRenderJobSnafu},
+    error::{ApplicationError, CreatePipelineSnafu, CreateRenderJobSnafu, RenderJobPipelineSnafu},
     executor::ApplessExecutor,
     render_settings::{
         Ffv1BitDepth, H264Settings, PngSettings, RenderInterlaceMode, RenderPipelineCodec,
@@ -36,6 +36,7 @@ pub struct RenderJobProgress {
     pub progress: f64,
     pub position: Option<ClockTime>,
     pub duration: Option<ClockTime>,
+    pub estimated_time_remaining: Option<f64>,
 }
 
 #[derive(Debug, Clone)]
@@ -57,7 +58,7 @@ pub struct RenderJob {
     progress_samples: VecDeque<(f64, f64)>,
     pub start_time: Option<f64>,
     pause_time: Option<f64>,
-    pub estimated_time_remaining: Option<f64>,
+    estimated_completion_time: Option<f64>,
     waker: Arc<Mutex<Option<Waker>>>,
 }
 
@@ -76,7 +77,7 @@ impl RenderJob {
             progress_samples: VecDeque::new(),
             start_time: None,
             pause_time: None,
-            estimated_time_remaining: None,
+            estimated_completion_time: None,
             waker,
         }
     }
@@ -495,13 +496,14 @@ impl RenderJob {
             RenderJobState::Complete { .. } => (1.0, None, None),
         };
 
-        if matches!(
-            job_state,
-            RenderJobState::Rendering | RenderJobState::Waiting
-        ) {
-            let current_time = ctx.current_time();
+        let estimated_time_remaining = if let RenderJobState::Rendering = job_state {
+            let now = ctx.current_time();
+            let current_time = now;
             self.update_estimated_time_remaining(progress, current_time);
-        }
+            self.estimated_completion_time.map(|eta| eta - now)
+        } else {
+            None
+        };
 
         self.last_progress = progress;
 
@@ -509,10 +511,11 @@ impl RenderJob {
             progress,
             position: job_position,
             duration: job_duration,
+            estimated_time_remaining,
         }
     }
 
-    pub fn update_estimated_time_remaining(&mut self, progress: f64, current_time: f64) {
+    fn update_estimated_time_remaining(&mut self, progress: f64, current_time: f64) {
         const NUM_PROGRESS_SAMPLES: usize = 5;
         const PROGRESS_SAMPLE_TIME_DELTA: f64 = 1.0;
 
@@ -537,23 +540,40 @@ impl RenderJob {
                 let time_estimate = (current_time - old_sample_time) / (progress - old_progress)
                     + self.start_time.unwrap();
                 if time_estimate.is_finite() {
-                    self.estimated_time_remaining = Some((time_estimate - current_time).max(0.0));
+                    self.estimated_completion_time = Some(time_estimate);
                 }
             }
         }
     }
 
-    pub fn set_pause_time(&mut self, time: f64) {
+    pub fn pause_at_time(&mut self, time: f64) -> Result<(), ApplicationError> {
+        self.pipeline
+            .set_state(gstreamer::State::Paused)
+            .map_err(GstreamerError::from)
+            .context(RenderJobPipelineSnafu)?;
+
         self.pause_time = Some(time);
+
+        Ok(())
     }
 
-    pub fn resume_at_time(&mut self, time: f64) {
+    pub fn resume_at_time(&mut self, time: f64) -> Result<(), ApplicationError> {
+        self.pipeline
+            .set_state(gstreamer::State::Playing)
+            .map_err(GstreamerError::from)
+            .context(RenderJobPipelineSnafu)?;
+
         let pause_time = self.pause_time.unwrap_or_default();
         let time_paused = time - pause_time;
         self.start_time = Some(self.start_time.unwrap_or_default() + time_paused);
         for (_, timestamp) in &mut self.progress_samples {
             *timestamp += time_paused;
         }
+        if let Some(estimated_completion_time) = self.estimated_completion_time.as_mut() {
+            *estimated_completion_time += time_paused;
+        }
+
+        Ok(())
     }
 }
 

@@ -2,14 +2,10 @@ use std::borrow::Cow;
 
 use eframe::egui::{self, InnerResponse, Response};
 use gstreamer::ClockTime;
-use snafu::ResultExt;
 
-use crate::{
-    app::{
-        error::{ApplicationError, RenderJobPipelineSnafu},
-        render_job::{RenderJob, RenderJobProgress, RenderJobState},
-    },
-    gst_utils::gstreamer_error::GstreamerError,
+use crate::app::{
+    error::ApplicationError,
+    render_job::{RenderJob, RenderJobProgress, RenderJobState},
 };
 
 pub struct RenderJobWidget<'a> {
@@ -51,6 +47,7 @@ impl RenderJobWidget<'_> {
                         progress,
                         position: job_position,
                         duration: job_duration,
+                        estimated_time_remaining,
                     } = job.update_progress(ui.ctx());
 
                     ui.horizontal(|ui| {
@@ -61,25 +58,13 @@ impl RenderJobWidget<'_> {
                                 RenderJobState::Rendering => {
                                     if ui.button("⏸").clicked() {
                                         let current_time = ui.ctx().input(|input| input.time);
-                                        job.set_pause_time(current_time);
-                                        error = job
-                                            .pipeline
-                                            .set_state(gstreamer::State::Paused)
-                                            .map_err(GstreamerError::from)
-                                            .context(RenderJobPipelineSnafu)
-                                            .err();
+                                        error = job.pause_at_time(current_time).err();
                                     }
                                 }
                                 RenderJobState::Paused => {
                                     if ui.button("▶").clicked() {
                                         let current_time = ui.ctx().input(|input| input.time);
-                                        job.resume_at_time(current_time);
-                                        error = job
-                                            .pipeline
-                                            .set_state(gstreamer::State::Playing)
-                                            .map_err(GstreamerError::from)
-                                            .context(RenderJobPipelineSnafu)
-                                            .err();
+                                        error = job.resume_at_time(current_time).err();
                                     }
                                 }
                                 _ => {}
@@ -128,7 +113,7 @@ impl RenderJobWidget<'_> {
                         job_state,
                         RenderJobState::Rendering | RenderJobState::Paused
                     ) {
-                        if let Some(time_remaining) = job.estimated_time_remaining {
+                        if let Some(time_remaining) = estimated_time_remaining {
                             let time_remaining = time_remaining.ceil();
                             ui.label(format!("Time remaining: {time_remaining:.0} seconds"));
                         }

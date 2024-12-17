@@ -516,7 +516,6 @@ impl CliOutput {
                     };
                     if is_in_progress {
                         let progress = job.update_progress(inner);
-                        let eta = job.estimated_time_remaining;
 
                         inner.term.clear_line()?;
                         inner.term.hide_cursor()?;
@@ -529,7 +528,7 @@ impl CliOutput {
                                 position,
                                 duration,
                                 progress.progress,
-                                eta,
+                                progress.estimated_time_remaining,
                             )?;
                         }
 
