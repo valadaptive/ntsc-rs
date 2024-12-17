@@ -3,7 +3,9 @@ extern crate embed_resource;
 
 fn main() {
     if env::var_os("CARGO_CFG_WINDOWS").is_some() {
-        embed_resource::compile("icon.rc", embed_resource::NONE);
+        embed_resource::compile("icon.rc", embed_resource::NONE)
+            .manifest_required()
+            .unwrap();
     }
 
     if env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "macos") {

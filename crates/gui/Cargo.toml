@@ -9,10 +9,10 @@ repository = "https://github.com/valadaptive/ntsc-rs/tree/main/crates/gui"
 [dependencies]
 ntscrs = { path = "../ntscrs" }
 arboard = "3.4.0"
-eframe = { version = "0.29", features = ["persistence"] }
+eframe = { version = "0.30", features = ["persistence"] }
 env_logger = "0.11.3"
 snafu = "0.8.3"
-logos = "0.14"
+logos = "0.15"
 gstreamer = {version = "0.23", features = ["serde"]}
 gstreamer-base = "0.23"
 gstreamer-video = "0.23"
@@ -31,7 +31,7 @@ color-eyre = "0.6.3"
 console = "0.15.8"
 
 [build-dependencies]
-embed-resource = "2.4"
+embed-resource = "3.0.1"
 
 [[bin]]
 name = "ntsc-rs-standalone"
