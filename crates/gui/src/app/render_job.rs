@@ -63,6 +63,11 @@ pub struct RenderJob {
 }
 
 impl RenderJob {
+    const NUM_PROGRESS_SAMPLES: usize = 5;
+    const PROGRESS_SAMPLE_TIME_DELTA: f64 = 1.0;
+    /// Only update the ETA if it's this many seconds longer than the current one.
+    const PROGRESS_ETA_HYSTERESIS: f64 = 1.0;
+
     fn new(
         settings: RenderPipelineSettings,
         pipeline: NtscPipeline,
@@ -500,7 +505,10 @@ impl RenderJob {
             let now = ctx.current_time();
             let current_time = now;
             self.update_estimated_time_remaining(progress, current_time);
-            self.estimated_completion_time.map(|eta| eta - now)
+            // You would think that to compensate for the estimated completion time potentially being fast, we would
+            // need to *add* the hysteresis value back in, but for some reason we need to subtract it
+            self.estimated_completion_time
+                .map(|eta| (eta - now - Self::PROGRESS_ETA_HYSTERESIS).max(0.0))
         } else {
             None
         };
@@ -516,12 +524,9 @@ impl RenderJob {
     }
 
     fn update_estimated_time_remaining(&mut self, progress: f64, current_time: f64) {
-        const NUM_PROGRESS_SAMPLES: usize = 5;
-        const PROGRESS_SAMPLE_TIME_DELTA: f64 = 1.0;
-
         let most_recent_sample = self.progress_samples.back().copied();
         let should_update_estimate = if let Some((_, sample_time)) = most_recent_sample {
-            current_time - sample_time > PROGRESS_SAMPLE_TIME_DELTA
+            current_time - sample_time > Self::PROGRESS_SAMPLE_TIME_DELTA
         } else {
             true
         };
@@ -530,7 +535,7 @@ impl RenderJob {
                 self.start_time = Some(current_time);
             }
             let new_sample = (progress, current_time);
-            let oldest_sample = if self.progress_samples.len() >= NUM_PROGRESS_SAMPLES {
+            let oldest_sample = if self.progress_samples.len() >= Self::NUM_PROGRESS_SAMPLES {
                 self.progress_samples.pop_front()
             } else {
                 self.progress_samples.front().copied()
@@ -540,7 +545,25 @@ impl RenderJob {
                 let time_estimate = (current_time - old_sample_time) / (progress - old_progress)
                     + self.start_time.unwrap();
                 if time_estimate.is_finite() {
-                    self.estimated_completion_time = Some(time_estimate);
+                    let should_update_estimate = match self.estimated_completion_time {
+                        // We want to avoid the countdown flickering up and down. There would sometimes be cases where
+                        // the countdown ticks down a second, the ETA is recalculated and is 0.1 seconds longer, the
+                        // countdown ticks back up to the next second for that 0.1s, then it ticks back down. We can
+                        // avoid this by doing hysteresis: if the calculated ETA is close enough to the one we
+                        // calculated last time, don't update it. However, we don't want to get stuck with whatever
+                        // random sample happens to first fall within the hysteresis range. So, we allow calculated
+                        // ETAs that are earlier than the current one by *any* amount, or longer by the hysteresis
+                        // threshold amount. This biases the countdown and makes it lose about a second by ticking a
+                        // bit fast, but is relatively consistent.
+                        Some(eta) => {
+                            !(0.0..Self::PROGRESS_ETA_HYSTERESIS).contains(&(time_estimate - eta))
+                        }
+                        None => true,
+                    };
+
+                    if should_update_estimate {
+                        self.estimated_completion_time = Some(time_estimate);
+                    }
                 }
             }
         }
