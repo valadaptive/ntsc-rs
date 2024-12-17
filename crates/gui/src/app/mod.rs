@@ -12,6 +12,7 @@ pub mod app_state;
 pub mod dnd_overlay;
 pub mod error;
 pub mod executor;
+pub mod format_eta;
 pub mod layout_helper;
 pub mod license_dialog;
 pub mod main;

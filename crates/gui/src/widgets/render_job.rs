@@ -5,6 +5,7 @@ use gstreamer::ClockTime;
 
 use crate::app::{
     error::ApplicationError,
+    format_eta::format_eta,
     render_job::{RenderJob, RenderJobProgress, RenderJobState},
 };
 
@@ -114,8 +115,18 @@ impl RenderJobWidget<'_> {
                         RenderJobState::Rendering | RenderJobState::Paused
                     ) {
                         if let Some(time_remaining) = estimated_time_remaining {
-                            let time_remaining = time_remaining.ceil();
-                            ui.label(format!("Time remaining: {time_remaining:.0} seconds"));
+                            let mut label = String::from("Time remaining: ");
+                            format_eta(
+                                &mut label,
+                                time_remaining,
+                                [
+                                    [" hour", " hours"],
+                                    [" minute", " minutes"],
+                                    [" second", " seconds"],
+                                ],
+                                ", ",
+                            );
+                            ui.label(&label);
                         }
                     }
                 });

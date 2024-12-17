@@ -21,6 +21,7 @@ use gstreamer::ClockTime;
 use gui::{
     app::{
         executor::ApplessExecutor,
+        format_eta::format_eta,
         render_job::{RenderJob, RenderJobState, SharedRenderJob},
         render_settings::{
             Ffv1BitDepth, Ffv1Settings, H264Settings, OutputCodec, RenderInterlaceMode,
@@ -568,11 +569,15 @@ impl CliOutput {
             duration,
             progress * 100.0
         );
-        if let Some(eta) = eta {
-            write!(progress_text, " | {:>4.0} seconds remaining", eta).unwrap();
-        } else {
-            write!(progress_text, " |    ? seconds remaining").unwrap();
-        }
+        let eta = match eta {
+            Some(eta) => {
+                let mut label = String::new();
+                format_eta(&mut label, eta, [["h", "h"], ["m", "m"], ["s", "s"]], "");
+                label
+            }
+            None => String::from("?"),
+        };
+        write!(progress_text, " | {:>6}", eta).unwrap();
         let truncated_text = truncate_str(&progress_text, width, "…");
         let remaining_width = width
             .saturating_sub(measure_text_width(&truncated_text))
