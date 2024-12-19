@@ -7,6 +7,7 @@ use gstreamer::{
     query::Duration,
     ClockTime, Pipeline,
 };
+use gstreamer_pbutils::MissingPluginMessage;
 use gstreamer_video::{VideoCapsBuilder, VideoInterlaceMode};
 use log::debug;
 use serde::{Deserialize, Serialize};
@@ -27,6 +28,10 @@ struct ErrorValue(Arc<Mutex<Option<GstreamerError>>>);
 #[derive(Debug, Clone)]
 pub enum PipelineError {
     GlibError(glib::Error),
+    MissingPluginError {
+        description: Option<glib::GString>,
+        source: glib::Error,
+    },
     NoVideoError,
 }
 
@@ -34,6 +39,10 @@ impl Display for PipelineError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::GlibError(e) => e.fmt(f),
+            Self::MissingPluginError { description, .. } => match description {
+                Some(description) => write!(f, "Missing a GStreamer plugin: {description}"),
+                None => write!(f, "Missing a GStreamer plugin"),
+            },
             Self::NoVideoError => f.write_str("Pipeline source has no video"),
         }
     }
@@ -43,6 +52,7 @@ impl Error for PipelineError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::GlibError(e) => Some(e),
+            Self::MissingPluginError { source, .. } => Some(source),
             Self::NoVideoError => None,
         }
     }
@@ -420,9 +430,13 @@ impl NtscPipeline {
             .expect("Pipeline without bus. Shouldn't happen!");
 
         let finished_loading = AtomicBool::new(false);
+        let missing_plugin_message = Mutex::new(None);
         let handler_callback = Mutex::new(callback);
         bus.set_sync_handler(move |bus, msg| {
             if !finished_loading.load(std::sync::atomic::Ordering::SeqCst) {
+                if let Ok(m) = MissingPluginMessage::parse(msg) {
+                    *missing_plugin_message.lock().unwrap() = Some(m.description());
+                }
                 match msg.view() {
                     gstreamer::MessageView::AsyncDone(a) => {
                         if let Some(pipeline) = a
@@ -447,8 +461,19 @@ impl NtscPipeline {
                         }
                     }
                     gstreamer::MessageView::Error(e) => {
+                        let source_err = e.error();
+                        let err = if let Some(gstreamer::CoreError::MissingPlugin) =
+                            source_err.kind::<gstreamer::CoreError>()
+                        {
+                            PipelineError::MissingPluginError {
+                                description: missing_plugin_message.lock().unwrap().take(),
+                                source: source_err,
+                            }
+                        } else {
+                            PipelineError::GlibError(source_err)
+                        };
                         if let Some(callback) = handler_callback.lock().unwrap().take() {
-                            callback(Err(PipelineError::GlibError(e.error())));
+                            callback(Err(err));
                         }
                         finished_loading.store(true, std::sync::atomic::Ordering::SeqCst);
                     }

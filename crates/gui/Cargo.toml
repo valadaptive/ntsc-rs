@@ -16,6 +16,7 @@ logos = "0.15"
 gstreamer = {version = "0.23", features = ["serde"]}
 gstreamer-base = "0.23"
 gstreamer-video = "0.23"
+gstreamer-pbutils = "0.23"
 futures-lite = "2.3.0"
 async-executor = "1.12.0"
 log = "0.4.20"
