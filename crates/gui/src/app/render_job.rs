@@ -300,7 +300,7 @@ impl RenderJob {
                 elems.push(video_convert);
 
                 if settings_video_closure.interlacing != RenderInterlaceMode::Progressive
-                    && !matches!(interlace_mode, Some(VideoInterlaceMode::Progressive))
+                    && matches!(interlace_mode, Some(VideoInterlaceMode::Progressive))
                 {
                     // Load the interlace plugin so the enum class exists. Nothing seems to work except actually instantiating an Element.
                     let _ = gstreamer::ElementFactory::make("interlace")
