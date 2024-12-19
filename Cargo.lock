@@ -4211,8 +4211,7 @@ checksum = "d66dc143e6b11c1eddc06d5c423cfc97062865baf299914ab64caa38182078fe"
 [[package]]
 name = "simdeez"
 version = "2.0.0-dev4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7273e470ad225d46f1f0a169813500a7fdf7bf823eceda3d9b04d0fe13b5867a"
+source = "git+https://github.com/valadaptive/simdeez?rev=132cb8e#132cb8e4002c9ace9a3c8831b57d1a6e48555905"
 dependencies = [
  "cfg-if",
  "paste",
@@ -4221,7 +4220,7 @@ dependencies = [
 [[package]]
 name = "simdnoise"
 version = "3.1.7"
-source = "git+https://github.com/valadaptive/rust-simd-noise?rev=965175f#965175f2ad1e92162de951fc536e49cb91961bcd"
+source = "git+https://github.com/valadaptive/rust-simd-noise?rev=e5d6174#e5d617498dee5bfce5488e88929a0c9104b0b158"
 dependencies = [
  "simdeez",
 ]

@@ -9,7 +9,7 @@ repository = "https://github.com/valadaptive/ntsc-rs/tree/main/crates/ntscrs"
 glam = "0.29.2"
 rand = { version = "0.8.5", default-features = false }
 rand_xoshiro = "0.6.0"
-simdnoise = { git = "https://github.com/valadaptive/rust-simd-noise", rev = "965175f" }
+simdnoise = { git = "https://github.com/valadaptive/rust-simd-noise", rev = "e5d6174" }
 num-traits = "0.2"
 macros = {path = "../macros"}
 siphasher = "1.0.0"
