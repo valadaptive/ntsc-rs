@@ -532,6 +532,7 @@ fn video_noise_line(
         // Yes, they got the lacunarity backwards by making it apply to frequency instead of scale.
         // 2.0 *halves* the scale each time because it doubles the frequency.
         .with_lacunarity(2.0)
+        .with_gain(1.0)
         .generate_into(scratch);
 
     row.iter_mut().enumerate().for_each(|(x, pixel)| {
