@@ -1195,24 +1195,30 @@ impl NtscApp {
                 });
 
                 if save_file {
-                    let mut dialog_path = &self.render_settings.output_path;
-                    if dialog_path.components().next().is_none() {
-                        if let Some(PipelineInfo { path, .. }) = &self.pipeline {
-                            dialog_path = path;
-                        }
-                    }
+                    let output_path = self.render_settings.output_path.as_path();
                     let mut file_dialog = rfd::AsyncFileDialog::new().set_parent(frame);
 
-                    if dialog_path.components().next().is_some() {
-                        if let Some(parent) = dialog_path.parent() {
+                    if output_path.as_os_str().is_empty() {
+                        // By default, name the output file [source filename]_ntsc.[ext] and put it in the same
+                        // directory as the source file.
+                        if let Some(PipelineInfo { path: source_path, .. }) = &self.pipeline {
+                            if let Some(parent) = source_path.parent() {
+                                file_dialog = file_dialog.set_directory(parent);
+                            }
+                            if let Some(file_stem) = source_path.file_stem() {
+                                file_dialog = file_dialog.set_file_name(format!(
+                                    "{}_ntsc.{}",
+                                    file_stem.to_string_lossy(),
+                                    self.render_settings.output_codec.extension()
+                                ));
+                            }
+                        }
+                    } else {
+                        if let Some(parent) = output_path.parent() {
                             file_dialog = file_dialog.set_directory(parent);
                         }
-                        if let Some(file_name) = dialog_path.file_stem() {
-                            file_dialog = file_dialog.set_file_name(format!(
-                                "{}_ntsc.{}",
-                                file_name.to_string_lossy(),
-                                self.render_settings.output_codec.extension()
-                            ));
+                        if let Some(file_name) = output_path.file_name() {
+                            file_dialog = file_dialog.set_file_name(file_name.to_string_lossy());
                         }
                     }
 
