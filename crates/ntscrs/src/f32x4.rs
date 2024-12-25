@@ -467,14 +467,186 @@ pub mod aarch64 {
     }
 }
 
+pub mod wasm32 {
+    use std::{
+        arch::wasm32::{
+            f32x4_add, f32x4_div, f32x4_mul, f32x4_replace_lane, f32x4_splat, f32x4_sub,
+            i8x16_swizzle, u8x16, v128, v128_load, v128_store, v128_store32_lane,
+        },
+        fmt::Debug,
+        ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign},
+    };
+
+    use super::F32x4;
+
+    #[derive(Clone, Copy, Debug)]
+    #[repr(transparent)]
+    pub struct WasmF32x4(v128);
+
+    impl From<v128> for WasmF32x4 {
+        #[inline(always)]
+        fn from(src: v128) -> Self {
+            WasmF32x4(src)
+        }
+    }
+
+    impl From<WasmF32x4> for v128 {
+        #[inline(always)]
+        fn from(src: WasmF32x4) -> Self {
+            src.0
+        }
+    }
+
+    impl Add for WasmF32x4 {
+        type Output = Self;
+
+        #[inline(always)]
+        fn add(self, rhs: Self) -> Self::Output {
+            f32x4_add(self.into(), rhs.into()).into()
+        }
+    }
+
+    impl Sub for WasmF32x4 {
+        type Output = Self;
+
+        #[inline(always)]
+        fn sub(self, rhs: Self) -> Self::Output {
+            f32x4_sub(self.into(), rhs.into()).into()
+        }
+    }
+
+    impl Mul for WasmF32x4 {
+        type Output = Self;
+
+        #[inline(always)]
+        fn mul(self, rhs: Self) -> Self::Output {
+            f32x4_mul(self.into(), rhs.into()).into()
+        }
+    }
+
+    impl Div for WasmF32x4 {
+        type Output = Self;
+
+        #[inline(always)]
+        fn div(self, rhs: Self) -> Self::Output {
+            f32x4_div(self.into(), rhs.into()).into()
+        }
+    }
+
+    impl AddAssign for WasmF32x4 {
+        #[inline(always)]
+        fn add_assign(&mut self, rhs: Self) {
+            *self = *self + rhs;
+        }
+    }
+
+    impl SubAssign for WasmF32x4 {
+        #[inline(always)]
+        fn sub_assign(&mut self, rhs: Self) {
+            *self = *self - rhs;
+        }
+    }
+
+    impl MulAssign for WasmF32x4 {
+        #[inline(always)]
+        fn mul_assign(&mut self, rhs: Self) {
+            *self = *self * rhs;
+        }
+    }
+
+    impl DivAssign for WasmF32x4 {
+        #[inline(always)]
+        fn div_assign(&mut self, rhs: Self) {
+            *self = *self / rhs;
+        }
+    }
+
+    impl F32x4 for WasmF32x4 {
+        unsafe fn load(src: &[f32]) -> Self {
+            v128_load(src[0..4].as_ptr() as _).into()
+        }
+
+        unsafe fn load1(src: &f32) -> Self {
+            f32x4_splat(*src).into()
+        }
+
+        fn store(self, dst: &mut [f32]) {
+            // SAFETY: the range operator ensures that the slice is at least 4 elements long
+            unsafe { v128_store(dst[0..4].as_mut_ptr() as _, self.into()) };
+        }
+
+        fn store1(self, dst: &mut f32) {
+            unsafe { v128_store32_lane::<0>(self.into(), dst as *mut f32 as *mut _) };
+        }
+
+        unsafe fn set1(src: f32) -> Self {
+            f32x4_splat(src).into()
+        }
+
+        fn mul_add(self, a: Self, b: Self) -> Self {
+            (self * a) + b
+        }
+
+        fn mul_sub(self, a: Self, b: Self) -> Self {
+            (self * a) - b
+        }
+
+        fn neg_mul_add(self, a: Self, b: Self) -> Self {
+            b - (self * a)
+        }
+
+        fn neg_mul_sub(self, a: Self, b: Self) -> Self {
+            (unsafe { Self::set1(0.0) } - (self * a)) - b
+        }
+
+        fn swizzle(self, x: i32, y: i32, z: i32, w: i32) -> Self {
+            assert!((x | y | z | w) & !3 == 0, "Invalid swizzle indices");
+            let x = (x << 2) as u8;
+            let y = (y << 2) as u8;
+            let z = (z << 2) as u8;
+            let w = (w << 2) as u8;
+            unsafe {
+                let indexes = u8x16(
+                    x + 0,
+                    x + 1,
+                    x + 2,
+                    x + 3,
+                    y + 0,
+                    y + 1,
+                    y + 2,
+                    y + 3,
+                    z + 0,
+                    z + 1,
+                    z + 2,
+                    z + 3,
+                    w + 0,
+                    w + 1,
+                    w + 2,
+                    w + 3,
+                );
+                i8x16_swizzle(self.into(), indexes).into()
+            }
+        }
+
+        fn insert<const INDEX: i32>(self, value: f32) -> Self {
+            // Unlike the Intel and ARM SIMD ops, WASM takes a usize as the lane index! Thanks Rust!!!
+            match INDEX {
+                0 => f32x4_replace_lane::<0>(self.into(), value).into(),
+                1 => f32x4_replace_lane::<1>(self.into(), value).into(),
+                2 => f32x4_replace_lane::<2>(self.into(), value).into(),
+                3 => f32x4_replace_lane::<3>(self.into(), value).into(),
+                _ => panic!("Invalid insert index"),
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SupportedSimdType {
-    #[cfg(target_arch = "x86_64")]
     Avx2,
-    #[cfg(target_arch = "x86_64")]
     Sse41,
-    #[cfg(target_arch = "aarch64")]
     Neon,
+    Wasm,
     None,
 }
 
@@ -484,21 +656,22 @@ pub fn get_supported_simd_type() -> SupportedSimdType {
     *SUPPORTED_SIMD_TYPE.get_or_init(|| {
         #[cfg(target_arch = "x86_64")]
         {
-            if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+            return if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
                 SupportedSimdType::Avx2
             } else if is_x86_feature_detected!("sse4.1") {
                 SupportedSimdType::Sse41
             } else {
                 SupportedSimdType::None
-            }
+            };
         }
         #[cfg(target_arch = "aarch64")]
         {
-            SupportedSimdType::Neon
+            return SupportedSimdType::Neon;
         }
-        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+        #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
         {
-            SupportedSimdType::None
+            return SupportedSimdType::Wasm;
         }
+        SupportedSimdType::None
     })
 }

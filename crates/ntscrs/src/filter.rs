@@ -370,6 +370,23 @@ impl TransferFunction {
         }
     }
 
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    /// Process the signal using WASM SIMD intrinsics.
+    unsafe fn filter_signal_dispatch_wasm<const ROWS: usize>(
+        &self,
+        signal: &mut [&mut [f32]; ROWS],
+        initial: [f32; ROWS],
+        scale: f32,
+        delay: usize,
+    ) {
+        use crate::f32x4::wasm32::WasmF32x4;
+        unsafe {
+            self.filter_signal_in_place_fixed_size_simdx4::<WasmF32x4, ROWS>(
+                signal, initial, scale, delay,
+            );
+        }
+    }
+
     /// Filter a signal in-place, modifying the given slice.
     /// # Type parameters
     /// - `ROWS` - The number of rows to process at once. This makes SIMD faster by removing loop-carried dependencies:
@@ -415,7 +432,11 @@ impl TransferFunction {
                 SupportedSimdType::Neon => unsafe {
                     self.filter_signal_dispatch_neon::<ROWS>(signal, initial, scale, delay)
                 },
-                SupportedSimdType::None => {
+                #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+                SupportedSimdType::Wasm => unsafe {
+                    self.filter_signal_dispatch_wasm::<ROWS>(signal, initial, scale, delay)
+                },
+                _ => {
                     self.filter_signal_in_place_fixed_size::<4, ROWS>(signal, initial, scale, delay)
                 }
             },

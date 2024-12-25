@@ -7,6 +7,7 @@ use std::{
     collections::HashMap, error::Error, fmt::Display, marker::PhantomData, ops::RangeInclusive,
 };
 
+pub use tinyjson;
 use tinyjson::{InnerAsRef, JsonParseError, JsonValue};
 
 // These are the individual setting definitions. The descriptions of what they do are included below, so I mostly won't

@@ -1331,24 +1331,8 @@ impl NtscEffect {
         };
     }
 
-    /// Apply the effect to YIQ image data.
-    pub fn apply_effect_to_yiq(&self, yiq: &mut YiqView, frame_num: usize) {
-        // On Windows debug builds, the stack overflows with the default stack size
-        let mut pool = rayon::ThreadPoolBuilder::new().stack_size(2 * 1024 * 1024);
-
-        // Use physical core count instead of logical core count. Hyperthreading seems to be ~20-25% slower, at least on
-        // a Ryzen 7 7700X.
-        if let Some(num_threads) = *NUM_THREADS.get_or_init(|| {
-            if std::env::var("RAYON_NUM_THREADS").is_ok() {
-                return None;
-            }
-            Some(num_cpus::get_physical())
-        }) {
-            pool = pool.num_threads(num_threads);
-        }
-
-        let pool = pool.build().unwrap();
-        pool.scope(|_| match yiq.field {
+    fn apply_effect_to_all_fields(&self, yiq: &mut YiqView, frame_num: usize) {
+        match yiq.field {
             YiqField::Upper | YiqField::Lower | YiqField::Both => {
                 self.apply_effect_to_yiq_field(yiq, frame_num);
             }
@@ -1382,7 +1366,36 @@ impl NtscEffect {
                     self.apply_effect_to_yiq_field(yiq_lower, frame_num_lower);
                 }
             }
-        })
+        }
+    }
+
+    /// Apply the effect to YIQ image data.
+    pub fn apply_effect_to_yiq(&self, yiq: &mut YiqView, frame_num: usize) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // On Windows debug builds, the stack overflows with the default stack size
+            let mut pool = rayon::ThreadPoolBuilder::new().stack_size(2 * 1024 * 1024);
+
+            // Use physical core count instead of logical core count. Hyperthreading seems to be ~20-25% slower, at least on
+            // a Ryzen 7 7700X.
+            if let Some(num_threads) = *NUM_THREADS.get_or_init(|| {
+                if std::env::var("RAYON_NUM_THREADS").is_ok() {
+                    return None;
+                }
+                Some(num_cpus::get_physical())
+            }) {
+                pool = pool.num_threads(num_threads);
+            }
+
+            let pool = pool.build().unwrap();
+            pool.scope(|_| self.apply_effect_to_both_fields(yiq, frame_num));
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            // wasm-bindgen-rayon doesn't support custom thread pools
+            // https://github.com/RReverser/wasm-bindgen-rayon/issues/18
+            self.apply_effect_to_all_fields(yiq, frame_num);
+        }
     }
 
     /// Apply the effect to a buffer which contains pixels in the given format.
