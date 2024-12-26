@@ -467,6 +467,7 @@ pub mod aarch64 {
     }
 }
 
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
 pub mod wasm32 {
     use std::{
         arch::wasm32::{
@@ -641,6 +642,7 @@ pub mod wasm32 {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SupportedSimdType {
     Avx2,
@@ -653,6 +655,7 @@ pub enum SupportedSimdType {
 static SUPPORTED_SIMD_TYPE: OnceLock<SupportedSimdType> = OnceLock::new();
 
 pub fn get_supported_simd_type() -> SupportedSimdType {
+    #[allow(unreachable_code)]
     *SUPPORTED_SIMD_TYPE.get_or_init(|| {
         #[cfg(target_arch = "x86_64")]
         {

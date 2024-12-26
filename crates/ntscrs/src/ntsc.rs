@@ -1388,7 +1388,7 @@ impl NtscEffect {
             }
 
             let pool = pool.build().unwrap();
-            pool.scope(|_| self.apply_effect_to_both_fields(yiq, frame_num));
+            pool.scope(|_| self.apply_effect_to_all_fields(yiq, frame_num));
         }
         #[cfg(target_arch = "wasm32")]
         {
