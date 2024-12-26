@@ -786,7 +786,7 @@ impl SettingsList<NtscEffectFullSettings> {
                 label: "Scanline phase shift offset",
                 description: None,
                 kind: SettingKind::IntRange {
-                    range: 0..=4,
+                    range: 0..=3,
                     default_value: default_settings.video_scanline_phase_shift_offset,
                 },
                 id: setting_id::VIDEO_SCANLINE_PHASE_SHIFT_OFFSET,
