@@ -606,27 +606,25 @@ pub mod wasm32 {
             let y = (y << 2) as u8;
             let z = (z << 2) as u8;
             let w = (w << 2) as u8;
-            unsafe {
-                let indexes = u8x16(
-                    x + 0,
-                    x + 1,
-                    x + 2,
-                    x + 3,
-                    y + 0,
-                    y + 1,
-                    y + 2,
-                    y + 3,
-                    z + 0,
-                    z + 1,
-                    z + 2,
-                    z + 3,
-                    w + 0,
-                    w + 1,
-                    w + 2,
-                    w + 3,
-                );
-                i8x16_swizzle(self.into(), indexes).into()
-            }
+            let indexes = u8x16(
+                x + 0,
+                x + 1,
+                x + 2,
+                x + 3,
+                y + 0,
+                y + 1,
+                y + 2,
+                y + 3,
+                z + 0,
+                z + 1,
+                z + 2,
+                z + 3,
+                w + 0,
+                w + 1,
+                w + 2,
+                w + 3,
+            );
+            i8x16_swizzle(self.into(), indexes).into()
         }
 
         fn insert<const INDEX: i32>(self, value: f32) -> Self {

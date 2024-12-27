@@ -1,7 +1,6 @@
-use std::convert::identity;
-use std::f32::consts::FRAC_1_SQRT_2;
-use std::sync::OnceLock;
-use std::{collections::VecDeque, ops::RangeInclusive};
+use std::{
+    collections::VecDeque, convert::identity, f32::consts::FRAC_1_SQRT_2, ops::RangeInclusive,
+};
 
 use core::f32::consts::PI;
 use rand::{Rng, RngCore, SeedableRng};
@@ -17,8 +16,6 @@ use crate::{
 };
 
 pub use crate::settings::standard::*;
-
-static NUM_THREADS: OnceLock<Option<usize>> = OnceLock::new();
 
 // 315/88 Mhz rate * 4
 // TODO: why do we multiply by 4? composite-video-simulator does this for every filter and ntscqt defines NTSC_RATE the
@@ -1373,6 +1370,8 @@ impl NtscEffect {
     pub fn apply_effect_to_yiq(&self, yiq: &mut YiqView, frame_num: usize) {
         #[cfg(not(target_arch = "wasm32"))]
         {
+            use std::sync::OnceLock;
+            static NUM_THREADS: OnceLock<Option<usize>> = OnceLock::new();
             // On Windows debug builds, the stack overflows with the default stack size
             let mut pool = rayon::ThreadPoolBuilder::new().stack_size(2 * 1024 * 1024);
 
