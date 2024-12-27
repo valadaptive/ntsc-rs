@@ -359,12 +359,12 @@ pub struct YiqView<'a> {
 
 fn slice_to_maybe_uninit<T>(slice: &[T]) -> &[MaybeUninit<T>] {
     // Safety: we know these are all initialized, so it's fine to transmute into a type that makes fewer assumptions
-    unsafe { std::mem::transmute(slice) }
+    unsafe { std::slice::from_raw_parts(slice.as_ptr() as _, slice.len()) }
 }
 
 fn slice_to_maybe_uninit_mut<T>(slice: &mut [T]) -> &mut [MaybeUninit<T>] {
     // Safety: we know these are all initialized, so it's fine to transmute into a type that makes fewer assumptions
-    unsafe { std::mem::transmute(slice) }
+    unsafe { std::slice::from_raw_parts_mut(slice.as_mut_ptr() as _, slice.len()) }
 }
 
 pub trait PixelTransform: Fn([f32; 3]) -> [f32; 3] + Send + Sync + Copy {}
