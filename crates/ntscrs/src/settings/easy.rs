@@ -1,9 +1,6 @@
 use macros::FullSettings;
 
-use crate::{
-    impl_settings_for,
-    ntsc::{NtscEffectFullSettings, VHSEdgeWaveSettings},
-};
+use crate::ntsc::{NtscEffectFullSettings, VHSEdgeWaveSettings};
 
 use super::{
     standard::{
@@ -12,7 +9,7 @@ use super::{
         RingingSettings, TrackingNoiseSettings, UseField, VHSSettingsFullSettings,
         VHSSharpenSettings, VHSTapeSpeed,
     },
-    MenuItem, SettingDescriptor, SettingKind, SettingsBlock, SettingsList,
+    MenuItem, SettingDescriptor, SettingKind, Settings, SettingsBlock, SettingsList,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -102,108 +99,42 @@ impl Default for EasyMode {
 
 #[rustfmt::skip]
 pub mod setting_id {
-    use crate::settings::SettingID;
+    use crate::{setting_id, settings::SettingID};
     use super::EasyModeFullSettings;
     type EasySettingID = SettingID<EasyModeFullSettings>;
 
-    pub const RANDOM_SEED: EasySettingID = SettingID::new(4096 | 0, "ez_random_seed");
-    pub const USE_FIELD: EasySettingID = SettingID::new(4096 | 1, "ez_use_field");
-    pub const FILTER_TYPE: EasySettingID = SettingID::new(4096 | 2, "ez_filter_type");
-    pub const SATURATION: EasySettingID = SettingID::new(4096 | 3, "ez_saturation");
-    pub const SNOW: EasySettingID = SettingID::new(4096 | 4, "ez_snow");
-    pub const CHROMA_DEMODULATION_FILTER: EasySettingID = SettingID::new(4096 | 5, "ez_chroma_demodulation_filter");
-    pub const LUMA_SMEAR: EasySettingID = SettingID::new(4096 | 6, "ez_luma_smear");
-    pub const RINGING: EasySettingID = SettingID::new(4096 | 7, "ez_ringing");
-    pub const VHS_SETTINGS: EasySettingID = SettingID::new(4096 | 8, "ez_vhs_settings");
-    pub const VHS_HEAD_SWITCHING: EasySettingID = SettingID::new(4096 | 9, "ez_vhs_head_switching");
-    pub const TRACKING_NOISE_ENABLED: EasySettingID = SettingID::new(4096 | 10, "ez_tracking_noise_enabled");
-    pub const TRACKING_NOISE_HEIGHT: EasySettingID = SettingID::new(4096 | 11, "ez_tracking_noise_height");
-    pub const TRACKING_NOISE_INTENSITY: EasySettingID = SettingID::new(4096 | 12, "ez_tracking_noise_intensity");
+    pub const RANDOM_SEED: EasySettingID = setting_id!(4096 | 0, "ez_random_seed", random_seed);
+    pub const USE_FIELD: EasySettingID = setting_id!(4096 | 1, "ez_use_field", use_field);
+    pub const FILTER_TYPE: EasySettingID = setting_id!(4096 | 2, "ez_filter_type", filter_type);
+    pub const SATURATION: EasySettingID = setting_id!(4096 | 3, "ez_saturation", saturation);
+    pub const SNOW: EasySettingID = setting_id!(4096 | 4, "ez_snow", snow);
+    pub const CHROMA_DEMODULATION_FILTER: EasySettingID = setting_id!(4096 | 5, "ez_chroma_demodulation_filter", chroma_demodulation_filter);
+    pub const LUMA_SMEAR: EasySettingID = setting_id!(4096 | 6, "ez_luma_smear", luma_smear);
+    pub const RINGING: EasySettingID = setting_id!(4096 | 7, "ez_ringing", ringing);
+    pub const VHS_SETTINGS: EasySettingID = setting_id!(4096 | 8, "ez_vhs_settings", vhs_settings.enabled);
+    pub const VHS_HEAD_SWITCHING: EasySettingID = setting_id!(4096 | 9, "ez_vhs_head_switching", vhs_settings.settings.head_switching);
+    pub const TRACKING_NOISE_ENABLED: EasySettingID = setting_id!(4096 | 10, "ez_tracking_noise_enabled", vhs_settings.settings.tracking_noise.enabled);
+    pub const TRACKING_NOISE_HEIGHT: EasySettingID = setting_id!(4096 | 11, "ez_tracking_noise_height", vhs_settings.settings.tracking_noise.settings.height);
+    pub const TRACKING_NOISE_INTENSITY: EasySettingID = setting_id!(4096 | 12, "ez_tracking_noise_intensity", vhs_settings.settings.tracking_noise.settings.intensity);
 
-    pub const LUMA_NOISE_ENABLED: EasySettingID = SettingID::new(4096 | 13, "ez_luma_noise_enabled");
-    pub const LUMA_NOISE_FREQUENCY: EasySettingID = SettingID::new(4096 | 14, "ez_luma_noise_frequency");
-    pub const LUMA_NOISE_INTENSITY: EasySettingID = SettingID::new(4096 | 15, "ez_luma_noise_intensity");
-    pub const LUMA_NOISE_DETAIL: EasySettingID = SettingID::new(4096 | 16, "ez_luma_noise_detail");
+    pub const LUMA_NOISE_ENABLED: EasySettingID = setting_id!(4096 | 13, "ez_luma_noise_enabled", luma_noise.enabled);
+    pub const LUMA_NOISE_FREQUENCY: EasySettingID = setting_id!(4096 | 14, "ez_luma_noise_frequency", luma_noise.settings.frequency);
+    pub const LUMA_NOISE_INTENSITY: EasySettingID = setting_id!(4096 | 15, "ez_luma_noise_intensity", luma_noise.settings.intensity);
+    pub const LUMA_NOISE_DETAIL: EasySettingID = setting_id!(4096 | 16, "ez_luma_noise_detail", luma_noise.settings.detail);
 
-    pub const CHROMA_NOISE_ENABLED: EasySettingID = SettingID::new(4096 | 17, "ez_chroma_noise_enabled");
-    pub const CHROMA_NOISE_FREQUENCY: EasySettingID = SettingID::new(4096 | 18, "ez_chroma_noise_frequency");
-    pub const CHROMA_NOISE_INTENSITY: EasySettingID = SettingID::new(4096 | 19, "ez_chroma_noise_intensity");
-    pub const CHROMA_NOISE_DETAIL: EasySettingID = SettingID::new(4096 | 20, "ez_chroma_noise_detail");
+    pub const CHROMA_NOISE_ENABLED: EasySettingID = setting_id!(4096 | 17, "ez_chroma_noise_enabled", chroma_noise.enabled);
+    pub const CHROMA_NOISE_FREQUENCY: EasySettingID = setting_id!(4096 | 18, "ez_chroma_noise_frequency", chroma_noise.settings.frequency);
+    pub const CHROMA_NOISE_INTENSITY: EasySettingID = setting_id!(4096 | 19, "ez_chroma_noise_intensity", chroma_noise.settings.intensity);
+    pub const CHROMA_NOISE_DETAIL: EasySettingID = setting_id!(4096 | 20, "ez_chroma_noise_detail", chroma_noise.settings.detail);
 
-    pub const CHROMA_PHASE_NOISE: EasySettingID = SettingID::new(4096 | 21, "ez_chroma_phase_noise");
-    pub const VHS_TAPE_SPEED: EasySettingID = SettingID::new(4096 | 22, "ez_vhs_tape_speed");
-    pub const VHS_CHROMA_LOSS: EasySettingID = SettingID::new(4096 | 22, "ez_vhs_chroma_loss");
-    pub const VHS_SHARPEN: EasySettingID = SettingID::new(4096 | 23, "ez_vhs_sharpen");
-    pub const VHS_EDGE_WAVE: EasySettingID = SettingID::new(4096 | 24, "ez_vhs_edge_wave");
+    pub const CHROMA_PHASE_NOISE: EasySettingID = setting_id!(4096 | 21, "ez_chroma_phase_noise", chroma_phase_noise);
+    pub const VHS_TAPE_SPEED: EasySettingID = setting_id!(4096 | 22, "ez_vhs_tape_speed", vhs_settings.settings.tape_speed);
+    pub const VHS_CHROMA_LOSS: EasySettingID = setting_id!(4096 | 22, "ez_vhs_chroma_loss", vhs_settings.settings.chroma_loss);
+    pub const VHS_SHARPEN: EasySettingID = setting_id!(4096 | 23, "ez_vhs_sharpen", vhs_settings.settings.sharpen);
+    pub const VHS_EDGE_WAVE: EasySettingID = setting_id!(4096 | 24, "ez_vhs_edge_wave", vhs_settings.settings.edge_wave);
 }
 
-impl_settings_for!(
-    EasyModeFullSettings,
-    (setting_id::RANDOM_SEED, random_seed),
-    (setting_id::USE_FIELD, use_field, IS_AN_ENUM),
-    (setting_id::FILTER_TYPE, filter_type, IS_AN_ENUM),
-    (setting_id::SATURATION, saturation),
-    (setting_id::SNOW, snow),
-    (
-        setting_id::CHROMA_DEMODULATION_FILTER,
-        chroma_demodulation_filter,
-        IS_AN_ENUM
-    ),
-    (setting_id::LUMA_SMEAR, luma_smear),
-    (setting_id::RINGING, ringing),
-    (setting_id::VHS_SETTINGS, vhs_settings.enabled),
-    (
-        setting_id::VHS_HEAD_SWITCHING,
-        vhs_settings.settings.head_switching
-    ),
-    (
-        setting_id::TRACKING_NOISE_ENABLED,
-        vhs_settings.settings.tracking_noise.enabled
-    ),
-    (
-        setting_id::TRACKING_NOISE_HEIGHT,
-        vhs_settings.settings.tracking_noise.settings.height
-    ),
-    (
-        setting_id::TRACKING_NOISE_INTENSITY,
-        vhs_settings.settings.tracking_noise.settings.intensity
-    ),
-    (setting_id::LUMA_NOISE_ENABLED, luma_noise.enabled),
-    (
-        setting_id::LUMA_NOISE_FREQUENCY,
-        luma_noise.settings.frequency
-    ),
-    (
-        setting_id::LUMA_NOISE_INTENSITY,
-        luma_noise.settings.intensity
-    ),
-    (setting_id::LUMA_NOISE_DETAIL, luma_noise.settings.detail),
-    (setting_id::CHROMA_NOISE_ENABLED, chroma_noise.enabled),
-    (
-        setting_id::CHROMA_NOISE_FREQUENCY,
-        chroma_noise.settings.frequency
-    ),
-    (
-        setting_id::CHROMA_NOISE_INTENSITY,
-        chroma_noise.settings.intensity
-    ),
-    (
-        setting_id::CHROMA_NOISE_DETAIL,
-        chroma_noise.settings.detail
-    ),
-    (setting_id::CHROMA_PHASE_NOISE, chroma_phase_noise),
-    (
-        setting_id::VHS_TAPE_SPEED,
-        vhs_settings.settings.tape_speed,
-        IS_AN_ENUM
-    ),
-    (
-        setting_id::VHS_CHROMA_LOSS,
-        vhs_settings.settings.chroma_loss
-    ),
-    (setting_id::VHS_SHARPEN, vhs_settings.settings.sharpen),
-    (setting_id::VHS_EDGE_WAVE, vhs_settings.settings.edge_wave)
-);
+impl Settings for EasyModeFullSettings {}
 
 impl SettingsList<EasyModeFullSettings> {
     /// Construct a list of all the effect settings. This isn't meant to be mutated--you should just create one instance

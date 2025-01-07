@@ -39,7 +39,7 @@ use crate::{
 use ntscrs::settings::{
     easy::{self, EasyModeFullSettings},
     standard::{setting_id, NtscEffectFullSettings},
-    SettingDescriptor, SettingKind, Settings, SettingsList,
+    EnumValue as SettingsEnumValue, SettingDescriptor, SettingKind, Settings, SettingsList,
 };
 use snafu::ResultExt;
 
@@ -554,7 +554,7 @@ impl NtscApp {
         {
             let resp = ui
                 .horizontal(|ui| {
-                    let mut value = effect_settings.get_field_int(&descriptor.id).unwrap();
+                    let mut value = effect_settings.get_field::<i32>(&descriptor.id).unwrap();
                     let rand_btn_width = ui.spacing().interact_size.y + 4.0;
                     let resp = ui.add_sized(
                         egui::vec2(
@@ -586,7 +586,7 @@ impl NtscApp {
 
                     if changed {
                         effect_settings
-                            .set_field_int(&descriptor.id, value)
+                            .set_field::<i32>(&descriptor.id, value)
                             .unwrap();
                     }
 
@@ -603,12 +603,16 @@ impl NtscApp {
                 kind: SettingKind::Enumeration { options, .. },
                 ..
             } => {
-                let selected_index = effect_settings.get_field_enum(&descriptor.id).unwrap();
+                let selected_index = effect_settings
+                    .get_field::<SettingsEnumValue>(&descriptor.id)
+                    .unwrap()
+                    .0;
+
                 let selected_item = options
                     .iter()
                     .find(|option| option.index == selected_index)
                     .unwrap();
-                egui::ComboBox::new(descriptor.id, descriptor.label)
+                egui::ComboBox::new(&descriptor.id, descriptor.label)
                     .selected_text(selected_item.label)
                     .show_ui(ui, |ui| {
                         for item in options {
@@ -620,7 +624,9 @@ impl NtscApp {
                             }
 
                             if label.clicked() {
-                                let _ = effect_settings.set_field_enum(&descriptor.id, item.index);
+                                effect_settings
+                                    .set_field(&descriptor.id, SettingsEnumValue(item.index))
+                                    .unwrap();
                                 // a selectable_label being clicked doesn't set response.changed
                                 changed = true;
                             };
@@ -631,23 +637,28 @@ impl NtscApp {
             SettingDescriptor {
                 kind: SettingKind::Percentage { logarithmic, .. },
                 ..
-            } => ui.add(
-                egui::Slider::new(
-                    effect_settings
-                        .get_field_mut::<f32>(&descriptor.id)
-                        .unwrap(),
-                    0.0..=1.0,
-                )
-                .text(descriptor.label)
-                .custom_parser(parse_expression_string)
-                .custom_formatter(format_percentage)
-                .logarithmic(*logarithmic),
-            ),
+            } => {
+                let mut value = effect_settings.get_field::<f32>(&descriptor.id).unwrap();
+
+                let slider: Response = ui.add(
+                    egui::Slider::new(&mut value, 0.0..=1.0)
+                        .text(descriptor.label)
+                        .custom_parser(parse_expression_string)
+                        .custom_formatter(format_percentage)
+                        .logarithmic(*logarithmic),
+                );
+
+                if slider.changed() {
+                    let _ = effect_settings.set_field(&descriptor.id, value);
+                }
+
+                slider
+            }
             SettingDescriptor {
                 kind: SettingKind::IntRange { range, .. },
                 ..
             } => {
-                let mut value = effect_settings.get_field_int(&descriptor.id).unwrap();
+                let mut value = effect_settings.get_field::<i32>(&descriptor.id).unwrap();
 
                 let slider = ui.add(
                     egui::Slider::new(&mut value, range.clone())
@@ -657,7 +668,7 @@ impl NtscApp {
 
                 if slider.changed() {
                     effect_settings
-                        .set_field_int(&descriptor.id, value)
+                        .set_field::<i32>(&descriptor.id, value)
                         .unwrap();
                 }
 
@@ -669,27 +680,33 @@ impl NtscApp {
                         range, logarithmic, ..
                     },
                 ..
-            } => ui.add(
-                egui::Slider::new(
-                    effect_settings
-                        .get_field_mut::<f32>(&descriptor.id)
-                        .unwrap(),
-                    range.clone(),
-                )
-                .text(descriptor.label)
-                .custom_parser(parse_expression_string)
-                .logarithmic(*logarithmic),
-            ),
+            } => {
+                let mut value = effect_settings.get_field::<f32>(&descriptor.id).unwrap();
+
+                let slider = ui.add(
+                    egui::Slider::new(&mut value, range.clone())
+                        .text(descriptor.label)
+                        .custom_parser(parse_expression_string)
+                        .logarithmic(*logarithmic),
+                );
+
+                if slider.changed() {
+                    let _ = effect_settings.set_field(&descriptor.id, value);
+                }
+
+                slider
+            }
             SettingDescriptor {
                 kind: SettingKind::Boolean { .. },
                 ..
             } => {
-                let checkbox = ui.checkbox(
-                    effect_settings
-                        .get_field_mut::<bool>(&descriptor.id)
-                        .unwrap(),
-                    descriptor.label,
-                );
+                let mut value = effect_settings.get_field::<bool>(&descriptor.id).unwrap();
+
+                let checkbox = ui.checkbox(&mut value, descriptor.label);
+
+                if checkbox.changed() {
+                    let _ = effect_settings.set_field(&descriptor.id, value);
+                }
 
                 checkbox
             }
@@ -702,22 +719,25 @@ impl NtscApp {
                 let resp = ui
                     .group(|ui| {
                         ui.set_width(ui.max_rect().width());
-                        let checked = effect_settings
-                            .get_field_mut::<bool>(&descriptor.id)
-                            .unwrap();
-                        let was_checked = *checked;
+                        let mut checked =
+                            effect_settings.get_field::<bool>(&descriptor.id).unwrap();
+                        let was_checked = checked;
 
                         let id = ui.make_persistent_id(id);
                         let mut state =
                             egui::collapsing_header::CollapsingState::load_with_default_open(
                                 ui.ctx(),
                                 id,
-                                *checked,
+                                checked,
                             );
 
                         let checkbox = ui
                             .horizontal(|ui| {
-                                let checkbox = ui.checkbox(checked, descriptor.label);
+                                let checkbox = ui.checkbox(&mut checked, descriptor.label);
+
+                                if checkbox.changed() {
+                                    let _ = effect_settings.set_field(&descriptor.id, checked);
+                                }
 
                                 // Show twirly arrow at the rightmost position
                                 let rect = ui.max_rect();
@@ -739,12 +759,12 @@ impl NtscApp {
                             })
                             .inner;
 
-                        if !*checked {
+                        if !checked {
                             ui.disable();
                         }
 
                         // When a settings group is re-enabled, expand it automatically.
-                        if *checked && !was_checked {
+                        if checked && !was_checked {
                             state.set_open(true);
                         }
 

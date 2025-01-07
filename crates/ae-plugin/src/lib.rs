@@ -16,7 +16,8 @@ use handle::SliceHandle;
 use ntscrs::{
     ntsc::{NtscEffect, NtscEffectFullSettings},
     settings::{
-        standard::UseField, SettingDescriptor, SettingID, SettingKind, Settings, SettingsList,
+        standard::UseField, EnumValue, SettingDescriptor, SettingID, SettingKind, Settings,
+        SettingsList,
     },
     yiq_fielding::{
         self, AfterEffectsU16, Bgrx16, Bgrx32f, Bgrx8, BlitInfo, DeinterlaceMode, Xrgb16AE,
@@ -843,7 +844,7 @@ impl Plugin {
                 SettingKind::Enumeration { options, .. } => {
                     let mut param = params.get_mut(ParamID::Param(descriptor.id.ae_id()))?;
                     let mut param = param.as_popup_mut()?;
-                    let setting = settings.get_field_enum(&descriptor.id).unwrap();
+                    let setting = settings.get_field::<EnumValue>(&descriptor.id).unwrap().0;
                     param.set_value(
                         options
                             .iter()
@@ -856,7 +857,7 @@ impl Plugin {
                 SettingKind::Percentage { logarithmic, .. } => {
                     let mut param = params.get_mut(ParamID::Param(descriptor.id.ae_id()))?;
                     let mut param = param.as_float_slider_mut()?;
-                    let setting = settings.get_field_float(&descriptor.id).unwrap();
+                    let setting = settings.get_field::<f32>(&descriptor.id).unwrap();
                     param.set_value(
                         if *logarithmic {
                             map_logarithmic_inverse(setting.into(), 0.0, 1.0, LOG_SLIDER_BASE)
@@ -869,7 +870,7 @@ impl Plugin {
                 SettingKind::IntRange { .. } => {
                     let mut param = params.get_mut(ParamID::Param(descriptor.id.ae_id()))?;
                     let mut param = param.as_float_slider_mut()?;
-                    let setting = settings.get_field_int(&descriptor.id).unwrap();
+                    let setting = settings.get_field::<i32>(&descriptor.id).unwrap();
                     param.set_value(setting.into());
                     param.set_value_changed();
                 }
@@ -878,7 +879,7 @@ impl Plugin {
                 } => {
                     let mut param = params.get_mut(ParamID::Param(descriptor.id.ae_id()))?;
                     let mut param = param.as_float_slider_mut()?;
-                    let setting = settings.get_field_float(&descriptor.id).unwrap();
+                    let setting = settings.get_field::<f32>(&descriptor.id).unwrap();
                     param.set_value(if *logarithmic {
                         map_logarithmic_inverse(
                             setting.into(),
@@ -894,14 +895,14 @@ impl Plugin {
                 SettingKind::Boolean { .. } => {
                     let mut param = params.get_mut(ParamID::Param(descriptor.id.ae_id()))?;
                     let mut param = param.as_checkbox_mut()?;
-                    let setting = settings.get_field_bool(&descriptor.id).unwrap();
+                    let setting = settings.get_field::<bool>(&descriptor.id).unwrap();
                     param.set_value(setting);
                     param.set_value_changed();
                 }
                 SettingKind::Group { children, .. } => {
                     let mut param = params.get_mut(ParamID::Param(descriptor.id.ae_id()))?;
                     let mut param = param.as_checkbox_mut()?;
-                    let setting = settings.get_field_bool(&descriptor.id).unwrap();
+                    let setting = settings.get_field::<bool>(&descriptor.id).unwrap();
                     param.set_value(setting);
                     param.set_value_changed();
 
@@ -937,7 +938,7 @@ impl Plugin {
                         }
                         let menu_enum_value = options[selected_item_position as usize].index;
                         settings
-                            .set_field_enum(&descriptor.id, menu_enum_value)
+                            .set_field::<EnumValue>(&descriptor.id, EnumValue(menu_enum_value))
                             .map_err(|_| Error::BadCallbackParameter)?;
                     }
                     SettingKind::Percentage { logarithmic, .. } => {
@@ -951,7 +952,7 @@ impl Plugin {
                             slider_value = map_logarithmic(slider_value, 0.0, 1.0, LOG_SLIDER_BASE);
                         }
                         settings
-                            .set_field_float(&descriptor.id, slider_value as f32)
+                            .set_field::<f32>(&descriptor.id, slider_value as f32)
                             .map_err(|_| Error::BadCallbackParameter)?;
                     }
                     SettingKind::IntRange { .. } => {
@@ -961,7 +962,7 @@ impl Plugin {
                             .value()
                             .round() as i32;
                         settings
-                            .set_field_int(&descriptor.id, slider_value)
+                            .set_field::<i32>(&descriptor.id, slider_value)
                             .map_err(|_| Error::BadCallbackParameter)?;
                     }
                     SettingKind::FloatRange {
@@ -981,12 +982,12 @@ impl Plugin {
                             );
                         }
                         settings
-                            .set_field_float(&descriptor.id, slider_value as f32)
+                            .set_field::<f32>(&descriptor.id, slider_value as f32)
                             .map_err(|_| Error::BadCallbackParameter)?;
                     }
                     SettingKind::Boolean { .. } => {
                         settings
-                            .set_field_bool(
+                            .set_field::<bool>(
                                 &descriptor.id,
                                 params
                                     .get(ParamID::Param(descriptor.id.ae_id()))?
@@ -997,7 +998,7 @@ impl Plugin {
                     }
                     SettingKind::Group { children, .. } => {
                         settings
-                            .set_field_bool(
+                            .set_field::<bool>(
                                 &descriptor.id,
                                 params
                                     .get(ParamID::Param(descriptor.id.ae_id()))?

@@ -19,10 +19,13 @@ use allocator_api2::{
     boxed::Box as AllocBox,
 };
 
-use ntscrs::yiq_fielding::{BlitInfo, Rect};
 use ntscrs::{
     ntsc::NtscEffect,
     yiq_fielding::{DeinterlaceMode, YiqView},
+};
+use ntscrs::{
+    settings::EnumValue,
+    yiq_fielding::{BlitInfo, Rect},
 };
 use ntscrs::{
     settings::{
@@ -547,30 +550,35 @@ unsafe fn apply_params(
             SettingKind::Enumeration { options, .. } => {
                 let mut selected_idx = 0;
                 ofx_err(paramGetValueAtTime(param, time, &mut selected_idx))?;
-                dst.set_field_enum(&descriptor.id, options[selected_idx as usize].index)
-                    .unwrap();
+                dst.set_field::<EnumValue>(
+                    &descriptor.id,
+                    EnumValue(options[selected_idx as usize].index),
+                )
+                .unwrap();
             }
             SettingKind::IntRange { .. } => {
                 let mut int_value: i32 = 0;
                 ofx_err(paramGetValueAtTime(param, time, &mut int_value))?;
-                dst.set_field_int(&descriptor.id, int_value).unwrap();
+                dst.set_field::<i32>(&descriptor.id, int_value).unwrap();
             }
             SettingKind::FloatRange { .. } | SettingKind::Percentage { .. } => {
                 let mut float_value: f64 = 0.0;
                 ofx_err(paramGetValueAtTime(param, time, &mut float_value))?;
-                dst.set_field_float(&descriptor.id, float_value as f32)
+                dst.set_field::<f32>(&descriptor.id, float_value as f32)
                     .unwrap();
             }
             SettingKind::Boolean { .. } => {
                 let mut bool_value: i32 = 0;
                 ofx_err(paramGetValueAtTime(param, time, &mut bool_value))?;
-                dst.set_field_bool(&descriptor.id, bool_value != 0).unwrap();
+                dst.set_field::<bool>(&descriptor.id, bool_value != 0)
+                    .unwrap();
             }
             SettingKind::Group { children, .. } => {
                 // The fetched handle refers to the group's checkbox
                 let mut bool_value: i32 = 0;
                 ofx_err(paramGetValueAtTime(param, time, &mut bool_value))?;
-                dst.set_field_bool(&descriptor.id, bool_value != 0).unwrap();
+                dst.set_field::<bool>(&descriptor.id, bool_value != 0)
+                    .unwrap();
 
                 apply_params(param_suite, param_set, time, children, dst)?;
             }
@@ -851,8 +859,9 @@ unsafe fn set_controls_from_settings(
         match &descriptor.kind {
             SettingKind::Enumeration { options, .. } => {
                 let enum_value = settings
-                    .get_field_enum(&descriptor.id)
-                    .map_err(|_| OfxStat::kOfxStatErrBadIndex)?;
+                    .get_field::<EnumValue>(&descriptor.id)
+                    .map_err(|_| OfxStat::kOfxStatErrBadIndex)?
+                    .0;
                 let item_index = options
                     .iter()
                     .position(|item| item.index == enum_value)
@@ -863,7 +872,7 @@ unsafe fn set_controls_from_settings(
                 ofx_err(paramSetValue(
                     param,
                     settings
-                        .get_field_float(&descriptor.id)
+                        .get_field::<f32>(&descriptor.id)
                         .map_err(|_| OfxStat::kOfxStatErrBadIndex)? as f64,
                 ))?;
             }
@@ -871,7 +880,7 @@ unsafe fn set_controls_from_settings(
                 ofx_err(paramSetValue(
                     param,
                     settings
-                        .get_field_int(&descriptor.id)
+                        .get_field::<i32>(&descriptor.id)
                         .map_err(|_| OfxStat::kOfxStatErrBadIndex)?,
                 ))?;
             }
@@ -879,7 +888,7 @@ unsafe fn set_controls_from_settings(
                 ofx_err(paramSetValue(
                     param,
                     settings
-                        .get_field_bool(&descriptor.id)
+                        .get_field::<bool>(&descriptor.id)
                         .map_err(|_| OfxStat::kOfxStatErrBadIndex)? as i32,
                 ))?;
             }
@@ -887,7 +896,7 @@ unsafe fn set_controls_from_settings(
                 ofx_err(paramSetValue(
                     param,
                     settings
-                        .get_field_bool(&descriptor.id)
+                        .get_field::<bool>(&descriptor.id)
                         .map_err(|_| OfxStat::kOfxStatErrBadIndex)? as i32,
                 ))?;
                 set_controls_from_settings(data, param_set, children, settings)?;

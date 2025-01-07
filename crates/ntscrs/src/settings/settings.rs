@@ -3,10 +3,9 @@
 //! duplicate a bunch of code.
 // TODO: replace with a bunch of metaprogramming macro magic?
 
-use std::{
-    collections::HashMap, error::Error, fmt::Display, marker::PhantomData, ops::RangeInclusive,
-};
+use std::{collections::HashMap, error::Error, fmt::Display, ops::RangeInclusive};
 
+use num_traits::{FromPrimitive, ToPrimitive};
 pub use tinyjson;
 use tinyjson::{InnerAsRef, JsonParseError, JsonValue};
 
@@ -70,12 +69,132 @@ impl<T: Default> Default for SettingsBlock<T> {
     }
 }
 
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EnumValue(pub u32);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AnySetting {
+    Enum(EnumValue),
+    Int(i32),
+    Float(f32),
+    Bool(bool),
+}
+
+impl AnySetting {
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            AnySetting::Enum(_) => "enum",
+            AnySetting::Int(_) => "i32 or u32",
+            AnySetting::Float(_) => "f32",
+            AnySetting::Bool(_) => "bool",
+        }
+    }
+}
+
+pub trait Downcast: Sized {
+    fn downcast(value: &AnySetting) -> Option<Self>;
+}
+
+impl<T: SettingsEnum> Downcast for T {
+    fn downcast(value: &AnySetting) -> Option<Self> {
+        match value {
+            AnySetting::Enum(e) => T::from_u32(e.0),
+            _ => None,
+        }
+    }
+}
+
+impl Downcast for i32 {
+    fn downcast(value: &AnySetting) -> Option<Self> {
+        match value {
+            AnySetting::Int(i) => Some(*i),
+            _ => None,
+        }
+    }
+}
+
+impl Downcast for u32 {
+    fn downcast(value: &AnySetting) -> Option<Self> {
+        match value {
+            AnySetting::Int(i) => Some(*i as u32),
+            _ => None,
+        }
+    }
+}
+
+impl Downcast for EnumValue {
+    fn downcast(value: &AnySetting) -> Option<Self> {
+        match value {
+            AnySetting::Enum(e) => Some(*e),
+            _ => None,
+        }
+    }
+}
+
+impl Downcast for f32 {
+    fn downcast(value: &AnySetting) -> Option<Self> {
+        match value {
+            AnySetting::Float(f) => Some(*f),
+            _ => None,
+        }
+    }
+}
+
+impl Downcast for bool {
+    fn downcast(value: &AnySetting) -> Option<Self> {
+        match value {
+            AnySetting::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+}
+
+impl<T: SettingsEnum> From<T> for AnySetting {
+    fn from(value: T) -> Self {
+        Self::Enum(EnumValue(value.to_u32().unwrap()))
+    }
+}
+
+impl From<i32> for AnySetting {
+    fn from(value: i32) -> Self {
+        Self::Int(value)
+    }
+}
+
+impl From<u32> for AnySetting {
+    fn from(value: u32) -> Self {
+        Self::Int(value as i32)
+    }
+}
+
+impl From<EnumValue> for AnySetting {
+    fn from(value: EnumValue) -> Self {
+        Self::Enum(value)
+    }
+}
+
+impl From<f32> for AnySetting {
+    fn from(value: f32) -> Self {
+        Self::Float(value)
+    }
+}
+
+impl From<bool> for AnySetting {
+    fn from(value: bool) -> Self {
+        Self::Bool(value)
+    }
+}
+
+pub trait SettingsEnum: FromPrimitive + ToPrimitive {}
+
 /// A fixed identifier that points to a given setting. The id and name cannot be changed or reused once created.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SettingID<T: Settings> {
     pub id: u32,
     pub name: &'static str,
-    settings: PhantomData<fn(&()) -> &T>,
+    pub get: fn(settings: &T) -> AnySetting,
+    pub set: fn(settings: &mut T, value: AnySetting) -> Result<(), GetSetFieldError>,
 }
 
 // We can't use derive here because of the type parameter:
@@ -84,138 +203,37 @@ impl<T: Settings> std::hash::Hash for SettingID<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.id.hash(state);
         self.name.hash(state);
+        self.get.hash(state);
+        self.set.hash(state);
     }
 }
-impl<T: Settings> Clone for SettingID<T> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-impl<T: Settings> Copy for SettingID<T> {}
 
 impl<T: Settings> SettingID<T> {
-    pub const fn new(id: u32, name: &'static str) -> Self {
-        Self {
-            id,
-            name,
-            settings: PhantomData,
-        }
+    pub const fn new(
+        id: u32,
+        name: &'static str,
+        get: fn(settings: &T) -> AnySetting,
+        set: fn(settings: &mut T, value: AnySetting) -> Result<(), GetSetFieldError>,
+    ) -> Self {
+        Self { id, name, get, set }
     }
 }
 
-// These macros are used to implement getting and setting various fields on the settings struct based on `SettingID`s.
-// Enums require special handling because FromPrimitive is used for conversion there, and that trait is not object-safe
-// (or otherwise have various ?Sized issues). For all other setting types, we can just use Any to do dynamic typing.
-
 #[macro_export]
-macro_rules! get_field_ref_impl {
-    ($($field_path:ident).+) => {
-        {
-            let type_name = std::any::type_name_of_val(&$($field_path).+);
-            (&$($field_path).+ as &dyn std::any::Any)
-                .downcast_ref()
-                .ok_or_else(|| $crate::settings::GetSetFieldError::TypeMismatch {
-                    actual_type: type_name,
-                    requested_type: std::any::type_name::<T>()
-                })
-        }
-    };
-
-    ($($field_path:ident).+, IS_AN_ENUM) => {
-        Err($crate::settings::GetSetFieldError::TypeMismatch {
-            actual_type: std::any::type_name_of_val(&$($field_path).+),
-            requested_type: std::any::type_name::<T>()
-        })
-    };
-}
-
-#[macro_export]
-macro_rules! get_field_mut_impl {
-    ($($field_path:ident).+) => {
-        {
-            let type_name = std::any::type_name_of_val(&$($field_path).+);
-            (&mut $($field_path).+ as &mut dyn std::any::Any)
-                .downcast_mut()
-                .ok_or_else(|| $crate::settings::GetSetFieldError::TypeMismatch {
-                    actual_type: type_name,
-                    requested_type: std::any::type_name::<T>()
-                })
-        }
-    };
-
-    ($($field_path:ident).+, IS_AN_ENUM) => {
-        {
-            Err($crate::settings::GetSetFieldError::TypeMismatch {
-                actual_type: std::any::type_name_of_val(&$($field_path).+),
-                requested_type: std::any::type_name::<T>()
-            })
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! get_field_enum_impl {
-    ($($field_path:ident).+) => {
-        {
-            let type_name = std::any::type_name_of_val(&$($field_path).+);
-            Err($crate::settings::GetSetFieldError::TypeMismatch { actual_type: type_name, requested_type: "enum" })
-        }
-    };
-
-    ($($field_path:ident).+, IS_AN_ENUM) => {
-        Ok($($field_path).+ as u32)
-    };
-}
-
-#[macro_export]
-macro_rules! set_field_enum_impl {
-    ($value:ident, $($field_path:ident).+) => {
-        {
-            let type_name = std::any::type_name_of_val(&$($field_path).+);
-            Err($crate::settings::GetSetFieldError::TypeMismatch { actual_type: type_name, requested_type: "enum" })
-        }
-    };
-
-    ($value:ident, $($field_path:ident).+, IS_AN_ENUM) => {
-        {
-            $($field_path).+ = num_traits::FromPrimitive::from_u32($value).expect("enum fields should be representable as u32");
-            Ok(())
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! impl_settings_for {
-    ($item:ty, $(($field_setting_id:path, $($field_path:ident).+$(, $is_enum:tt)?)),+$(,)?) => {
-        impl $crate::settings::Settings for $item {
-            fn get_field_mut<T: 'static>(&mut self, id: &$crate::settings::SettingID<Self>) -> Result<&mut T, $crate::settings::GetSetFieldError> {
-                match id {
-                    $(&$field_setting_id => $crate::get_field_mut_impl!(self.$($field_path).+$(, $is_enum)?),)+
-                    _ => Err($crate::settings::GetSetFieldError::NoSuchID(id.name))
-                }
+macro_rules! setting_id {
+    ($id:expr, $name:expr, $($field_path:ident).+) => {
+        $crate::settings::SettingID::new(
+            $id,
+            $name,
+            |settings| settings.$($field_path).+.into(),
+            |settings, value| {
+                settings.$($field_path).+ = $crate::settings::Downcast::downcast(&value).ok_or_else(|| $crate::settings::GetSetFieldError::TypeMismatch {
+                    actual_type: value.type_name(),
+                    requested_type: std::any::type_name_of_val(&settings.$($field_path).+)
+                })?;
+                Ok(())
             }
-
-            fn get_field_ref<T: 'static>(&self, id: &$crate::settings::SettingID<Self>) -> Result<&T, $crate::settings::GetSetFieldError> {
-                match id {
-                    $(&$field_setting_id => $crate::get_field_ref_impl!(self.$($field_path).+$(, $is_enum)?),)+
-                    _ => Err($crate::settings::GetSetFieldError::NoSuchID(id.name))
-                }
-            }
-
-            fn get_field_enum(&self, id: &$crate::settings::SettingID<Self>) -> Result<u32, $crate::settings::GetSetFieldError> {
-                match id {
-                    $(&$field_setting_id => $crate::get_field_enum_impl!(self.$($field_path).+$(, $is_enum)?),)+
-                    _ => Err($crate::settings::GetSetFieldError::NoSuchID(id.name))
-                }
-            }
-
-            fn set_field_enum(&mut self, id: &$crate::settings::SettingID<Self>, value: u32) -> Result<(), $crate::settings::GetSetFieldError> {
-                match id {
-                    $(&$field_setting_id => $crate::set_field_enum_impl!(value, self.$($field_path).+$(, $is_enum)?),)+
-                    _ => Err($crate::settings::GetSetFieldError::NoSuchID(id.name))
-                }
-            }
-        }
+        )
     }
 }
 
@@ -280,63 +298,23 @@ impl Display for GetSetFieldError {
 }
 
 pub trait Settings: Default {
-    fn get_field_bool(&self, id: &SettingID<Self>) -> Result<bool, GetSetFieldError> {
-        self.get_field_ref(id).copied()
+    fn get_field<T: 'static + Downcast>(
+        &self,
+        id: &SettingID<Self>,
+    ) -> Result<T, GetSetFieldError> {
+        let value = (id.get)(&self);
+        Downcast::downcast(&value).ok_or_else(|| GetSetFieldError::TypeMismatch {
+            actual_type: value.type_name(),
+            requested_type: std::any::type_name::<T>(),
+        })
     }
-    fn set_field_bool(
+    fn set_field<T: 'static + Into<AnySetting>>(
         &mut self,
         id: &SettingID<Self>,
-        value: bool,
+        value: T,
     ) -> Result<(), GetSetFieldError> {
-        *self.get_field_mut(id)? = value;
-        Ok(())
+        (id.set)(self, value.into())
     }
-    fn get_field_float(&self, id: &SettingID<Self>) -> Result<f32, GetSetFieldError> {
-        self.get_field_ref(id).copied()
-    }
-    fn set_field_float(
-        &mut self,
-        id: &SettingID<Self>,
-        value: f32,
-    ) -> Result<(), GetSetFieldError> {
-        *self.get_field_mut(id)? = value;
-        Ok(())
-    }
-    fn get_field_int(&self, id: &SettingID<Self>) -> Result<i32, GetSetFieldError> {
-        self.get_field_ref::<i32>(id)
-            .copied()
-            .or_else(|_| self.get_field_ref::<u32>(id).copied().map(|v| v as i32))
-    }
-    fn set_field_int(&mut self, id: &SettingID<Self>, value: i32) -> Result<(), GetSetFieldError> {
-        if let Ok(field) = self.get_field_mut::<i32>(id) {
-            *field = value;
-            return Ok(());
-        }
-
-        match self.get_field_mut::<u32>(id) {
-            Ok(field) => {
-                *field = value as u32;
-                Ok(())
-            }
-
-            Err(GetSetFieldError::TypeMismatch { actual_type, .. }) => {
-                Err(GetSetFieldError::TypeMismatch {
-                    actual_type,
-                    requested_type: "i32 or u32",
-                })
-            }
-
-            Err(e) => Err(e),
-        }
-    }
-    fn get_field_enum(&self, id: &SettingID<Self>) -> Result<u32, GetSetFieldError>;
-    fn set_field_enum(&mut self, id: &SettingID<Self>, value: u32) -> Result<(), GetSetFieldError>;
-
-    fn get_field_ref<T: 'static>(&self, id: &SettingID<Self>) -> Result<&T, GetSetFieldError>;
-    fn get_field_mut<T: 'static>(
-        &mut self,
-        id: &SettingID<Self>,
-    ) -> Result<&mut T, GetSetFieldError>;
 }
 
 /// A single setting, which includes the data common to all settings (its name, optional description/tooltip, and ID)
@@ -442,21 +420,21 @@ impl<T: Settings> SettingsList<T> {
     ) {
         for descriptor in descriptors {
             let value = match &descriptor.kind {
-                SettingKind::Enumeration { .. } => {
-                    JsonValue::Number(settings.get_field_enum(&descriptor.id).unwrap() as f64)
-                }
+                SettingKind::Enumeration { .. } => JsonValue::Number(
+                    settings.get_field::<EnumValue>(&descriptor.id).unwrap().0 as f64,
+                ),
                 SettingKind::Percentage { .. } | SettingKind::FloatRange { .. } => {
-                    JsonValue::Number(settings.get_field_float(&descriptor.id).unwrap() as f64)
+                    JsonValue::Number(settings.get_field::<f32>(&descriptor.id).unwrap() as f64)
                 }
                 SettingKind::IntRange { .. } => {
-                    JsonValue::Number(settings.get_field_int(&descriptor.id).unwrap() as f64)
+                    JsonValue::Number(settings.get_field::<i32>(&descriptor.id).unwrap() as f64)
                 }
                 SettingKind::Boolean { .. } => {
-                    JsonValue::Boolean(settings.get_field_bool(&descriptor.id).unwrap())
+                    JsonValue::Boolean(settings.get_field::<bool>(&descriptor.id).unwrap())
                 }
                 SettingKind::Group { children, .. } => {
                     Self::settings_to_json(dst, children, settings);
-                    JsonValue::Boolean(settings.get_field_bool(&descriptor.id).unwrap())
+                    JsonValue::Boolean(settings.get_field::<bool>(&descriptor.id).unwrap())
                 }
             };
 
@@ -486,12 +464,14 @@ impl<T: Settings> SettingsList<T> {
             match &descriptor.kind {
                 SettingKind::Enumeration { .. } => {
                     json.get_and_expect::<f64>(key)?
-                        .map(|n| settings.set_field_enum(&descriptor.id, n as u32))
+                        .map(|n| {
+                            settings.set_field::<EnumValue>(&descriptor.id, EnumValue(n as u32))
+                        })
                         .transpose()?;
                 }
                 SettingKind::FloatRange { range, .. } => {
                     json.get_and_expect::<f64>(key)?.map(|n| {
-                        settings.set_field_float(
+                        settings.set_field::<f32>(
                             &descriptor.id,
                             (n as f32).clamp(*range.start(), *range.end()),
                         )
@@ -499,12 +479,12 @@ impl<T: Settings> SettingsList<T> {
                 }
                 SettingKind::Percentage { .. } => {
                     json.get_and_expect::<f64>(key)?.map(|n| {
-                        settings.set_field_float(&descriptor.id, (n as f32).clamp(0.0, 1.0))
+                        settings.set_field::<f32>(&descriptor.id, (n as f32).clamp(0.0, 1.0))
                     });
                 }
                 SettingKind::IntRange { range, .. } => {
                     json.get_and_expect::<f64>(key)?.map(|n| {
-                        settings.set_field_int(
+                        settings.set_field::<i32>(
                             &descriptor.id,
                             (n as i32).clamp(*range.start(), *range.end()),
                         )
@@ -512,11 +492,11 @@ impl<T: Settings> SettingsList<T> {
                 }
                 SettingKind::Boolean { .. } => {
                     json.get_and_expect::<bool>(key)?
-                        .map(|b| settings.set_field_bool(&descriptor.id, b));
+                        .map(|b| settings.set_field::<bool>(&descriptor.id, b));
                 }
                 SettingKind::Group { children, .. } => {
                     json.get_and_expect::<bool>(key)?
-                        .map(|b| settings.set_field_bool(&descriptor.id, b));
+                        .map(|b| settings.set_field::<bool>(&descriptor.id, b));
                     Self::settings_from_json(json, children, settings)?;
                 }
             }

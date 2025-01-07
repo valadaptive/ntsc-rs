@@ -1,14 +1,15 @@
 use std::collections::HashMap;
 
-use crate::{impl_settings_for, settings::SettingsBlock, yiq_fielding::YiqField};
+use crate::{settings::SettingsBlock, yiq_fielding::YiqField};
 use macros::FullSettings;
 use tinyjson::JsonValue;
 
 use super::{
-    GetAndExpect, MenuItem, ParseSettingsError, SettingDescriptor, SettingKind, SettingsList,
+    GetAndExpect, MenuItem, ParseSettingsError, SettingDescriptor, SettingKind, Settings,
+    SettingsEnum, SettingsList,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
 pub enum UseField {
     Alternating = 0,
     Upper,
@@ -17,6 +18,8 @@ pub enum UseField {
     InterleavedUpper,
     InterleavedLower,
 }
+
+impl SettingsEnum for UseField {}
 
 impl UseField {
     pub fn to_yiq_field(&self, frame_num: usize) -> YiqField {
@@ -44,34 +47,38 @@ impl UseField {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
 pub enum FilterType {
     ConstantK = 0,
     Butterworth,
 }
+impl SettingsEnum for FilterType {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
 pub enum LumaLowpass {
     None,
     Box,
     Notch,
 }
+impl SettingsEnum for LumaLowpass {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
 pub enum PhaseShift {
     Degrees0,
     Degrees90,
     Degrees180,
     Degrees270,
 }
+impl SettingsEnum for PhaseShift {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
 pub enum VHSTapeSpeed {
     NONE,
     SP,
     LP,
     EP,
 }
+impl SettingsEnum for VHSTapeSpeed {}
 
 pub(crate) struct VHSTapeParams {
     pub luma_cut: f32,
@@ -157,20 +164,22 @@ impl Default for VHSSettings {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
 pub enum ChromaLowpass {
     None,
     Light,
     Full,
 }
+impl SettingsEnum for ChromaLowpass {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
 pub enum ChromaDemodulationFilter {
     Box,
     Notch,
     OneLineComb,
     TwoLineComb,
 }
+impl SettingsEnum for ChromaDemodulationFilter {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct HeadSwitchingMidLineSettings {
@@ -254,69 +263,69 @@ pub struct FbmNoiseSettings {
 
 #[rustfmt::skip]
 pub mod setting_id {
-    use crate::settings::SettingID;
+    use crate::{setting_id, settings::SettingID};
     use super::NtscEffectFullSettings;
     type NtscSettingID = SettingID<NtscEffectFullSettings>;
 
-    pub const CHROMA_LOWPASS_IN: NtscSettingID = SettingID::new(0, "chroma_lowpass_in");
-    pub const COMPOSITE_SHARPENING: NtscSettingID = SettingID::new(1, "composite_preemphasis");
-    pub const VIDEO_SCANLINE_PHASE_SHIFT: NtscSettingID = SettingID::new(2, "video_scanline_phase_shift");
-    pub const VIDEO_SCANLINE_PHASE_SHIFT_OFFSET: NtscSettingID = SettingID::new(3, "video_scanline_phase_shift_offset");
-    pub const COMPOSITE_NOISE_INTENSITY: NtscSettingID = SettingID::new(4, "composite_noise_intensity");
-    pub const CHROMA_NOISE_INTENSITY: NtscSettingID = SettingID::new(5, "chroma_noise_intensity");
-    pub const SNOW_INTENSITY: NtscSettingID = SettingID::new(6, "snow_intensity");
-    pub const CHROMA_PHASE_NOISE_INTENSITY: NtscSettingID = SettingID::new(7, "chroma_phase_noise_intensity");
-    pub const CHROMA_DELAY_HORIZONTAL: NtscSettingID = SettingID::new(8, "chroma_delay_horizontal");
-    pub const CHROMA_DELAY_VERTICAL: NtscSettingID = SettingID::new(9, "chroma_delay_vertical");
-    pub const CHROMA_LOWPASS_OUT: NtscSettingID = SettingID::new(10, "chroma_lowpass_out");
-    pub const HEAD_SWITCHING: NtscSettingID = SettingID::new(11, "head_switching");
-    pub const HEAD_SWITCHING_HEIGHT: NtscSettingID = SettingID::new(12, "head_switching_height");
-    pub const HEAD_SWITCHING_OFFSET: NtscSettingID = SettingID::new(13, "head_switching_offset");
-    pub const HEAD_SWITCHING_HORIZONTAL_SHIFT: NtscSettingID = SettingID::new(14, "head_switching_horizontal_shift");
-    pub const TRACKING_NOISE: NtscSettingID = SettingID::new(15, "tracking_noise");
-    pub const TRACKING_NOISE_HEIGHT: NtscSettingID = SettingID::new(16, "tracking_noise_height");
-    pub const TRACKING_NOISE_WAVE_INTENSITY: NtscSettingID = SettingID::new(17, "tracking_noise_wave_intensity");
-    pub const TRACKING_NOISE_SNOW_INTENSITY: NtscSettingID = SettingID::new(18, "tracking_noise_snow_intensity");
-    pub const RINGING: NtscSettingID = SettingID::new(19, "ringing");
-    pub const RINGING_FREQUENCY: NtscSettingID = SettingID::new(20, "ringing_frequency");
-    pub const RINGING_POWER: NtscSettingID = SettingID::new(21, "ringing_power");
-    pub const RINGING_SCALE: NtscSettingID = SettingID::new(22, "ringing_scale");
-    pub const VHS_SETTINGS: NtscSettingID = SettingID::new(23, "vhs_settings");
-    pub const VHS_TAPE_SPEED: NtscSettingID = SettingID::new(24, "vhs_tape_speed");
-    pub const CHROMA_VERT_BLEND: NtscSettingID = SettingID::new(25, "vhs_chroma_vert_blend");
-    pub const VHS_CHROMA_LOSS: NtscSettingID = SettingID::new(26, "vhs_chroma_loss");
-    pub const VHS_SHARPEN_INTENSITY: NtscSettingID = SettingID::new(27, "vhs_sharpen");
-    pub const VHS_EDGE_WAVE_INTENSITY: NtscSettingID = SettingID::new(28, "vhs_edge_wave");
-    pub const VHS_EDGE_WAVE_SPEED: NtscSettingID = SettingID::new(29, "vhs_edge_wave_speed");
-    pub const USE_FIELD: NtscSettingID = SettingID::new(30, "use_field");
-    pub const TRACKING_NOISE_NOISE_INTENSITY: NtscSettingID = SettingID::new(31, "tracking_noise_noise_intensity");
-    pub const BANDWIDTH_SCALE: NtscSettingID = SettingID::new(32, "bandwidth_scale");
-    pub const CHROMA_DEMODULATION: NtscSettingID = SettingID::new(33, "chroma_demodulation");
-    pub const SNOW_ANISOTROPY: NtscSettingID = SettingID::new(34, "snow_anisotropy");
-    pub const TRACKING_NOISE_SNOW_ANISOTROPY: NtscSettingID = SettingID::new(35, "tracking_noise_snow_anisotropy");
-    pub const RANDOM_SEED: NtscSettingID = SettingID::new(36, "random_seed");
-    pub const CHROMA_PHASE_ERROR: NtscSettingID = SettingID::new(37, "chroma_phase_error");
-    pub const INPUT_LUMA_FILTER: NtscSettingID = SettingID::new(38, "input_luma_filter");
-    pub const VHS_EDGE_WAVE_ENABLED: NtscSettingID = SettingID::new(39, "vhs_edge_wave_enabled");
-    pub const VHS_EDGE_WAVE_FREQUENCY: NtscSettingID = SettingID::new(40, "vhs_edge_wave_frequency");
-    pub const VHS_EDGE_WAVE_DETAIL: NtscSettingID = SettingID::new(41, "vhs_edge_wave_detail");
-    pub const CHROMA_NOISE: NtscSettingID = SettingID::new(42, "chroma_noise");
-    pub const CHROMA_NOISE_FREQUENCY: NtscSettingID = SettingID::new(43, "chroma_noise_frequency");
-    pub const CHROMA_NOISE_DETAIL: NtscSettingID = SettingID::new(44, "chroma_noise_detail");
-    pub const LUMA_SMEAR: NtscSettingID = SettingID::new(45, "luma_smear");
-    pub const FILTER_TYPE: NtscSettingID = SettingID::new(46, "filter_type");
-    pub const VHS_SHARPEN_ENABLED: NtscSettingID = SettingID::new(47, "vhs_sharpen_enabled");
-    pub const VHS_SHARPEN_FREQUENCY: NtscSettingID = SettingID::new(48, "vhs_sharpen_frequency");
-    pub const HEAD_SWITCHING_START_MID_LINE: NtscSettingID = SettingID::new(49, "head_switching_start_mid_line");
-    pub const HEAD_SWITCHING_MID_LINE_POSITION: NtscSettingID = SettingID::new(50, "head_switching_mid_line_position");
-    pub const HEAD_SWITCHING_MID_LINE_JITTER: NtscSettingID = SettingID::new(51, "head_switching_mid_line_jitter");
-    pub const COMPOSITE_NOISE: NtscSettingID = SettingID::new(52, "composite_noise");
-    pub const COMPOSITE_NOISE_FREQUENCY: NtscSettingID = SettingID::new(53, "composite_noise_frequency");
-    pub const COMPOSITE_NOISE_DETAIL: NtscSettingID = SettingID::new(54, "composite_noise_detail");
-    pub const LUMA_NOISE: NtscSettingID = SettingID::new(55, "luma_noise");
-    pub const LUMA_NOISE_FREQUENCY: NtscSettingID = SettingID::new(56, "luma_noise_frequency");
-    pub const LUMA_NOISE_INTENSITY: NtscSettingID = SettingID::new(57, "luma_noise_intensity");
-    pub const LUMA_NOISE_DETAIL: NtscSettingID = SettingID::new(58, "luma_noise_detail");
+    pub const CHROMA_LOWPASS_IN: NtscSettingID = setting_id!(0, "chroma_lowpass_in", chroma_lowpass_in);
+    pub const COMPOSITE_SHARPENING: NtscSettingID = setting_id!(1, "composite_preemphasis", composite_sharpening);
+    pub const VIDEO_SCANLINE_PHASE_SHIFT: NtscSettingID = setting_id!(2, "video_scanline_phase_shift", video_scanline_phase_shift);
+    pub const VIDEO_SCANLINE_PHASE_SHIFT_OFFSET: NtscSettingID = setting_id!(3, "video_scanline_phase_shift_offset", video_scanline_phase_shift_offset);
+    pub const COMPOSITE_NOISE_INTENSITY: NtscSettingID = setting_id!(4, "composite_noise_intensity", composite_noise.settings.intensity);
+    pub const CHROMA_NOISE_INTENSITY: NtscSettingID = setting_id!(5, "chroma_noise_intensity", chroma_noise.settings.intensity);
+    pub const SNOW_INTENSITY: NtscSettingID = setting_id!(6, "snow_intensity", snow_intensity);
+    pub const CHROMA_PHASE_NOISE_INTENSITY: NtscSettingID = setting_id!(7, "chroma_phase_noise_intensity", chroma_phase_noise_intensity);
+    pub const CHROMA_DELAY_HORIZONTAL: NtscSettingID = setting_id!(8, "chroma_delay_horizontal", chroma_delay_horizontal);
+    pub const CHROMA_DELAY_VERTICAL: NtscSettingID = setting_id!(9, "chroma_delay_vertical", chroma_delay_vertical);
+    pub const CHROMA_LOWPASS_OUT: NtscSettingID = setting_id!(10, "chroma_lowpass_out", chroma_lowpass_out);
+    pub const HEAD_SWITCHING: NtscSettingID = setting_id!(11, "head_switching", head_switching.enabled);
+    pub const HEAD_SWITCHING_HEIGHT: NtscSettingID = setting_id!(12, "head_switching_height", head_switching.settings.height);
+    pub const HEAD_SWITCHING_OFFSET: NtscSettingID = setting_id!(13, "head_switching_offset", head_switching.settings.offset);
+    pub const HEAD_SWITCHING_HORIZONTAL_SHIFT: NtscSettingID = setting_id!(14, "head_switching_horizontal_shift", head_switching.settings.horiz_shift);
+    pub const TRACKING_NOISE: NtscSettingID = setting_id!(15, "tracking_noise", tracking_noise.enabled);
+    pub const TRACKING_NOISE_HEIGHT: NtscSettingID = setting_id!(16, "tracking_noise_height", tracking_noise.settings.height);
+    pub const TRACKING_NOISE_WAVE_INTENSITY: NtscSettingID = setting_id!(17, "tracking_noise_wave_intensity", tracking_noise.settings.wave_intensity);
+    pub const TRACKING_NOISE_SNOW_INTENSITY: NtscSettingID = setting_id!(18, "tracking_noise_snow_intensity", tracking_noise.settings.snow_intensity);
+    pub const RINGING: NtscSettingID = setting_id!(19, "ringing", ringing.enabled);
+    pub const RINGING_FREQUENCY: NtscSettingID = setting_id!(20, "ringing_frequency", ringing.settings.frequency);
+    pub const RINGING_POWER: NtscSettingID = setting_id!(21, "ringing_power", ringing.settings.power);
+    pub const RINGING_SCALE: NtscSettingID = setting_id!(22, "ringing_scale", ringing.settings.intensity);
+    pub const VHS_SETTINGS: NtscSettingID = setting_id!(23, "vhs_settings", vhs_settings.enabled);
+    pub const VHS_TAPE_SPEED: NtscSettingID = setting_id!(24, "vhs_tape_speed", vhs_settings.settings.tape_speed);
+    pub const CHROMA_VERT_BLEND: NtscSettingID = setting_id!(25, "vhs_chroma_vert_blend", chroma_vert_blend);
+    pub const VHS_CHROMA_LOSS: NtscSettingID = setting_id!(26, "vhs_chroma_loss", vhs_settings.settings.chroma_loss);
+    pub const VHS_SHARPEN_INTENSITY: NtscSettingID = setting_id!(27, "vhs_sharpen", vhs_settings.settings.sharpen.settings.intensity);
+    pub const VHS_EDGE_WAVE_INTENSITY: NtscSettingID = setting_id!(28, "vhs_edge_wave", vhs_settings.settings.edge_wave.settings.intensity);
+    pub const VHS_EDGE_WAVE_SPEED: NtscSettingID = setting_id!(29, "vhs_edge_wave_speed", vhs_settings.settings.edge_wave.settings.speed);
+    pub const USE_FIELD: NtscSettingID = setting_id!(30, "use_field", use_field);
+    pub const TRACKING_NOISE_NOISE_INTENSITY: NtscSettingID = setting_id!(31, "tracking_noise_noise_intensity", tracking_noise.settings.noise_intensity);
+    pub const BANDWIDTH_SCALE: NtscSettingID = setting_id!(32, "bandwidth_scale", bandwidth_scale);
+    pub const CHROMA_DEMODULATION: NtscSettingID = setting_id!(33, "chroma_demodulation", chroma_demodulation);
+    pub const SNOW_ANISOTROPY: NtscSettingID = setting_id!(34, "snow_anisotropy", snow_anisotropy);
+    pub const TRACKING_NOISE_SNOW_ANISOTROPY: NtscSettingID = setting_id!(35, "tracking_noise_snow_anisotropy", tracking_noise.settings.snow_anisotropy);
+    pub const RANDOM_SEED: NtscSettingID = setting_id!(36, "random_seed", random_seed);
+    pub const CHROMA_PHASE_ERROR: NtscSettingID = setting_id!(37, "chroma_phase_error", chroma_phase_error);
+    pub const INPUT_LUMA_FILTER: NtscSettingID = setting_id!(38, "input_luma_filter", input_luma_filter);
+    pub const VHS_EDGE_WAVE_ENABLED: NtscSettingID = setting_id!(39, "vhs_edge_wave_enabled", vhs_settings.settings.edge_wave.enabled);
+    pub const VHS_EDGE_WAVE_FREQUENCY: NtscSettingID = setting_id!(40, "vhs_edge_wave_frequency", vhs_settings.settings.edge_wave.settings.frequency);
+    pub const VHS_EDGE_WAVE_DETAIL: NtscSettingID = setting_id!(41, "vhs_edge_wave_detail", vhs_settings.settings.edge_wave.settings.detail);
+    pub const CHROMA_NOISE: NtscSettingID = setting_id!(42, "chroma_noise", chroma_noise.enabled);
+    pub const CHROMA_NOISE_FREQUENCY: NtscSettingID = setting_id!(43, "chroma_noise_frequency", chroma_noise.settings.frequency);
+    pub const CHROMA_NOISE_DETAIL: NtscSettingID = setting_id!(44, "chroma_noise_detail", chroma_noise.settings.detail);
+    pub const LUMA_SMEAR: NtscSettingID = setting_id!(45, "luma_smear", luma_smear);
+    pub const FILTER_TYPE: NtscSettingID = setting_id!(46, "filter_type", filter_type);
+    pub const VHS_SHARPEN_ENABLED: NtscSettingID = setting_id!(47, "vhs_sharpen_enabled", vhs_settings.settings.sharpen.enabled);
+    pub const VHS_SHARPEN_FREQUENCY: NtscSettingID = setting_id!(48, "vhs_sharpen_frequency", vhs_settings.settings.sharpen.settings.frequency);
+    pub const HEAD_SWITCHING_START_MID_LINE: NtscSettingID = setting_id!(49, "head_switching_start_mid_line", head_switching.settings.mid_line.enabled);
+    pub const HEAD_SWITCHING_MID_LINE_POSITION: NtscSettingID = setting_id!(50, "head_switching_mid_line_position", head_switching.settings.mid_line.settings.position);
+    pub const HEAD_SWITCHING_MID_LINE_JITTER: NtscSettingID = setting_id!(51, "head_switching_mid_line_jitter", head_switching.settings.mid_line.settings.jitter);
+    pub const COMPOSITE_NOISE: NtscSettingID = setting_id!(52, "composite_noise", composite_noise.enabled);
+    pub const COMPOSITE_NOISE_FREQUENCY: NtscSettingID = setting_id!(53, "composite_noise_frequency", composite_noise.settings.frequency);
+    pub const COMPOSITE_NOISE_DETAIL: NtscSettingID = setting_id!(54, "composite_noise_detail", composite_noise.settings.detail);
+    pub const LUMA_NOISE: NtscSettingID = setting_id!(55, "luma_noise", luma_noise.enabled);
+    pub const LUMA_NOISE_FREQUENCY: NtscSettingID = setting_id!(56, "luma_noise_frequency", luma_noise.settings.frequency);
+    pub const LUMA_NOISE_INTENSITY: NtscSettingID = setting_id!(57, "luma_noise_intensity", luma_noise.settings.intensity);
+    pub const LUMA_NOISE_DETAIL: NtscSettingID = setting_id!(58, "luma_noise_detail", luma_noise.settings.detail);
 }
 
 #[derive(FullSettings, Clone, Debug, PartialEq)]
@@ -402,174 +411,7 @@ impl Default for NtscEffect {
     }
 }
 
-impl_settings_for!(
-    NtscEffectFullSettings,
-    (setting_id::CHROMA_LOWPASS_IN, chroma_lowpass_in, IS_AN_ENUM),
-    (setting_id::COMPOSITE_SHARPENING, composite_sharpening),
-    (
-        setting_id::VIDEO_SCANLINE_PHASE_SHIFT,
-        video_scanline_phase_shift,
-        IS_AN_ENUM
-    ),
-    (
-        setting_id::VIDEO_SCANLINE_PHASE_SHIFT_OFFSET,
-        video_scanline_phase_shift_offset
-    ),
-    (
-        setting_id::COMPOSITE_NOISE_INTENSITY,
-        composite_noise.settings.intensity
-    ),
-    (
-        setting_id::CHROMA_NOISE_INTENSITY,
-        chroma_noise.settings.intensity
-    ),
-    (setting_id::SNOW_INTENSITY, snow_intensity),
-    (
-        setting_id::CHROMA_PHASE_NOISE_INTENSITY,
-        chroma_phase_noise_intensity
-    ),
-    (setting_id::CHROMA_DELAY_HORIZONTAL, chroma_delay_horizontal),
-    (setting_id::CHROMA_DELAY_VERTICAL, chroma_delay_vertical),
-    (
-        setting_id::CHROMA_LOWPASS_OUT,
-        chroma_lowpass_out,
-        IS_AN_ENUM
-    ),
-    (setting_id::HEAD_SWITCHING, head_switching.enabled),
-    (
-        setting_id::HEAD_SWITCHING_HEIGHT,
-        head_switching.settings.height
-    ),
-    (
-        setting_id::HEAD_SWITCHING_OFFSET,
-        head_switching.settings.offset
-    ),
-    (
-        setting_id::HEAD_SWITCHING_HORIZONTAL_SHIFT,
-        head_switching.settings.horiz_shift
-    ),
-    (setting_id::TRACKING_NOISE, tracking_noise.enabled),
-    (
-        setting_id::TRACKING_NOISE_HEIGHT,
-        tracking_noise.settings.height
-    ),
-    (
-        setting_id::TRACKING_NOISE_WAVE_INTENSITY,
-        tracking_noise.settings.wave_intensity
-    ),
-    (
-        setting_id::TRACKING_NOISE_SNOW_INTENSITY,
-        tracking_noise.settings.snow_intensity
-    ),
-    (setting_id::RINGING, ringing.enabled),
-    (setting_id::RINGING_FREQUENCY, ringing.settings.frequency),
-    (setting_id::RINGING_POWER, ringing.settings.power),
-    (setting_id::RINGING_SCALE, ringing.settings.intensity),
-    (setting_id::VHS_SETTINGS, vhs_settings.enabled),
-    (
-        setting_id::VHS_TAPE_SPEED,
-        vhs_settings.settings.tape_speed,
-        IS_AN_ENUM
-    ),
-    (setting_id::CHROMA_VERT_BLEND, chroma_vert_blend),
-    (
-        setting_id::VHS_CHROMA_LOSS,
-        vhs_settings.settings.chroma_loss
-    ),
-    (
-        setting_id::VHS_SHARPEN_INTENSITY,
-        vhs_settings.settings.sharpen.settings.intensity
-    ),
-    (
-        setting_id::VHS_EDGE_WAVE_INTENSITY,
-        vhs_settings.settings.edge_wave.settings.intensity
-    ),
-    (
-        setting_id::VHS_EDGE_WAVE_SPEED,
-        vhs_settings.settings.edge_wave.settings.speed
-    ),
-    (setting_id::USE_FIELD, use_field, IS_AN_ENUM),
-    (
-        setting_id::TRACKING_NOISE_NOISE_INTENSITY,
-        tracking_noise.settings.noise_intensity
-    ),
-    (setting_id::BANDWIDTH_SCALE, bandwidth_scale),
-    (
-        setting_id::CHROMA_DEMODULATION,
-        chroma_demodulation,
-        IS_AN_ENUM
-    ),
-    (setting_id::SNOW_ANISOTROPY, snow_anisotropy),
-    (
-        setting_id::TRACKING_NOISE_SNOW_ANISOTROPY,
-        tracking_noise.settings.snow_anisotropy
-    ),
-    (setting_id::RANDOM_SEED, random_seed),
-    (setting_id::CHROMA_PHASE_ERROR, chroma_phase_error),
-    (setting_id::INPUT_LUMA_FILTER, input_luma_filter, IS_AN_ENUM),
-    (
-        setting_id::VHS_EDGE_WAVE_ENABLED,
-        vhs_settings.settings.edge_wave.enabled
-    ),
-    (
-        setting_id::VHS_EDGE_WAVE_FREQUENCY,
-        vhs_settings.settings.edge_wave.settings.frequency
-    ),
-    (
-        setting_id::VHS_EDGE_WAVE_DETAIL,
-        vhs_settings.settings.edge_wave.settings.detail
-    ),
-    (setting_id::CHROMA_NOISE, chroma_noise.enabled),
-    (
-        setting_id::CHROMA_NOISE_FREQUENCY,
-        chroma_noise.settings.frequency
-    ),
-    (
-        setting_id::CHROMA_NOISE_DETAIL,
-        chroma_noise.settings.detail
-    ),
-    (setting_id::LUMA_SMEAR, luma_smear),
-    (setting_id::FILTER_TYPE, filter_type, IS_AN_ENUM),
-    (
-        setting_id::VHS_SHARPEN_ENABLED,
-        vhs_settings.settings.sharpen.enabled
-    ),
-    (
-        setting_id::VHS_SHARPEN_FREQUENCY,
-        vhs_settings.settings.sharpen.settings.frequency
-    ),
-    (
-        setting_id::HEAD_SWITCHING_START_MID_LINE,
-        head_switching.settings.mid_line.enabled
-    ),
-    (
-        setting_id::HEAD_SWITCHING_MID_LINE_POSITION,
-        head_switching.settings.mid_line.settings.position
-    ),
-    (
-        setting_id::HEAD_SWITCHING_MID_LINE_JITTER,
-        head_switching.settings.mid_line.settings.jitter
-    ),
-    (setting_id::COMPOSITE_NOISE, composite_noise.enabled),
-    (
-        setting_id::COMPOSITE_NOISE_FREQUENCY,
-        composite_noise.settings.frequency
-    ),
-    (
-        setting_id::COMPOSITE_NOISE_DETAIL,
-        composite_noise.settings.detail
-    ),
-    (setting_id::LUMA_NOISE, luma_noise.enabled),
-    (
-        setting_id::LUMA_NOISE_FREQUENCY,
-        luma_noise.settings.frequency
-    ),
-    (
-        setting_id::LUMA_NOISE_INTENSITY,
-        luma_noise.settings.intensity
-    ),
-    (setting_id::LUMA_NOISE_DETAIL, luma_noise.settings.detail),
-);
+impl Settings for NtscEffectFullSettings {}
 
 impl SettingsList<NtscEffectFullSettings> {
     /// Construct a list of all the effect settings. This isn't meant to be mutated--you should just create one instance
