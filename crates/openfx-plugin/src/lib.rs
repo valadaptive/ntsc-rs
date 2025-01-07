@@ -33,13 +33,6 @@ use ntscrs::{
 
 use bindings::*;
 
-// https://stackoverflow.com/questions/53611161/how-do-i-expose-a-compile-time-generated-static-c-string-through-ffi
-macro_rules! static_cstr {
-    ($l:expr) => {
-        unsafe { ::std::ffi::CStr::from_bytes_with_nul_unchecked(concat!($l, "\0").as_bytes()) }
-    };
-}
-
 // SAFETY: The host promises not to mess with the raw string pointers in this struct
 unsafe impl Send for OfxPlugin {}
 unsafe impl Sync for OfxPlugin {}
@@ -187,18 +180,13 @@ unsafe fn action_describe(descriptor: OfxImageEffectHandle) -> OfxResult<()> {
         .propSetInt
         .ok_or(OfxStat::kOfxStatFailed)?;
 
-    propSetString(
-        effectProps,
-        kOfxPropLabel.as_ptr(),
-        0,
-        static_cstr!("NTSC-rs").as_ptr(),
-    );
+    propSetString(effectProps, kOfxPropLabel.as_ptr(), 0, c"NTSC-rs".as_ptr());
 
     propSetString(
         effectProps,
         kOfxImageEffectPluginPropGrouping.as_ptr(),
         0,
-        static_cstr!("Filter").as_ptr(),
+        c"Filter".as_ptr(),
     );
 
     propSetString(
@@ -471,7 +459,7 @@ unsafe fn map_params(
                     checkboxProps,
                     kOfxPropLabel.as_ptr(),
                     0,
-                    static_cstr!("Enabled").as_ptr(),
+                    c"Enabled".as_ptr(),
                 ))?;
                 ofx_err(propSetInt(
                     checkboxProps,
@@ -592,10 +580,10 @@ unsafe fn apply_params(
     Ok(())
 }
 
-const LOAD_PRESET_ID: &CStr = static_cstr!("load_preset");
-const SAVE_PRESET_ID: &CStr = static_cstr!("save_preset");
+const LOAD_PRESET_ID: &CStr = c"load_preset";
+const SAVE_PRESET_ID: &CStr = c"save_preset";
 
-const SRGB_GAMMA_NAME: &CStr = static_cstr!("SrgbGammaCorrect");
+const SRGB_GAMMA_NAME: &CStr = c"SrgbGammaCorrect";
 
 unsafe fn action_describe_in_context(descriptor: OfxImageEffectHandle) -> OfxResult<()> {
     let data = shared_data.read().map_err(|_| OfxStat::kOfxStatFailed)?;
@@ -618,11 +606,7 @@ unsafe fn action_describe_in_context(descriptor: OfxImageEffectHandle) -> OfxRes
 
     let mut props: OfxPropertySetHandle = ptr::null_mut();
     // TODO: all these functions return errors
-    ofx_err(clipDefine(
-        descriptor,
-        static_cstr!("Output").as_ptr(),
-        &mut props,
-    ))?;
+    ofx_err(clipDefine(descriptor, c"Output".as_ptr(), &mut props))?;
     if props.is_null() {
         return Err(OfxStat::kOfxStatFailed);
     }
@@ -639,7 +623,7 @@ unsafe fn action_describe_in_context(descriptor: OfxImageEffectHandle) -> OfxRes
         kOfxImageComponentRGB.as_ptr(),
     ))?;
 
-    clipDefine(descriptor, static_cstr!("Source").as_ptr(), &mut props);
+    clipDefine(descriptor, c"Source".as_ptr(), &mut props);
     if props.is_null() {
         return Err(OfxStat::kOfxStatFailed);
     }
@@ -670,7 +654,7 @@ unsafe fn action_describe_in_context(descriptor: OfxImageEffectHandle) -> OfxRes
         loadPresetProps,
         kOfxPropLabel.as_ptr(),
         0,
-        static_cstr!("Load Preset...").as_ptr(),
+        c"Load Preset...".as_ptr(),
     ))?;
     let mut savePresetProps: OfxPropertySetHandle = ptr::null_mut();
     ofx_err(paramDefine(
@@ -683,7 +667,7 @@ unsafe fn action_describe_in_context(descriptor: OfxImageEffectHandle) -> OfxRes
         savePresetProps,
         kOfxPropLabel.as_ptr(),
         0,
-        static_cstr!("Save Preset...").as_ptr(),
+        c"Save Preset...".as_ptr(),
     ))?;
 
     map_params(
@@ -691,7 +675,7 @@ unsafe fn action_describe_in_context(descriptor: OfxImageEffectHandle) -> OfxRes
         param_suite,
         param_set,
         &data.settings_list.settings,
-        static_cstr!(""),
+        c"",
     )?;
 
     let mut checkboxProps: OfxPropertySetHandle = ptr::null_mut();
@@ -705,7 +689,7 @@ unsafe fn action_describe_in_context(descriptor: OfxImageEffectHandle) -> OfxRes
         checkboxProps,
         kOfxPropLabel.as_ptr(),
         0,
-        static_cstr!("Apply sRGB gamma").as_ptr(),
+        c"Apply sRGB gamma".as_ptr(),
     ))?;
 
     Ok(())
@@ -738,7 +722,7 @@ unsafe fn action_get_regions_of_interest(
     let mut sourceClip: OfxImageClipHandle = ptr::null_mut();
     clipGetHandle(
         descriptor,
-        static_cstr!("Source").as_ptr(),
+        c"Source".as_ptr(),
         &mut sourceClip,
         ptr::null_mut(),
     );
@@ -754,7 +738,7 @@ unsafe fn action_get_regions_of_interest(
 
     propSetDoubleN(
         outArgs,
-        static_cstr!("OfxImageClipPropRoI_Source").as_ptr(),
+        c"OfxImageClipPropRoI_Source".as_ptr(),
         4,
         ptr::addr_of_mut!(sourceRoD) as *mut _,
     );
@@ -1360,14 +1344,14 @@ unsafe fn action_render(
     let mut outputClip: OfxImageClipHandle = ptr::null_mut();
     clipGetHandle(
         descriptor,
-        static_cstr!("Output").as_ptr(),
+        c"Output".as_ptr(),
         &mut outputClip,
         ptr::null_mut(),
     );
     let mut sourceClip: OfxImageClipHandle = ptr::null_mut();
     clipGetHandle(
         descriptor,
-        static_cstr!("Source").as_ptr(),
+        c"Source".as_ptr(),
         &mut sourceClip,
         ptr::null_mut(),
     );
@@ -1592,7 +1576,7 @@ pub extern "C" fn OfxGetPlugin(nth: c_int) -> *const OfxPlugin {
             // I think this cast is OK?
             pluginApi: kOfxImageEffectPluginApi.as_ptr(),
             apiVersion: 1,
-            pluginIdentifier: static_cstr!("wtf.vala:NtscRs").as_ptr(),
+            pluginIdentifier: c"wtf.vala:NtscRs".as_ptr(),
             pluginVersionMajor: VERSION_MINOR
                 .parse()
                 .expect("could not parse minor version"),
