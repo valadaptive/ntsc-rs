@@ -411,19 +411,13 @@ impl Default for NtscEffect {
     }
 }
 
-impl Settings for NtscEffectFullSettings {}
-
-impl SettingsList<NtscEffectFullSettings> {
-    /// Construct a list of all the effect settings. This isn't meant to be mutated--you should just create one instance
-    /// of this to use for your entire application/plugin.
-    pub fn new() -> Self {
-        let default_settings = NtscEffectFullSettings::default();
-
-        let v = vec![
+impl Settings for NtscEffectFullSettings {
+    fn setting_descriptors() -> Box<[SettingDescriptor<Self>]> {
+        vec![
             SettingDescriptor {
                 label: "Random seed",
                 description: None,
-                kind: SettingKind::IntRange { range: i32::MIN..=i32::MAX, default_value: default_settings.random_seed },
+                kind: SettingKind::IntRange { range: i32::MIN..=i32::MAX },
                 id: setting_id::RANDOM_SEED,
             },
             SettingDescriptor {
@@ -462,7 +456,6 @@ impl SettingsList<NtscEffectFullSettings> {
                             index: UseField::Both as u32,
                         },
                     ],
-                    default_value: default_settings.use_field as u32,
                 },
                 id: setting_id::USE_FIELD,
             },
@@ -482,7 +475,6 @@ impl SettingsList<NtscEffectFullSettings> {
                             index: FilterType::Butterworth as u32,
                         },
                     ],
-                    default_value: default_settings.filter_type as u32,
                 },
                 id: setting_id::FILTER_TYPE,
             },
@@ -507,7 +499,6 @@ impl SettingsList<NtscEffectFullSettings> {
                             index: LumaLowpass::None as u32,
                         },
                     ],
-                    default_value: default_settings.input_luma_filter as u32,
                 },
                 id: setting_id::INPUT_LUMA_FILTER,
             },
@@ -532,7 +523,6 @@ impl SettingsList<NtscEffectFullSettings> {
                             index: ChromaLowpass::None as u32,
                         },
                     ],
-                    default_value: default_settings.chroma_lowpass_in as u32,
                 },
                 id: setting_id::CHROMA_LOWPASS_IN,
             },
@@ -542,7 +532,6 @@ impl SettingsList<NtscEffectFullSettings> {
                 kind: SettingKind::FloatRange {
                     range: -1.0..=2.0,
                     logarithmic: false,
-                    default_value: default_settings.composite_sharpening,
                 },
                 id: setting_id::COMPOSITE_SHARPENING,
             },
@@ -555,43 +544,35 @@ impl SettingsList<NtscEffectFullSettings> {
                         SettingDescriptor {
                             label: "Intensity",
                             description: Some("Intensity of the noise."),
-                            kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.composite_noise.settings.intensity },
+                            kind: SettingKind::Percentage { logarithmic: true },
                             id: setting_id::COMPOSITE_NOISE_INTENSITY
                         },
                         SettingDescriptor {
                             label: "Frequency",
                             description: Some("Base wavelength, in pixels, of the noise."),
-                            kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false, default_value: default_settings.composite_noise.settings.frequency },
+                            kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false },
                             id: setting_id::COMPOSITE_NOISE_FREQUENCY
                         },
                         SettingDescriptor {
                             label: "Detail",
                             description: Some("Octaves of noise."),
-                            kind: SettingKind::IntRange { range: 1..=5, default_value: default_settings.composite_noise.settings.detail as i32 },
+                            kind: SettingKind::IntRange { range: 1..=5 },
                             id: setting_id::COMPOSITE_NOISE_DETAIL
                         },
                     ],
-                    default_value: true,
                 },
                 id: setting_id::COMPOSITE_NOISE,
             },
             SettingDescriptor {
                 label: "Snow",
                 description: Some("Frequency of random speckles in the image."),
-                kind: SettingKind::FloatRange {
-                    range: 0.0..=100.0,
-                    logarithmic: true,
-                    default_value: default_settings.snow_intensity,
-                },
+                kind: SettingKind::FloatRange { range: 0.0..=100.0, logarithmic: true },
                 id: setting_id::SNOW_INTENSITY,
             },
             SettingDescriptor {
                 label: "Snow anisotropy",
                 description: Some("Determines whether the speckles are placed truly randomly or concentrated in certain rows."),
-                kind: SettingKind::Percentage {
-                    logarithmic: false,
-                    default_value: default_settings.snow_anisotropy,
-                },
+                kind: SettingKind::Percentage { logarithmic: false },
                 id: setting_id::SNOW_ANISOTROPY,
             },
             SettingDescriptor {
@@ -620,17 +601,13 @@ impl SettingsList<NtscEffectFullSettings> {
                             index: PhaseShift::Degrees270 as u32,
                         },
                     ],
-                    default_value: default_settings.video_scanline_phase_shift as u32,
                 },
                 id: setting_id::VIDEO_SCANLINE_PHASE_SHIFT,
             },
             SettingDescriptor {
                 label: "Scanline phase shift offset",
                 description: None,
-                kind: SettingKind::IntRange {
-                    range: 0..=3,
-                    default_value: default_settings.video_scanline_phase_shift_offset,
-                },
+                kind: SettingKind::IntRange { range: 0..=3 },
                 id: setting_id::VIDEO_SCANLINE_PHASE_SHIFT_OFFSET,
             },
             SettingDescriptor {
@@ -659,14 +636,13 @@ impl SettingsList<NtscEffectFullSettings> {
                             index: ChromaDemodulationFilter::TwoLineComb as u32
                         }
                     ],
-                    default_value: default_settings.chroma_demodulation as u32,
                 },
                 id: setting_id::CHROMA_DEMODULATION,
             },
             SettingDescriptor {
                 label: "Luma smear",
                 description: None,
-                kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false, default_value: default_settings.luma_smear },
+                kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false },
                 id: setting_id::LUMA_SMEAR
             },
             SettingDescriptor {
@@ -677,19 +653,19 @@ impl SettingsList<NtscEffectFullSettings> {
                         SettingDescriptor {
                             label: "Height",
                             description: Some("Total height of the head-switching artifact."),
-                            kind: SettingKind::IntRange { range: 0..=24, default_value: default_settings.head_switching.settings.height as i32 },
+                            kind: SettingKind::IntRange { range: 0..=24 },
                             id: setting_id::HEAD_SWITCHING_HEIGHT
                         },
                         SettingDescriptor {
                             label: "Offset",
                             description: Some("How much of the head-switching artifact is off-screen."),
-                            kind: SettingKind::IntRange { range: 0..=24, default_value: default_settings.head_switching.settings.offset as i32 },
+                            kind: SettingKind::IntRange { range: 0..=24 },
                             id: setting_id::HEAD_SWITCHING_OFFSET
                         },
                         SettingDescriptor {
                             label: "Horizontal shift",
                             description: Some("How much the head-switching artifact shifts rows horizontally."),
-                            kind: SettingKind::FloatRange { range: -100.0..=100.0, logarithmic: false, default_value: default_settings.head_switching.settings.horiz_shift },
+                            kind: SettingKind::FloatRange { range: -100.0..=100.0, logarithmic: false },
                             id: setting_id::HEAD_SWITCHING_HORIZONTAL_SHIFT
                         },
                         SettingDescriptor {
@@ -699,20 +675,19 @@ impl SettingsList<NtscEffectFullSettings> {
                                 SettingDescriptor {
                                     label: "Position",
                                     description: Some("Horizontal position at which the head-switching starts."),
-                                    kind: SettingKind::Percentage { logarithmic: false, default_value: default_settings.head_switching.settings.mid_line.settings.position },
+                                    kind: SettingKind::Percentage { logarithmic: false },
                                     id: setting_id::HEAD_SWITCHING_MID_LINE_POSITION
                                 },
                                 SettingDescriptor {
                                     label: "Jitter",
                                     description: Some("How much the head-switching artifact \"jitters\" horizontally."),
-                                    kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.head_switching.settings.mid_line.settings.jitter },
+                                    kind: SettingKind::Percentage { logarithmic: true },
                                     id: setting_id::HEAD_SWITCHING_MID_LINE_JITTER
                                 }
-                            ], default_value: true },
+                            ] },
                             id: setting_id::HEAD_SWITCHING_START_MID_LINE
                         }
                     ],
-                    default_value: true,
                 },
                 id: setting_id::HEAD_SWITCHING,
             },
@@ -724,35 +699,34 @@ impl SettingsList<NtscEffectFullSettings> {
                         SettingDescriptor {
                             label: "Height",
                             description: Some("Total height of the tracking artifacts."),
-                            kind: SettingKind::IntRange { range: 0..=120, default_value: default_settings.tracking_noise.settings.height as i32 },
+                            kind: SettingKind::IntRange { range: 0..=120 },
                             id: setting_id::TRACKING_NOISE_HEIGHT
                         },
                         SettingDescriptor {
                             label: "Wave intensity",
                             description: Some("How much the affected scanlines \"wave\" back and forth."),
-                            kind: SettingKind::FloatRange { range: -50.0..=50.0, logarithmic: false, default_value: default_settings.tracking_noise.settings.wave_intensity },
+                            kind: SettingKind::FloatRange { range: -50.0..=50.0, logarithmic: false },
                             id: setting_id::TRACKING_NOISE_WAVE_INTENSITY
                         },
                         SettingDescriptor {
                             label: "Snow intensity",
                             description: Some("Frequency of speckle-type noise in the artifacts."),
-                            kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: true, default_value: default_settings.tracking_noise.settings.snow_intensity },
+                            kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: true },
                             id: setting_id::TRACKING_NOISE_SNOW_INTENSITY
                         },
                         SettingDescriptor {
                             label: "Snow anisotropy",
                             description: Some("How much the speckles are clustered by scanline."),
-                            kind: SettingKind::Percentage { logarithmic: false, default_value: default_settings.tracking_noise.settings.snow_intensity },
+                            kind: SettingKind::Percentage { logarithmic: false },
                             id: setting_id::TRACKING_NOISE_SNOW_ANISOTROPY
                         },
                         SettingDescriptor {
                             label: "Noise intensity",
                             description: Some("Intensity of non-speckle noise."),
-                            kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.tracking_noise.settings.noise_intensity },
+                            kind: SettingKind::Percentage { logarithmic: true },
                             id: setting_id::TRACKING_NOISE_NOISE_INTENSITY
                         },
                     ],
-                    default_value: true,
                 },
                 id: setting_id::TRACKING_NOISE,
             },
@@ -764,23 +738,22 @@ impl SettingsList<NtscEffectFullSettings> {
                         SettingDescriptor {
                             label: "Frequency",
                             description: Some("Frequency/period of the ringing, in \"rings per pixel\"."),
-                            kind: SettingKind::Percentage { logarithmic: false, default_value: default_settings.ringing.settings.frequency },
+                            kind: SettingKind::Percentage { logarithmic: false },
                             id: setting_id::RINGING_FREQUENCY
                         },
                         SettingDescriptor {
                             label: "Power",
                             description: Some("The power of the notch filter / how far out the ringing extends."),
-                            kind: SettingKind::FloatRange { range: 1.0..=10.0, logarithmic: false, default_value: default_settings.ringing.settings.power },
+                            kind: SettingKind::FloatRange { range: 1.0..=10.0, logarithmic: false },
                             id: setting_id::RINGING_POWER
                         },
                         SettingDescriptor {
                             label: "Scale",
                             description: Some("Intensity of the ringing."),
-                            kind: SettingKind::FloatRange { range: 0.0..=10.0, logarithmic: false, default_value: default_settings.ringing.settings.intensity },
+                            kind: SettingKind::FloatRange { range: 0.0..=10.0, logarithmic: false },
                             id: setting_id::RINGING_SCALE
                         },
                     ],
-                    default_value: true,
                 },
                 id: setting_id::RINGING,
             },
@@ -792,23 +765,22 @@ impl SettingsList<NtscEffectFullSettings> {
                         SettingDescriptor {
                             label: "Intensity",
                             description: Some("Intensity of the noise."),
-                            kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.luma_noise.settings.intensity },
+                            kind: SettingKind::Percentage { logarithmic: true },
                             id: setting_id::LUMA_NOISE_INTENSITY
                         },
                         SettingDescriptor {
                             label: "Frequency",
                             description: Some("Base wavelength, in pixels, of the noise."),
-                            kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false, default_value: default_settings.luma_noise.settings.frequency },
+                            kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false },
                             id: setting_id::LUMA_NOISE_FREQUENCY
                         },
                         SettingDescriptor {
                             label: "Detail",
                             description: Some("Octaves of noise."),
-                            kind: SettingKind::IntRange { range: 1..=5, default_value: default_settings.luma_noise.settings.detail as i32 },
+                            kind: SettingKind::IntRange { range: 1..=5 },
                             id: setting_id::LUMA_NOISE_DETAIL
                         },
                     ],
-                    default_value: true,
                 },
                 id: setting_id::LUMA_NOISE,
             },
@@ -820,61 +792,47 @@ impl SettingsList<NtscEffectFullSettings> {
                         SettingDescriptor {
                             label: "Intensity",
                             description: Some("Intensity of the noise."),
-                            kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.chroma_noise.settings.intensity },
+                            kind: SettingKind::Percentage { logarithmic: true },
                             id: setting_id::CHROMA_NOISE_INTENSITY
                         },
                         SettingDescriptor {
                             label: "Frequency",
                             description: Some("Base wavelength, in pixels, of the noise."),
-                            kind: SettingKind::FloatRange { range: 0.0..=0.5, logarithmic: false, default_value: default_settings.chroma_noise.settings.frequency },
+                            kind: SettingKind::FloatRange { range: 0.0..=0.5, logarithmic: false },
                             id: setting_id::CHROMA_NOISE_FREQUENCY
                         },
                         SettingDescriptor {
                             label: "Detail",
                             description: Some("Octaves of noise."),
-                            kind: SettingKind::IntRange { range: 1..=5, default_value: default_settings.chroma_noise.settings.detail as i32 },
+                            kind: SettingKind::IntRange { range: 1..=5 },
                             id: setting_id::CHROMA_NOISE_DETAIL
                         },
                     ],
-                    default_value: true,
                 },
                 id: setting_id::CHROMA_NOISE,
             },
             SettingDescriptor {
                 label: "Chroma phase error",
                 description: Some("Phase error for the chrominance (color) signal."),
-                kind: SettingKind::Percentage {
-                    logarithmic: false,
-                    default_value: default_settings.chroma_phase_error,
-                },
+                kind: SettingKind::Percentage { logarithmic: false },
                 id: setting_id::CHROMA_PHASE_ERROR,
             },
             SettingDescriptor {
                 label: "Chroma phase noise",
                 description: Some("Noise applied per-scanline to the phase of the chrominance (color) signal."),
-                kind: SettingKind::Percentage {
-                    logarithmic: true,
-                    default_value: default_settings.chroma_phase_noise_intensity,
-                },
+                kind: SettingKind::Percentage { logarithmic: true },
                 id: setting_id::CHROMA_PHASE_NOISE_INTENSITY,
             },
             SettingDescriptor {
                 label: "Chroma delay (horizontal)",
                 description: Some("Horizontal offset of the chrominance (color) signal."),
-                kind: SettingKind::FloatRange {
-                    range: -40.0..=40.0,
-                    logarithmic: false,
-                    default_value: default_settings.chroma_delay_horizontal,
-                },
+                kind: SettingKind::FloatRange { range: -40.0..=40.0, logarithmic: false },
                 id: setting_id::CHROMA_DELAY_HORIZONTAL,
             },
             SettingDescriptor {
                 label: "Chroma delay (vertical)",
                 description: Some("Vertical offset of the chrominance (color) signal. Usually increases with VHS generation loss."),
-                kind: SettingKind::IntRange {
-                    range: -20..=20,
-                    default_value: default_settings.chroma_delay_vertical,
-                },
+                kind: SettingKind::IntRange { range: -20..=20 },
                 id: setting_id::CHROMA_DELAY_VERTICAL,
             },
             SettingDescriptor {
@@ -908,14 +866,13 @@ impl SettingsList<NtscEffectFullSettings> {
                                         index: 0,
                                     },
                                 ],
-                                default_value: default_settings.vhs_settings.settings.tape_speed as u32,
                             },
                             id: setting_id::VHS_TAPE_SPEED
                         },
                         SettingDescriptor {
                             label: "Chroma loss",
                             description: Some("Chance that the chrominance (color) signal is completely lost in each scanline."),
-                            kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.vhs_settings.settings.chroma_loss },
+                            kind: SettingKind::Percentage { logarithmic: true },
                             id: setting_id::VHS_CHROMA_LOSS
                         },
                         SettingDescriptor {
@@ -925,16 +882,16 @@ impl SettingsList<NtscEffectFullSettings> {
                                 SettingDescriptor {
                                     label: "Intensity",
                                     description: Some("Amount of sharpening to apply."),
-                                    kind: SettingKind::FloatRange { range: 0.0..=5.0, logarithmic: false, default_value: default_settings.vhs_settings.settings.sharpen.settings.intensity },
+                                    kind: SettingKind::FloatRange { range: 0.0..=5.0, logarithmic: false },
                                     id: setting_id::VHS_SHARPEN_INTENSITY
                                 },
                                 SettingDescriptor {
                                     label: "Frequency",
                                     description: Some("Frequency / radius of the sharpening, relative to the tape speed's cutoff frequency."),
-                                    kind: SettingKind::FloatRange { range: 0.5..=4.0, logarithmic: false, default_value: default_settings.vhs_settings.settings.sharpen.settings.frequency },
+                                    kind: SettingKind::FloatRange { range: 0.5..=4.0, logarithmic: false },
                                     id: setting_id::VHS_SHARPEN_FREQUENCY
                                 }
-                            ], default_value: true },
+                            ] },
                             id: setting_id::VHS_SHARPEN_ENABLED
                         },
                         SettingDescriptor {
@@ -945,41 +902,39 @@ impl SettingsList<NtscEffectFullSettings> {
                                     SettingDescriptor {
                                         label: "Intensity",
                                         description: Some("Horizontal waving of the image, in pixels."),
-                                        kind: SettingKind::FloatRange { range: 0.0..=20.0, logarithmic: false, default_value: default_settings.vhs_settings.settings.edge_wave.settings.intensity },
+                                        kind: SettingKind::FloatRange { range: 0.0..=20.0, logarithmic: false },
                                         id: setting_id::VHS_EDGE_WAVE_INTENSITY
                                     },
                                     SettingDescriptor {
                                         label: "Speed",
                                         description: Some("Speed at which the horizontal waving occurs."),
-                                        kind: SettingKind::FloatRange { range: 0.0..=10.0, logarithmic: false, default_value: default_settings.vhs_settings.settings.edge_wave.settings.speed },
+                                        kind: SettingKind::FloatRange { range: 0.0..=10.0, logarithmic: false },
                                         id: setting_id::VHS_EDGE_WAVE_SPEED
                                     },
                                     SettingDescriptor {
                                         label: "Frequency",
                                         description: Some("Base wavelength for the horizontal waving."),
-                                        kind: SettingKind::FloatRange { range: 0.0..=0.5, logarithmic: false, default_value: default_settings.vhs_settings.settings.edge_wave.settings.frequency },
+                                        kind: SettingKind::FloatRange { range: 0.0..=0.5, logarithmic: false },
                                         id: setting_id::VHS_EDGE_WAVE_FREQUENCY
                                     },
                                     SettingDescriptor {
                                         label: "Detail",
                                         description: Some("Octaves of noise for the waves."),
-                                        kind: SettingKind::IntRange { range: 1..=5, default_value: default_settings.vhs_settings.settings.edge_wave.settings.detail },
+                                        kind: SettingKind::IntRange { range: 1..=5 },
                                         id: setting_id::VHS_EDGE_WAVE_DETAIL
                                     },
                                 ],
-                                default_value: true
                             },
                             id: setting_id::VHS_EDGE_WAVE_ENABLED
                         }
                     ],
-                    default_value: true,
                 },
                 id: setting_id::VHS_SETTINGS,
             },
             SettingDescriptor {
                 label: "Vertically blend chroma",
                 description: Some("Vertically blend each scanline's chrominance with the scanline above it."),
-                kind: SettingKind::Boolean { default_value: default_settings.chroma_vert_blend },
+                kind: SettingKind::Boolean,
                 id: setting_id::CHROMA_VERT_BLEND
             },
             SettingDescriptor {
@@ -1003,23 +958,20 @@ impl SettingsList<NtscEffectFullSettings> {
                             index: ChromaLowpass::None as u32,
                         },
                     ],
-                    default_value: default_settings.chroma_lowpass_out as u32,
                 },
                 id: setting_id::CHROMA_LOWPASS_OUT,
             },
             SettingDescriptor {
                 label: "Bandwidth scale",
                 description: Some("Horizontally scale the effect by this amount. For 480p video, leave this at 1.0 for the most physically-accurate result."),
-                kind: SettingKind::FloatRange { range: 0.125..=8.0, logarithmic: false, default_value: default_settings.bandwidth_scale },
+                kind: SettingKind::FloatRange { range: 0.125..=8.0, logarithmic: false },
                 id: setting_id::BANDWIDTH_SCALE,
             },
-        ];
-
-        SettingsList {
-            settings: v.into_boxed_slice(),
-        }
+        ].into_boxed_slice()
     }
+}
 
+impl SettingsList<NtscEffectFullSettings> {
     pub fn from_json(&self, json: &str) -> Result<NtscEffectFullSettings, ParseSettingsError> {
         let parsed = json.parse::<JsonValue>()?;
 
@@ -1042,7 +994,7 @@ impl SettingsList<NtscEffectFullSettings> {
         }
 
         let mut dst_settings = Default::default();
-        Self::settings_from_json(parsed_map, &self.settings, &mut dst_settings)?;
+        Self::settings_from_json(parsed_map, &self.setting_descriptors, &mut dst_settings)?;
 
         Ok(dst_settings)
     }

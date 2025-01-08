@@ -257,6 +257,7 @@ unsafe fn map_params(
     param_suite: &OfxParameterSuiteV1,
     param_set: OfxParamSetHandle,
     setting_descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
+    default_settings: &NtscEffectFullSettings,
     parent: &CStr,
 ) -> OfxResult<()> {
     let paramDefine = param_suite.paramDefine.ok_or(OfxStat::kOfxStatFailed)?;
@@ -276,16 +277,17 @@ unsafe fn map_params(
         let descriptor_id_cstr = CString::new(descriptor_id_str.clone()).unwrap();
 
         match &descriptor.kind {
-            SettingKind::Enumeration {
-                options,
-                default_value,
-            } => {
+            SettingKind::Enumeration { options } => {
                 ofx_err(paramDefine(
                     param_set,
                     kOfxParamTypeChoice.as_ptr(),
                     descriptor_id_cstr.as_ptr(),
                     &mut paramProps,
                 ))?;
+                let default_value = default_settings
+                    .get_field::<EnumValue>(&descriptor.id)
+                    .map_err(|_| OfxStat::kOfxStatFailed)?
+                    .0;
                 let mut default_idx: usize = 0;
                 for (i, menu_item) in options.iter().enumerate() {
                     let item_label_cstr = CString::new(menu_item.label).unwrap();
@@ -296,7 +298,7 @@ unsafe fn map_params(
                         item_label_cstr.as_ptr(),
                     ))?;
 
-                    if menu_item.index == *default_value {
+                    if menu_item.index == default_value {
                         default_idx = i;
                     }
                 }
@@ -307,7 +309,10 @@ unsafe fn map_params(
                     default_idx as i32,
                 ))?;
             }
-            SettingKind::Percentage { default_value, .. } => {
+            SettingKind::Percentage { .. } => {
+                let default_value = default_settings
+                    .get_field::<f32>(&descriptor.id)
+                    .map_err(|_| OfxStat::kOfxStatFailed)?;
                 ofx_err(paramDefine(
                     param_set,
                     kOfxParamTypeDouble.as_ptr(),
@@ -324,7 +329,7 @@ unsafe fn map_params(
                     paramProps,
                     kOfxParamPropDefault.as_ptr(),
                     0,
-                    *default_value as f64,
+                    default_value as f64,
                 ))?;
                 ofx_err(propSetDouble(paramProps, kOfxParamPropMin.as_ptr(), 0, 0.0))?;
                 ofx_err(propSetDouble(
@@ -341,10 +346,10 @@ unsafe fn map_params(
                     1.0,
                 ))?;
             }
-            SettingKind::IntRange {
-                range,
-                default_value,
-            } => {
+            SettingKind::IntRange { range } => {
+                let default_value = default_settings
+                    .get_field::<i32>(&descriptor.id)
+                    .map_err(|_| OfxStat::kOfxStatFailed)?;
                 ofx_err(paramDefine(
                     param_set,
                     kOfxParamTypeInteger.as_ptr(),
@@ -355,7 +360,7 @@ unsafe fn map_params(
                     paramProps,
                     kOfxParamPropDefault.as_ptr(),
                     0,
-                    *default_value,
+                    default_value,
                 ))?;
                 ofx_err(propSetInt(
                     paramProps,
@@ -382,11 +387,10 @@ unsafe fn map_params(
                     *range.end(),
                 ))?;
             }
-            SettingKind::FloatRange {
-                range,
-                default_value,
-                ..
-            } => {
+            SettingKind::FloatRange { range, .. } => {
+                let default_value = default_settings
+                    .get_field::<f32>(&descriptor.id)
+                    .map_err(|_| OfxStat::kOfxStatFailed)?;
                 ofx_err(paramDefine(
                     param_set,
                     kOfxParamTypeDouble.as_ptr(),
@@ -397,7 +401,7 @@ unsafe fn map_params(
                     paramProps,
                     kOfxParamPropDefault.as_ptr(),
                     0,
-                    *default_value as f64,
+                    default_value as f64,
                 ))?;
                 ofx_err(propSetDouble(
                     paramProps,
@@ -424,7 +428,10 @@ unsafe fn map_params(
                     *range.end() as f64,
                 ))?;
             }
-            SettingKind::Boolean { default_value } => {
+            SettingKind::Boolean => {
+                let default_value = default_settings
+                    .get_field::<bool>(&descriptor.id)
+                    .map_err(|_| OfxStat::kOfxStatFailed)?;
                 ofx_err(paramDefine(
                     param_set,
                     kOfxParamTypeBoolean.as_ptr(),
@@ -435,13 +442,13 @@ unsafe fn map_params(
                     paramProps,
                     kOfxParamPropDefault.as_ptr(),
                     0,
-                    *default_value as i32,
+                    default_value as i32,
                 ))?;
             }
-            SettingKind::Group {
-                children,
-                default_value,
-            } => {
+            SettingKind::Group { children } => {
+                let default_value = default_settings
+                    .get_field::<bool>(&descriptor.id)
+                    .map_err(|_| OfxStat::kOfxStatFailed)?;
                 let group_name = descriptor_id_str.clone() + "_group";
                 let group_name_cstr = CString::new(group_name).unwrap();
                 ofx_err(paramDefine(
@@ -468,7 +475,7 @@ unsafe fn map_params(
                     checkboxProps,
                     kOfxParamPropDefault.as_ptr(),
                     0,
-                    *default_value as i32,
+                    default_value as i32,
                 ))?;
                 ofx_err(propSetString(
                     checkboxProps,
@@ -489,6 +496,7 @@ unsafe fn map_params(
                     param_suite,
                     param_set,
                     children,
+                    default_settings,
                     &group_name_cstr,
                 )?;
             }
@@ -682,7 +690,8 @@ unsafe fn action_describe_in_context(descriptor: OfxImageEffectHandle) -> OfxRes
         property_suite,
         param_suite,
         param_set,
-        &data.settings_list.settings,
+        &data.settings_list.setting_descriptors,
+        &data.settings_list.default_settings,
         c"",
     )?;
 
@@ -963,7 +972,12 @@ unsafe fn action_instance_changed(
                 .settings_list
                 .from_json(&preset_contents)
                 .map_err(|_| OfxStat::kOfxStatFailed)?;
-            set_controls_from_settings(data, param_set, &data.settings_list.settings, &settings)?;
+            set_controls_from_settings(
+                data,
+                param_set,
+                &data.settings_list.setting_descriptors,
+                &settings,
+            )?;
 
             return Ok(());
         } else if SAVE_PRESET_ID == CStr::from_ptr(target_name) {
@@ -980,7 +994,7 @@ unsafe fn action_instance_changed(
                 data.parameter_suite,
                 param_set,
                 time,
-                &data.settings_list.settings,
+                &data.settings_list.setting_descriptors,
                 &mut settings,
             )?;
 
@@ -994,7 +1008,13 @@ unsafe fn action_instance_changed(
         }
     }
 
-    update_controls_disabled(data, param_set, &data.settings_list.settings, time, true)?;
+    update_controls_disabled(
+        data,
+        param_set,
+        &data.settings_list.setting_descriptors,
+        time,
+        true,
+    )?;
 
     Ok(())
 }
@@ -1467,7 +1487,7 @@ unsafe fn action_render(
         data.parameter_suite,
         param_set,
         time,
-        &data.settings_list.settings,
+        &data.settings_list.setting_descriptors,
         &mut out_settings,
     )?;
 

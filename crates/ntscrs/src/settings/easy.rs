@@ -9,7 +9,7 @@ use super::{
         RingingSettings, TrackingNoiseSettings, UseField, VHSSettingsFullSettings,
         VHSSharpenSettings, VHSTapeSpeed,
     },
-    MenuItem, SettingDescriptor, SettingKind, Settings, SettingsBlock, SettingsList,
+    MenuItem, SettingDescriptor, SettingKind, Settings, SettingsBlock,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -134,19 +134,13 @@ pub mod setting_id {
     pub const VHS_EDGE_WAVE: EasySettingID = setting_id!(4096 | 24, "ez_vhs_edge_wave", vhs_settings.settings.edge_wave);
 }
 
-impl Settings for EasyModeFullSettings {}
-
-impl SettingsList<EasyModeFullSettings> {
-    /// Construct a list of all the effect settings. This isn't meant to be mutated--you should just create one instance
-    /// of this to use for your entire application/plugin.
-    pub fn new() -> Self {
-        let default_settings = EasyModeFullSettings::default();
-
-        let v = vec![
+impl Settings for EasyModeFullSettings {
+    fn setting_descriptors() -> Box<[SettingDescriptor<Self>]> {
+        vec![
             SettingDescriptor {
                 label: "Random seed",
                 description: None,
-                kind: SettingKind::IntRange { range: i32::MIN..=i32::MAX, default_value: default_settings.random_seed },
+                kind: SettingKind::IntRange { range: i32::MIN..=i32::MAX },
                 id: setting_id::RANDOM_SEED,
             },
             SettingDescriptor {
@@ -185,7 +179,6 @@ impl SettingsList<EasyModeFullSettings> {
                             index: UseField::Both as u32,
                         },
                     ],
-                    default_value: default_settings.use_field as u32,
                 },
                 id: setting_id::USE_FIELD,
             },
@@ -205,7 +198,6 @@ impl SettingsList<EasyModeFullSettings> {
                             index: FilterType::Butterworth as u32,
                         },
                     ],
-                    default_value: default_settings.filter_type as u32,
                 },
                 id: setting_id::FILTER_TYPE,
             },
@@ -215,7 +207,6 @@ impl SettingsList<EasyModeFullSettings> {
                 kind: SettingKind::FloatRange {
                     range: -1.0..=2.0,
                     logarithmic: false,
-                    default_value: default_settings.saturation,
                 },
                 id: setting_id::SATURATION,
             },
@@ -225,7 +216,6 @@ impl SettingsList<EasyModeFullSettings> {
                 kind: SettingKind::FloatRange {
                     range: 0.0..=100.0,
                     logarithmic: true,
-                    default_value: default_settings.snow,
                 },
                 id: setting_id::SNOW,
             },
@@ -255,20 +245,19 @@ impl SettingsList<EasyModeFullSettings> {
                             index: ChromaDemodulationFilter::TwoLineComb as u32
                         }
                     ],
-                    default_value: default_settings.chroma_demodulation_filter as u32,
                 },
                 id: setting_id::CHROMA_DEMODULATION_FILTER,
             },
             SettingDescriptor {
                 label: "Luma smear",
                 description: None,
-                kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false, default_value: default_settings.luma_smear },
+                kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false },
                 id: setting_id::LUMA_SMEAR
             },
             SettingDescriptor {
                 label: "Ringing",
                 description: Some("Additional ringing artifacts, simulated with a notch filter."),
-                kind: SettingKind::Percentage { logarithmic: false, default_value: default_settings.ringing },
+                kind: SettingKind::Percentage { logarithmic: false },
                 id: setting_id::RINGING,
             },
             SettingDescriptor {
@@ -279,23 +268,22 @@ impl SettingsList<EasyModeFullSettings> {
                         SettingDescriptor {
                             label: "Intensity",
                             description: Some("Intensity of the noise."),
-                            kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.luma_noise.settings.intensity },
+                            kind: SettingKind::Percentage { logarithmic: true },
                             id: setting_id::LUMA_NOISE_INTENSITY
                         },
                         SettingDescriptor {
                             label: "Frequency",
                             description: Some("Base wavelength, in pixels, of the noise."),
-                            kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false, default_value: default_settings.luma_noise.settings.frequency },
+                            kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false },
                             id: setting_id::LUMA_NOISE_FREQUENCY
                         },
                         SettingDescriptor {
                             label: "Detail",
                             description: Some("Octaves of noise."),
-                            kind: SettingKind::IntRange { range: 1..=5, default_value: default_settings.luma_noise.settings.detail as i32 },
+                            kind: SettingKind::IntRange { range: 1..=5 },
                             id: setting_id::LUMA_NOISE_DETAIL
                         },
                     ],
-                    default_value: true,
                 },
                 id: setting_id::LUMA_NOISE_ENABLED,
             },
@@ -307,23 +295,22 @@ impl SettingsList<EasyModeFullSettings> {
                         SettingDescriptor {
                             label: "Intensity",
                             description: Some("Intensity of the noise."),
-                            kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.chroma_noise.settings.intensity },
+                            kind: SettingKind::Percentage { logarithmic: true },
                             id: setting_id::CHROMA_NOISE_INTENSITY
                         },
                         SettingDescriptor {
                             label: "Frequency",
                             description: Some("Base wavelength, in pixels, of the noise."),
-                            kind: SettingKind::FloatRange { range: 0.0..=0.5, logarithmic: false, default_value: default_settings.chroma_noise.settings.frequency },
+                            kind: SettingKind::FloatRange { range: 0.0..=0.5, logarithmic: false },
                             id: setting_id::CHROMA_NOISE_FREQUENCY
                         },
                         SettingDescriptor {
                             label: "Detail",
                             description: Some("Octaves of noise."),
-                            kind: SettingKind::IntRange { range: 1..=5, default_value: default_settings.chroma_noise.settings.detail as i32 },
+                            kind: SettingKind::IntRange { range: 1..=5 },
                             id: setting_id::CHROMA_NOISE_DETAIL
                         },
                     ],
-                    default_value: true,
                 },
                 id: setting_id::CHROMA_NOISE_ENABLED,
             },
@@ -332,7 +319,6 @@ impl SettingsList<EasyModeFullSettings> {
                 description: Some("Noise applied per-scanline to the phase of the chrominance signal."),
                 kind: SettingKind::Percentage {
                     logarithmic: false,
-                    default_value: default_settings.chroma_phase_noise,
                 },
                 id: setting_id::CHROMA_PHASE_NOISE,
             },
@@ -367,14 +353,13 @@ impl SettingsList<EasyModeFullSettings> {
                                         index: 0,
                                     },
                                 ],
-                                default_value: default_settings.vhs_settings.settings.tape_speed as u32,
                             },
                             id: setting_id::VHS_TAPE_SPEED
                         },
                         SettingDescriptor {
                             label: "Head switching",
                             description: Some("Emulate VHS head-switching artifacts at the bottom of the image."),
-                            kind: SettingKind::FloatRange { range: 0.0..=24.0, default_value: default_settings.vhs_settings.settings.head_switching, logarithmic: false },
+                            kind: SettingKind::FloatRange { range: 0.0..=24.0,  logarithmic: false },
                             id: setting_id::VHS_HEAD_SWITCHING,
                         },
                         SettingDescriptor {
@@ -385,48 +370,42 @@ impl SettingsList<EasyModeFullSettings> {
                                     SettingDescriptor {
                                         label: "Height",
                                         description: None,
-                                        kind: SettingKind::IntRange { range: 0..=120, default_value: default_settings.vhs_settings.settings.tracking_noise.settings.height as i32 },
+                                        kind: SettingKind::IntRange { range: 0..=120 },
                                         id: setting_id::TRACKING_NOISE_HEIGHT
                                     },
                                     SettingDescriptor {
                                         label: "Intensity",
                                         description: None,
-                                        kind: SettingKind::Percentage { logarithmic: false, default_value: default_settings.vhs_settings.settings.tracking_noise.settings.intensity },
+                                        kind: SettingKind::Percentage { logarithmic: false },
                                         id: setting_id::TRACKING_NOISE_INTENSITY
                                     },
                                 ],
-                                default_value: true,
                             },
                             id: setting_id::TRACKING_NOISE_ENABLED,
                         },
                         SettingDescriptor {
                             label: "Chroma loss",
                             description: Some("Chance that the chrominance signal is completely lost in each scanline."),
-                            kind: SettingKind::Percentage { logarithmic: true, default_value: default_settings.vhs_settings.settings.chroma_loss },
+                            kind: SettingKind::Percentage { logarithmic: true },
                             id: setting_id::VHS_CHROMA_LOSS
                         },
                         SettingDescriptor {
                             label: "Sharpen",
                             description: Some("Sharpening of the image, as done by some VHS decks."),
-                            kind: SettingKind::Percentage { logarithmic: false, default_value: default_settings.vhs_settings.settings.sharpen },
+                            kind: SettingKind::Percentage { logarithmic: false },
                             id: setting_id::VHS_SHARPEN
                         },
                         SettingDescriptor {
                             label: "Edge wave",
                             description: Some("Horizontal waving of the image."),
-                            kind: SettingKind::FloatRange { range: 0.0..=20.0, logarithmic: false, default_value: default_settings.vhs_settings.settings.edge_wave },
+                            kind: SettingKind::FloatRange { range: 0.0..=20.0, logarithmic: false },
                             id: setting_id::VHS_EDGE_WAVE
                         }
                     ],
-                    default_value: true,
                 },
                 id: setting_id::VHS_SETTINGS,
             },
-        ];
-
-        SettingsList {
-            settings: v.into_boxed_slice(),
-        }
+        ].into_boxed_slice()
     }
 }
 

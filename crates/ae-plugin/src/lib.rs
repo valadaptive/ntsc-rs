@@ -147,7 +147,11 @@ impl AdobePluginGlobal for Plugin {
             },
         )?;
 
-        Self::map_params(params, &self.settings.settings)?;
+        Self::map_params(
+            params,
+            &self.settings.setting_descriptors,
+            &self.settings.default_settings,
+        )?;
 
         Ok(())
     }
@@ -171,7 +175,7 @@ impl AdobePluginGlobal for Plugin {
                 self.smart_render(in_data, out_data, extra, params)?
             }
             Command::UpdateParamsUi => {
-                Self::update_controls_disabled(params, &self.settings.settings, true)?
+                Self::update_controls_disabled(params, &self.settings.setting_descriptors, true)?
             }
             Command::UserChangedParam { param_index } => {
                 self.handle_param_callback(params, in_data, out_data, param_index)?
@@ -596,13 +600,15 @@ impl Plugin {
     fn map_params(
         params: &mut Parameters<ParamID>,
         descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
+        default_settings: &NtscEffectFullSettings,
     ) -> Result<(), Error> {
         for descriptor in descriptors {
             match &descriptor.kind {
-                SettingKind::Enumeration {
-                    options,
-                    default_value,
-                } => {
+                SettingKind::Enumeration { options } => {
+                    let default_value = default_settings
+                        .get_field::<EnumValue>(&descriptor.id)
+                        .map_err(|_| Error::BadCallbackParameter)?
+                        .0;
                     params.add_customized(
                         ParamID::Param(descriptor.id.ae_id()),
                         descriptor.label,
@@ -610,7 +616,7 @@ impl Plugin {
                             p.set_options(&options.iter().map(|o| o.label).collect::<Vec<_>>());
                             let default_idx = options
                                 .iter()
-                                .position(|item| item.index == *default_value)
+                                .position(|item| item.index == default_value)
                                 .unwrap() as i32;
                             p.set_default(default_idx + 1);
                         }),
@@ -621,87 +627,97 @@ impl Plugin {
                         },
                     )?;
                 }
-                SettingKind::Percentage {
-                    logarithmic,
-                    default_value,
-                } => params.add_customized(
-                    ParamID::Param(descriptor.id.ae_id()),
-                    descriptor.label,
-                    ae::FloatSliderDef::setup(|f| {
-                        f.set_slider_min(0.0);
-                        f.set_valid_min(0.0);
-                        f.set_slider_max(100.0);
-                        f.set_valid_max(100.0);
-                        f.set_default(
-                            match (*logarithmic, *default_value as f64) {
-                                (true, v) => map_logarithmic_inverse(v, 0.0, 1.0, LOG_SLIDER_BASE),
+                SettingKind::Percentage { logarithmic } => {
+                    let default_value = default_settings
+                        .get_field::<f32>(&descriptor.id)
+                        .map_err(|_| Error::BadCallbackParameter)?;
+                    params.add_customized(
+                        ParamID::Param(descriptor.id.ae_id()),
+                        descriptor.label,
+                        ae::FloatSliderDef::setup(|f| {
+                            f.set_slider_min(0.0);
+                            f.set_valid_min(0.0);
+                            f.set_slider_max(100.0);
+                            f.set_valid_max(100.0);
+                            f.set_default(
+                                match (*logarithmic, default_value as f64) {
+                                    (true, v) => {
+                                        map_logarithmic_inverse(v, 0.0, 1.0, LOG_SLIDER_BASE)
+                                    }
+                                    (false, v) => v,
+                                } * 100.0,
+                            );
+                            f.set_display_flags(ValueDisplayFlag::PERCENT);
+                            f.set_precision(1);
+                        }),
+                        |p| {
+                            p.set_id(descriptor.id.ae_id());
+                            p.set_flag(ParamFlag::START_COLLAPSED, true);
+                            -1
+                        },
+                    )?
+                }
+                SettingKind::IntRange { range } => {
+                    let default_value = default_settings
+                        .get_field::<i32>(&descriptor.id)
+                        .map_err(|_| Error::BadCallbackParameter)?;
+                    params.add_customized(
+                        ParamID::Param(descriptor.id.ae_id()),
+                        descriptor.label,
+                        ae::FloatSliderDef::setup(|f| {
+                            f.set_slider_min(*range.start() as f32);
+                            f.set_valid_min(*range.start() as f32);
+                            f.set_slider_max(*range.end() as f32);
+                            f.set_valid_max(*range.end() as f32);
+                            f.set_default(default_value as f64);
+                            f.set_precision(0);
+                        }),
+                        |p| {
+                            p.set_id(descriptor.id.ae_id());
+                            p.set_flag(ParamFlag::START_COLLAPSED, true);
+                            -1
+                        },
+                    )?
+                }
+                SettingKind::FloatRange { range, logarithmic } => {
+                    let default_value = default_settings
+                        .get_field::<f32>(&descriptor.id)
+                        .map_err(|_| Error::BadCallbackParameter)?;
+                    params.add_customized(
+                        ParamID::Param(descriptor.id.ae_id()),
+                        descriptor.label,
+                        ae::FloatSliderDef::setup(|f| {
+                            f.set_slider_min(*range.start());
+                            f.set_valid_min(*range.start());
+                            f.set_slider_max(*range.end());
+                            f.set_valid_max(*range.end());
+                            f.set_default(match (*logarithmic, default_value as f64) {
+                                (true, v) => map_logarithmic_inverse(
+                                    v,
+                                    *range.start() as f64,
+                                    *range.end() as f64,
+                                    LOG_SLIDER_BASE,
+                                ),
                                 (false, v) => v,
-                            } * 100.0,
-                        );
-                        f.set_display_flags(ValueDisplayFlag::PERCENT);
-                        f.set_precision(1);
-                    }),
-                    |p| {
-                        p.set_id(descriptor.id.ae_id());
-                        p.set_flag(ParamFlag::START_COLLAPSED, true);
-                        -1
-                    },
-                )?,
-                SettingKind::IntRange {
-                    range,
-                    default_value,
-                } => params.add_customized(
-                    ParamID::Param(descriptor.id.ae_id()),
-                    descriptor.label,
-                    ae::FloatSliderDef::setup(|f| {
-                        f.set_slider_min(*range.start() as f32);
-                        f.set_valid_min(*range.start() as f32);
-                        f.set_slider_max(*range.end() as f32);
-                        f.set_valid_max(*range.end() as f32);
-                        f.set_default(*default_value as f64);
-                        f.set_precision(0);
-                    }),
-                    |p| {
-                        p.set_id(descriptor.id.ae_id());
-                        p.set_flag(ParamFlag::START_COLLAPSED, true);
-                        -1
-                    },
-                )?,
-                SettingKind::FloatRange {
-                    range,
-                    logarithmic,
-                    default_value,
-                } => params.add_customized(
-                    ParamID::Param(descriptor.id.ae_id()),
-                    descriptor.label,
-                    ae::FloatSliderDef::setup(|f| {
-                        f.set_slider_min(*range.start());
-                        f.set_valid_min(*range.start());
-                        f.set_slider_max(*range.end());
-                        f.set_valid_max(*range.end());
-                        f.set_default(match (*logarithmic, *default_value as f64) {
-                            (true, v) => map_logarithmic_inverse(
-                                v,
-                                *range.start() as f64,
-                                *range.end() as f64,
-                                LOG_SLIDER_BASE,
-                            ),
-                            (false, v) => v,
-                        });
-                        f.set_precision(2);
-                    }),
-                    |p| {
-                        p.set_id(descriptor.id.ae_id());
-                        p.set_flag(ParamFlag::START_COLLAPSED, true);
-                        -1
-                    },
-                )?,
-                SettingKind::Boolean { default_value } => {
+                            });
+                            f.set_precision(2);
+                        }),
+                        |p| {
+                            p.set_id(descriptor.id.ae_id());
+                            p.set_flag(ParamFlag::START_COLLAPSED, true);
+                            -1
+                        },
+                    )?
+                }
+                SettingKind::Boolean => {
+                    let default_value = default_settings
+                        .get_field::<bool>(&descriptor.id)
+                        .map_err(|_| Error::BadCallbackParameter)?;
                     params.add_customized(
                         ParamID::Param(descriptor.id.ae_id()),
                         descriptor.label,
                         ae::CheckBoxDef::setup(|c| {
-                            c.set_default(*default_value);
+                            c.set_default(default_value);
                             // The effect will fail to load if we don't set the label (by default it's the null pointer)
                             c.set_label(descriptor.label);
                         }),
@@ -712,11 +728,11 @@ impl Plugin {
                         },
                     )?;
                 }
-                SettingKind::Group {
-                    children,
-                    default_value,
-                } => {
+                SettingKind::Group { children } => {
                     let descriptor_id = descriptor.id.ae_id();
+                    let default_value = default_settings
+                        .get_field::<bool>(&descriptor.id)
+                        .map_err(|_| Error::BadCallbackParameter)?;
                     params.add_group(
                         ParamID::GroupStart(descriptor_id),
                         ParamID::GroupEnd(descriptor_id),
@@ -727,7 +743,7 @@ impl Plugin {
                                 ParamID::Param(descriptor_id),
                                 descriptor.label,
                                 ae::CheckBoxDef::setup(|c| {
-                                    c.set_default(*default_value);
+                                    c.set_default(default_value);
                                     c.set_label("Enabled");
                                 }),
                                 |p| {
@@ -735,7 +751,7 @@ impl Plugin {
                                     -1
                                 },
                             )?;
-                            Self::map_params(g, children)?;
+                            Self::map_params(g, children, default_settings)?;
                             Ok(())
                         },
                     )?;
@@ -814,7 +830,11 @@ impl Plugin {
                     }
                 };
 
-                Self::update_params_from_settings(&self.settings.settings, params, &loaded_preset)?;
+                Self::update_params_from_settings(
+                    &self.settings.setting_descriptors,
+                    params,
+                    &loaded_preset,
+                )?;
             }
             ParamID::SavePresetButton => {
                 let mut dialog = rfd::FileDialog::new()
@@ -1029,7 +1049,7 @@ impl Plugin {
             Ok(())
         }
 
-        apply_settings_list(&self.settings.settings, params, &mut settings)?;
+        apply_settings_list(&self.settings.setting_descriptors, params, &mut settings)?;
 
         Ok(settings)
     }

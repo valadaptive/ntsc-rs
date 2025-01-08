@@ -250,33 +250,20 @@ pub struct MenuItem {
 #[derive(Debug, Clone)]
 pub enum SettingKind<T: Settings> {
     /// Selection of specific options, preferably in a specific order.
-    Enumeration {
-        options: Vec<MenuItem>,
-        default_value: u32,
-    },
+    Enumeration { options: Vec<MenuItem> },
     /// Range from 0% to 100%.
-    Percentage {
-        logarithmic: bool,
-        default_value: f32,
-    },
+    Percentage { logarithmic: bool },
     /// Inclusive discrete (integer) range.
-    IntRange {
-        range: RangeInclusive<i32>,
-        default_value: i32,
-    },
+    IntRange { range: RangeInclusive<i32> },
     /// Inclusive continuous range.
     FloatRange {
         range: RangeInclusive<f32>,
         logarithmic: bool,
-        default_value: f32,
     },
     /// Boolean/checkbox.
-    Boolean { default_value: bool },
+    Boolean,
     /// Group of settings, which contains an "enable/disable" checkbox and child settings.
-    Group {
-        children: Vec<SettingDescriptor<T>>,
-        default_value: bool,
-    },
+    Group { children: Vec<SettingDescriptor<T>> },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -308,6 +295,7 @@ pub trait Settings: Default {
             requested_type: std::any::type_name::<T>(),
         })
     }
+
     fn set_field<T: 'static + Into<AnySetting>>(
         &mut self,
         id: &SettingID<Self>,
@@ -315,6 +303,8 @@ pub trait Settings: Default {
     ) -> Result<(), GetSetFieldError> {
         (id.set)(self, value.into())
     }
+
+    fn setting_descriptors() -> Box<[SettingDescriptor<Self>]>;
 }
 
 /// A single setting, which includes the data common to all settings (its name, optional description/tooltip, and ID)
@@ -407,10 +397,20 @@ impl GetAndExpect for HashMap<String, JsonValue> {
 /// Introspectable list of settings and their types and ranges.
 #[derive(Debug, Clone)]
 pub struct SettingsList<T: Settings> {
-    pub settings: Box<[SettingDescriptor<T>]>,
+    pub setting_descriptors: Box<[SettingDescriptor<T>]>,
+    pub default_settings: Box<T>,
 }
 
 impl<T: Settings> SettingsList<T> {
+    /// Construct a list of all the effect settings. This isn't meant to be mutated--you should just create one instance
+    /// of this to use for your entire application/plugin.
+    pub fn new() -> Self {
+        Self {
+            setting_descriptors: T::setting_descriptors(),
+            default_settings: Box::new(Default::default()),
+        }
+    }
+
     /// Recursive method for writing the settings within a given list of descriptors (either top-level or within a
     /// group) to a given JSON map.
     fn settings_to_json(
@@ -445,7 +445,7 @@ impl<T: Settings> SettingsList<T> {
     /// Convert the settings in the given settings struct to JSON.
     pub fn to_json(&self, settings: &T) -> JsonValue {
         let mut dst_map = HashMap::<String, JsonValue>::new();
-        Self::settings_to_json(&mut dst_map, &self.settings, settings);
+        Self::settings_to_json(&mut dst_map, &self.setting_descriptors, settings);
 
         dst_map.insert("version".to_string(), JsonValue::Number(1.0));
 
@@ -531,7 +531,7 @@ impl<T: Settings> SettingsList<T> {
         }
 
         let mut dst_settings = T::default();
-        Self::settings_from_json(parsed_map, &self.settings, &mut dst_settings)?;
+        Self::settings_from_json(parsed_map, &self.setting_descriptors, &mut dst_settings)?;
 
         Ok(dst_settings)
     }
@@ -577,7 +577,7 @@ impl<'a, T: Settings> Iterator for SettingDescriptors<'a, T> {
 impl<'a, T: Settings> SettingDescriptors<'a, T> {
     fn new(settings_list: &'a SettingsList<T>) -> Self {
         Self {
-            path: vec![(&settings_list.settings, 0)],
+            path: vec![(&settings_list.setting_descriptors, 0)],
         }
     }
 }

@@ -1096,14 +1096,14 @@ impl NtscApp {
                         settings_changed |= Self::settings_from_descriptors(
                             easy_mode_settings,
                             ui,
-                            &settings_list_easy.settings,
+                            &settings_list_easy.setting_descriptors,
                             interlace_mode,
                         );
                     } else {
                         settings_changed |= Self::settings_from_descriptors(
                             effect_settings,
                             ui,
-                            &settings_list.settings,
+                            &settings_list.setting_descriptors,
                             interlace_mode,
                         );
                     }
