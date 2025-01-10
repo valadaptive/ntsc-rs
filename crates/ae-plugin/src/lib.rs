@@ -16,8 +16,8 @@ use handle::SliceHandle;
 use ntscrs::{
     ntsc::{NtscEffect, NtscEffectFullSettings},
     settings::{
-        standard::UseField, EnumValue, SettingDescriptor, SettingID, SettingKind, Settings,
-        SettingsList,
+        standard::UseField, Downcast, EnumValue, SettingDescriptor, SettingID, SettingKind,
+        Settings, SettingsList,
     },
     yiq_fielding::{
         self, AfterEffectsU16, Bgrx16, Bgrx32f, Bgrx8, BlitInfo, DeinterlaceMode, Xrgb16AE,
@@ -151,6 +151,7 @@ impl AdobePluginGlobal for Plugin {
             params,
             &self.settings.setting_descriptors,
             &self.settings.default_settings,
+            &NtscEffectFullSettings::legacy_value(),
         )?;
 
         Ok(())
@@ -601,36 +602,66 @@ impl Plugin {
         params: &mut Parameters<ParamID>,
         descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
         default_settings: &NtscEffectFullSettings,
+        legacy_default_settings: &NtscEffectFullSettings,
     ) -> Result<(), Error> {
+        fn get_defaults<T: Downcast + 'static>(
+            defaults: &NtscEffectFullSettings,
+            legacy_defaults: &NtscEffectFullSettings,
+            descriptor: &SettingDescriptor<NtscEffectFullSettings>,
+        ) -> Result<[T; 2], Error> {
+            Ok([
+                defaults
+                    .get_field(&descriptor.id)
+                    .map_err(|_| Error::BadCallbackParameter)?,
+                legacy_defaults
+                    .get_field(&descriptor.id)
+                    .map_err(|_| Error::BadCallbackParameter)?,
+            ])
+        }
+
         for descriptor in descriptors {
             match &descriptor.kind {
                 SettingKind::Enumeration { options } => {
-                    let default_value = default_settings
-                        .get_field::<EnumValue>(&descriptor.id)
-                        .map_err(|_| Error::BadCallbackParameter)?
-                        .0;
+                    let [default_idx, legacy_default_idx] = get_defaults::<EnumValue>(
+                        &default_settings,
+                        &legacy_default_settings,
+                        &descriptor,
+                    )?
+                    .map(|default| {
+                        options
+                            .iter()
+                            .position(|item| item.index == default.0)
+                            .unwrap() as i32
+                            + 1
+                    });
                     params.add_customized(
                         ParamID::Param(descriptor.id.ae_id()),
                         descriptor.label,
                         ae::PopupDef::setup(|p| {
                             p.set_options(&options.iter().map(|o| o.label).collect::<Vec<_>>());
-                            let default_idx = options
-                                .iter()
-                                .position(|item| item.index == default_value)
-                                .unwrap() as i32;
-                            p.set_default(default_idx + 1);
+                            p.set_default(default_idx);
+                            p.set_value(legacy_default_idx);
                         }),
                         |p| {
                             p.set_id(descriptor.id.ae_id());
                             p.set_flag(ParamFlag::START_COLLAPSED, true);
+                            p.set_flag(ParamFlag::USE_VALUE_FOR_OLD_PROJECTS, true);
                             -1
                         },
                     )?;
                 }
                 SettingKind::Percentage { logarithmic } => {
-                    let default_value = default_settings
-                        .get_field::<f32>(&descriptor.id)
-                        .map_err(|_| Error::BadCallbackParameter)?;
+                    let [default_value, legacy_default_value] = get_defaults::<f32>(
+                        &default_settings,
+                        &legacy_default_settings,
+                        &descriptor,
+                    )?
+                    .map(|default| match (*logarithmic, default as f64) {
+                        (true, v) => {
+                            map_logarithmic_inverse(v, 0.0, 1.0, LOG_SLIDER_BASE)
+                        }
+                        (false, v) => v,
+                    } * 100.0);
                     params.add_customized(
                         ParamID::Param(descriptor.id.ae_id()),
                         descriptor.label,
@@ -639,28 +670,25 @@ impl Plugin {
                             f.set_valid_min(0.0);
                             f.set_slider_max(100.0);
                             f.set_valid_max(100.0);
-                            f.set_default(
-                                match (*logarithmic, default_value as f64) {
-                                    (true, v) => {
-                                        map_logarithmic_inverse(v, 0.0, 1.0, LOG_SLIDER_BASE)
-                                    }
-                                    (false, v) => v,
-                                } * 100.0,
-                            );
+                            f.set_default(default_value);
+                            f.set_value(legacy_default_value);
                             f.set_display_flags(ValueDisplayFlag::PERCENT);
                             f.set_precision(1);
                         }),
                         |p| {
                             p.set_id(descriptor.id.ae_id());
                             p.set_flag(ParamFlag::START_COLLAPSED, true);
+                            p.set_flag(ParamFlag::USE_VALUE_FOR_OLD_PROJECTS, true);
                             -1
                         },
                     )?
                 }
                 SettingKind::IntRange { range } => {
-                    let default_value = default_settings
-                        .get_field::<i32>(&descriptor.id)
-                        .map_err(|_| Error::BadCallbackParameter)?;
+                    let [default_value, legacy_default_value] = get_defaults::<i32>(
+                        &default_settings,
+                        &legacy_default_settings,
+                        &descriptor,
+                    )?;
                     params.add_customized(
                         ParamID::Param(descriptor.id.ae_id()),
                         descriptor.label,
@@ -670,19 +698,32 @@ impl Plugin {
                             f.set_slider_max(*range.end() as f32);
                             f.set_valid_max(*range.end() as f32);
                             f.set_default(default_value as f64);
+                            f.set_value(legacy_default_value as f64);
                             f.set_precision(0);
                         }),
                         |p| {
                             p.set_id(descriptor.id.ae_id());
                             p.set_flag(ParamFlag::START_COLLAPSED, true);
+                            p.set_flag(ParamFlag::USE_VALUE_FOR_OLD_PROJECTS, true);
                             -1
                         },
                     )?
                 }
                 SettingKind::FloatRange { range, logarithmic } => {
-                    let default_value = default_settings
-                        .get_field::<f32>(&descriptor.id)
-                        .map_err(|_| Error::BadCallbackParameter)?;
+                    let [default_value, legacy_default_value] = get_defaults::<f32>(
+                        &default_settings,
+                        &legacy_default_settings,
+                        &descriptor,
+                    )?
+                    .map(|default| match (*logarithmic, default as f64) {
+                        (true, v) => map_logarithmic_inverse(
+                            v,
+                            *range.start() as f64,
+                            *range.end() as f64,
+                            LOG_SLIDER_BASE,
+                        ),
+                        (false, v) => v,
+                    });
                     params.add_customized(
                         ParamID::Param(descriptor.id.ae_id()),
                         descriptor.label,
@@ -691,48 +732,48 @@ impl Plugin {
                             f.set_valid_min(*range.start());
                             f.set_slider_max(*range.end());
                             f.set_valid_max(*range.end());
-                            f.set_default(match (*logarithmic, default_value as f64) {
-                                (true, v) => map_logarithmic_inverse(
-                                    v,
-                                    *range.start() as f64,
-                                    *range.end() as f64,
-                                    LOG_SLIDER_BASE,
-                                ),
-                                (false, v) => v,
-                            });
+                            f.set_default(default_value);
+                            f.set_value(legacy_default_value);
                             f.set_precision(2);
                         }),
                         |p| {
                             p.set_id(descriptor.id.ae_id());
                             p.set_flag(ParamFlag::START_COLLAPSED, true);
+                            p.set_flag(ParamFlag::USE_VALUE_FOR_OLD_PROJECTS, true);
                             -1
                         },
                     )?
                 }
                 SettingKind::Boolean => {
-                    let default_value = default_settings
-                        .get_field::<bool>(&descriptor.id)
-                        .map_err(|_| Error::BadCallbackParameter)?;
+                    let [default_value, legacy_default_value] = get_defaults::<bool>(
+                        &default_settings,
+                        &legacy_default_settings,
+                        &descriptor,
+                    )?;
                     params.add_customized(
                         ParamID::Param(descriptor.id.ae_id()),
                         descriptor.label,
                         ae::CheckBoxDef::setup(|c| {
                             c.set_default(default_value);
+                            c.set_value(legacy_default_value);
                             // The effect will fail to load if we don't set the label (by default it's the null pointer)
                             c.set_label(descriptor.label);
                         }),
                         |p| {
                             p.set_id(descriptor.id.ae_id());
                             p.set_flag(ParamFlag::START_COLLAPSED, true);
+                            p.set_flag(ParamFlag::USE_VALUE_FOR_OLD_PROJECTS, true);
                             -1
                         },
                     )?;
                 }
                 SettingKind::Group { children } => {
                     let descriptor_id = descriptor.id.ae_id();
-                    let default_value = default_settings
-                        .get_field::<bool>(&descriptor.id)
-                        .map_err(|_| Error::BadCallbackParameter)?;
+                    let [default_value, legacy_default_value] = get_defaults::<bool>(
+                        &default_settings,
+                        &legacy_default_settings,
+                        &descriptor,
+                    )?;
                     params.add_group(
                         ParamID::GroupStart(descriptor_id),
                         ParamID::GroupEnd(descriptor_id),
@@ -744,14 +785,22 @@ impl Plugin {
                                 descriptor.label,
                                 ae::CheckBoxDef::setup(|c| {
                                     c.set_default(default_value);
+                                    c.set_value(legacy_default_value);
                                     c.set_label("Enabled");
                                 }),
                                 |p| {
                                     p.set_id(descriptor_id);
+                                    p.set_flag(ParamFlag::START_COLLAPSED, true);
+                                    p.set_flag(ParamFlag::USE_VALUE_FOR_OLD_PROJECTS, true);
                                     -1
                                 },
                             )?;
-                            Self::map_params(g, children, default_settings)?;
+                            Self::map_params(
+                                g,
+                                children,
+                                default_settings,
+                                legacy_default_settings,
+                            )?;
                             Ok(())
                         },
                     )?;
