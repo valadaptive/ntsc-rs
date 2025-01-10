@@ -818,13 +818,6 @@ impl Plugin {
         #[cfg(windows)]
         {
             let hwnd = if in_data.is_premiere() {
-                // Acquiring any Premiere suite requires the PICA basic suite to be initialized. It's stored as
-                // a thread-local variable that's set by creating a `PicaBasicSuite` and unset to its previous
-                // value when said `PicaBasicSuite` is dropped. Note that we cannot use a `let _ = ...`
-                // ("wildcard") binding as it is special and will *immediately* drop the right-hand side.
-                let _pica_suite = premiere::PicaBasicSuite::from_sp_basic_suite_raw(
-                    in_data.pica_basic_suite_ptr() as _,
-                );
                 premiere::suites::Window::new()
                     .map_err(|_| Error::Generic)?
                     .get_main_window() as usize as isize

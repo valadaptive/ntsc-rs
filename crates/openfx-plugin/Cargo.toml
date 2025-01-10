@@ -11,7 +11,7 @@ ntscrs = { path = "../ntscrs" }
 rfd = "0.15.0"
 
 [build-dependencies]
-bindgen = "0.70"
+bindgen = "0.71"
 
 [lib]
 crate-type = ["cdylib"]

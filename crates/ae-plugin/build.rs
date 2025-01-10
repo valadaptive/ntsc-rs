@@ -7,7 +7,7 @@ fn main() {
 
         const EFFECT_VERSION_MAJOR: u32 = 1;
         const EFFECT_VERSION_MINOR: u32 = 5;
-        const EFFECT_VERSION_PATCH: u32 = 0;
+        const EFFECT_VERSION_PATCH: u32 = 1;
         use pipl::*;
         pipl::plugin_build(vec![
             Property::Kind(PIPLType::AEEffect),
@@ -51,5 +51,6 @@ fn main() {
         println!("cargo:rustc-env=EFFECT_VERSION_MAJOR={EFFECT_VERSION_MAJOR}");
         println!("cargo:rustc-env=EFFECT_VERSION_MINOR={EFFECT_VERSION_MINOR}");
         println!("cargo:rustc-env=EFFECT_VERSION_PATCH={EFFECT_VERSION_PATCH}");
+        println!("cargo:rustc-cfg=with_premiere");
     }
 }
