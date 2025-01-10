@@ -150,7 +150,7 @@ impl AdobePluginGlobal for Plugin {
         Self::map_params(
             params,
             &self.settings.setting_descriptors,
-            &self.settings.default_settings,
+            &NtscEffectFullSettings::default(),
             &NtscEffectFullSettings::legacy_value(),
         )?;
 

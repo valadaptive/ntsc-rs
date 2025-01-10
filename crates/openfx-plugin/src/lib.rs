@@ -691,7 +691,7 @@ unsafe fn action_describe_in_context(descriptor: OfxImageEffectHandle) -> OfxRes
         param_suite,
         param_set,
         &data.settings_list.setting_descriptors,
-        &data.settings_list.default_settings,
+        &NtscEffectFullSettings::default(),
         c"",
     )?;
 

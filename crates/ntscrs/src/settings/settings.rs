@@ -404,7 +404,6 @@ impl GetAndExpect for HashMap<String, JsonValue> {
 #[derive(Debug, Clone)]
 pub struct SettingsList<T: Settings> {
     pub setting_descriptors: Box<[SettingDescriptor<T>]>,
-    pub default_settings: Box<T>,
 }
 
 impl<T: Settings> SettingsList<T> {
@@ -413,7 +412,6 @@ impl<T: Settings> SettingsList<T> {
     pub fn new() -> Self {
         Self {
             setting_descriptors: T::setting_descriptors(),
-            default_settings: Box::new(Default::default()),
         }
     }
 
