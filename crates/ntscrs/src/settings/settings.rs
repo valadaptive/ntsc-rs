@@ -304,6 +304,12 @@ pub trait Settings: Default {
         (id.set)(self, value.into())
     }
 
+    /// Returns settings which e.g. new presets can be applied on top of without any newly-added settings having an
+    /// additional effect on the result. For example, a new setting added to an existing group would probably be set to
+    /// 0, whereas an entirely new settings group could have all its settings at nice defaults but simply be disabled.
+    /// Settings that have always existed can take on their regular default values, which are subject to change.
+    fn legacy_value() -> Self;
+
     fn setting_descriptors() -> Box<[SettingDescriptor<Self>]>;
 }
 
@@ -530,7 +536,7 @@ impl<T: Settings> SettingsList<T> {
             return Err(ParseSettingsError::UnsupportedVersion { version });
         }
 
-        let mut dst_settings = T::default();
+        let mut dst_settings = T::legacy_value();
         Self::settings_from_json(parsed_map, &self.setting_descriptors, &mut dst_settings)?;
 
         Ok(dst_settings)

@@ -969,6 +969,66 @@ impl Settings for NtscEffectFullSettings {
             },
         ].into_boxed_slice()
     }
+
+    fn legacy_value() -> Self {
+        Self {
+            filter_type: FilterType::ConstantK, // added in v0.5.9
+            luma_smear: 0.0,                    // added in v0.5.2
+            head_switching: SettingsBlock {
+                enabled: true,
+                settings: HeadSwitchingSettingsFullSettings {
+                    mid_line: SettingsBlock {
+                        // added in v0.7.0
+                        enabled: false,
+                        settings: Default::default(),
+                    },
+                    ..Default::default()
+                },
+            },
+            composite_noise: SettingsBlock {
+                enabled: true,
+                settings: FbmNoiseSettings {
+                    frequency: 0.25, // added in v0.7.0
+                    detail: 1,       // added in v0.7.0
+                    ..Default::default()
+                },
+            },
+            luma_noise: SettingsBlock {
+                enabled: false,
+                settings: Default::default(),
+            }, // added in v0.7.0
+            chroma_noise: SettingsBlock {
+                enabled: true,
+                settings: FbmNoiseSettings {
+                    frequency: 0.05, // added in v0.5.1
+                    detail: 1,       // added in v0.5.1
+                    ..Default::default()
+                },
+            },
+            vhs_settings: SettingsBlock {
+                enabled: true,
+                settings: VHSSettingsFullSettings {
+                    edge_wave: SettingsBlock {
+                        enabled: true,
+                        settings: VHSEdgeWaveSettings {
+                            frequency: 0.05, // added in v0.4.0
+                            detail: 1,       // added in v0.4.0
+                            ..Default::default()
+                        },
+                    },
+                    sharpen: SettingsBlock {
+                        enabled: true,
+                        settings: VHSSharpenSettings {
+                            frequency: 1.0, // added in v0.5.10
+                            ..Default::default()
+                        },
+                    },
+                    ..Default::default()
+                },
+            },
+            ..Default::default()
+        }
+    }
 }
 
 impl SettingsList<NtscEffectFullSettings> {
@@ -993,7 +1053,7 @@ impl SettingsList<NtscEffectFullSettings> {
             return Err(ParseSettingsError::UnsupportedVersion { version });
         }
 
-        let mut dst_settings = Default::default();
+        let mut dst_settings = NtscEffectFullSettings::legacy_value();
         Self::settings_from_json(parsed_map, &self.setting_descriptors, &mut dst_settings)?;
 
         Ok(dst_settings)

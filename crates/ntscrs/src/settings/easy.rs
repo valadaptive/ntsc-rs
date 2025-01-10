@@ -407,6 +407,10 @@ impl Settings for EasyModeFullSettings {
             },
         ].into_boxed_slice()
     }
+
+    fn legacy_value() -> Self {
+        Default::default() // this will remain this way until (unless) easy mode is ever finished
+    }
 }
 
 impl From<&EasyModeFullSettings> for NtscEffectFullSettings {
