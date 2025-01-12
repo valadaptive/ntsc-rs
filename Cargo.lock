@@ -2366,7 +2366,7 @@ dependencies = [
 
 [[package]]
 name = "gui"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "arboard",
  "async-executor",
@@ -3457,7 +3457,7 @@ dependencies = [
 
 [[package]]
 name = "openfx-plugin"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "allocator-api2",
  "bindgen 0.71.1",
