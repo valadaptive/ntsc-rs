@@ -6,6 +6,8 @@ use std::{
 use glam::{Mat3A, Vec3A};
 use rayon::prelude::*;
 
+use crate::thread_pool::with_thread_pool;
+
 #[inline(always)]
 pub fn rgb_to_yiq([r, g, b]: [f32; 3]) -> [f32; 3] {
     const YIQ_MATRIX: Mat3A = Mat3A::from_cols(
@@ -516,16 +518,18 @@ impl<'a> YiqView<'a> {
         match self.field {
             YiqField::Upper | YiqField::Lower | YiqField::Both => {
                 let Self { y, i, q, .. } = self;
-                blit_single_field::<S, F>(
-                    y,
-                    i,
-                    q,
-                    self.dimensions,
-                    self.field,
-                    buf,
-                    blit_info,
-                    pixel_transform,
-                )
+                with_thread_pool(|| {
+                    blit_single_field::<S, F>(
+                        y,
+                        i,
+                        q,
+                        self.dimensions,
+                        self.field,
+                        buf,
+                        blit_info,
+                        pixel_transform,
+                    )
+                })
             }
             YiqField::InterleavedUpper => {
                 let num_upper_rows = YiqField::Upper.num_actual_image_rows(self.dimensions.1);
@@ -648,50 +652,84 @@ impl<'a> YiqView<'a> {
 
         let num_rows = self.num_rows();
 
-        let chunks = dst
-            .par_chunks_exact_mut(row_length)
-            .skip(blit_info.destination.1)
-            .take(blit_info.rect.height())
-            .enumerate();
-        match (deinterlace_mode, self.field) {
-            (DeinterlaceMode::Bob, YiqField::Upper | YiqField::Lower) => {
-                chunks.for_each(|(mut dst_row_idx, dst_row)| {
-                    dst_row_idx += blit_info.rect.top;
-                    // Limit to the actual width of the output (rowbytes may include trailing padding)
-                    let dst_row = &mut dst_row[blit_info.destination.0 * num_components
-                        ..(blit_info.destination.0 + blit_info.rect.width()) * num_components];
-                    if blit_info.flip_y {
-                        dst_row_idx = output_height - dst_row_idx - 1;
-                    }
-                    // Inner fields with lines above and below them. Interpolate between those fields
-                    if (dst_row_idx & 1) == skip_field
-                        && dst_row_idx != 0
-                        && dst_row_idx != output_height - 1
-                    {
-                        for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
-                            let src_idx_lower =
-                                ((dst_row_idx - 1) >> 1) * width + pix_idx + blit_info.rect.left;
-                            let src_idx_upper =
-                                ((dst_row_idx + 1) >> 1) * width + pix_idx + blit_info.rect.left;
+        with_thread_pool(|| {
+            let chunks = dst
+                .par_chunks_exact_mut(row_length)
+                .skip(blit_info.destination.1)
+                .take(blit_info.rect.height())
+                .enumerate();
+            match (deinterlace_mode, self.field) {
+                (DeinterlaceMode::Bob, YiqField::Upper | YiqField::Lower) => {
+                    chunks.for_each(|(mut dst_row_idx, dst_row)| {
+                        dst_row_idx += blit_info.rect.top;
+                        // Limit to the actual width of the output (rowbytes may include trailing padding)
+                        let dst_row = &mut dst_row[blit_info.destination.0 * num_components
+                            ..(blit_info.destination.0 + blit_info.rect.width()) * num_components];
+                        if blit_info.flip_y {
+                            dst_row_idx = output_height - dst_row_idx - 1;
+                        }
+                        // Inner fields with lines above and below them. Interpolate between those fields
+                        if (dst_row_idx & 1) == skip_field
+                            && dst_row_idx != 0
+                            && dst_row_idx != output_height - 1
+                        {
+                            for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
+                                let src_idx_lower = ((dst_row_idx - 1) >> 1) * width
+                                    + pix_idx
+                                    + blit_info.rect.left;
+                                let src_idx_upper = ((dst_row_idx + 1) >> 1) * width
+                                    + pix_idx
+                                    + blit_info.rect.left;
 
-                            let interp_pixel = [
-                                (self.y[src_idx_lower] + self.y[src_idx_upper]) * 0.5,
-                                (self.i[src_idx_lower] + self.i[src_idx_upper]) * 0.5,
-                                (self.q[src_idx_lower] + self.q[src_idx_upper]) * 0.5,
-                            ];
+                                let interp_pixel = [
+                                    (self.y[src_idx_lower] + self.y[src_idx_upper]) * 0.5,
+                                    (self.i[src_idx_lower] + self.i[src_idx_upper]) * 0.5,
+                                    (self.q[src_idx_lower] + self.q[src_idx_upper]) * 0.5,
+                                ];
 
-                            let rgb = pixel_transform(yiq_to_rgb(interp_pixel));
-                            pixel[r_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[0]));
-                            pixel[g_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[1]));
-                            pixel[b_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[2]));
-                            if fill_alpha {
-                                pixel[a_idx] = MaybeUninit::new(S::DataFormat::from_norm(1.0));
+                                let rgb = pixel_transform(yiq_to_rgb(interp_pixel));
+                                pixel[r_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[0]));
+                                pixel[g_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[1]));
+                                pixel[b_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[2]));
+                                if fill_alpha {
+                                    pixel[a_idx] = MaybeUninit::new(S::DataFormat::from_norm(1.0));
+                                }
+                            }
+                        } else {
+                            // Copy the field directly
+                            for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
+                                let src_idx = (dst_row_idx >> 1).min(num_rows - 1) * width
+                                    + pix_idx
+                                    + blit_info.rect.left;
+                                let rgb = pixel_transform(yiq_to_rgb([
+                                    self.y[src_idx],
+                                    self.i[src_idx],
+                                    self.q[src_idx],
+                                ]));
+                                pixel[r_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[0]));
+                                pixel[g_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[1]));
+                                pixel[b_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[2]));
+                                if fill_alpha {
+                                    pixel[a_idx] = MaybeUninit::new(S::DataFormat::from_norm(1.0));
+                                }
                             }
                         }
-                    } else {
-                        // Copy the field directly
+                    });
+                }
+                (DeinterlaceMode::Skip, YiqField::Upper | YiqField::Lower) => {
+                    chunks.for_each(|(mut row_idx, dst_row)| {
+                        row_idx += blit_info.rect.top;
+                        // Limit to the actual width of the output (rowbytes may include trailing padding)
+                        let dst_row = &mut dst_row[blit_info.destination.0 * num_components
+                            ..(blit_info.destination.0 + blit_info.rect.width()) * num_components];
+                        if blit_info.flip_y {
+                            row_idx = output_height - row_idx - 1;
+                        }
+                        if (row_idx & 1) == skip_field {
+                            return;
+                        }
                         for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
-                            let src_idx = (dst_row_idx >> 1).min(num_rows - 1) * width
+                            let src_idx = (row_idx >> 1).min(num_rows - 1) * width
                                 + pix_idx
                                 + blit_info.rect.left;
                             let rgb = pixel_transform(yiq_to_rgb([
@@ -706,103 +744,74 @@ impl<'a> YiqView<'a> {
                                 pixel[a_idx] = MaybeUninit::new(S::DataFormat::from_norm(1.0));
                             }
                         }
-                    }
-                });
+                    });
+                }
+                (_, YiqField::InterleavedUpper | YiqField::InterleavedLower) => {
+                    chunks.for_each(|(mut row_idx, dst_row)| {
+                        row_idx += blit_info.rect.top;
+                        // Limit to the actual width of the output (rowbytes may include trailing padding)
+                        let dst_row = &mut dst_row[blit_info.destination.0 * num_components
+                            ..(blit_info.destination.0 + blit_info.rect.width()) * num_components];
+                        if blit_info.flip_y {
+                            row_idx = output_height - row_idx - 1;
+                        }
+                        let row_offset = match self.field {
+                            YiqField::InterleavedUpper => {
+                                YiqField::Upper.num_image_rows(self.dimensions.1) * (row_idx & 1)
+                            }
+                            YiqField::InterleavedLower => {
+                                YiqField::Lower.num_image_rows(self.dimensions.1)
+                                    * (1 - (row_idx & 1))
+                            }
+                            _ => unreachable!(),
+                        };
+                        // handle edge case where there's only one row and the mode is InterleavedLower
+                        let interleaved_row_idx =
+                            ((row_idx >> 1) + row_offset).min(self.dimensions.1 - 1);
+                        let src_idx = interleaved_row_idx * width;
+                        for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
+                            let rgb = pixel_transform(yiq_to_rgb([
+                                self.y[src_idx + pix_idx + blit_info.rect.left],
+                                self.i[src_idx + pix_idx + blit_info.rect.left],
+                                self.q[src_idx + pix_idx + blit_info.rect.left],
+                            ]));
+                            pixel[r_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[0]));
+                            pixel[g_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[1]));
+                            pixel[b_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[2]));
+                            if fill_alpha {
+                                pixel[a_idx] = MaybeUninit::new(S::DataFormat::from_norm(1.0));
+                            }
+                        }
+                    });
+                }
+                _ => {
+                    chunks.for_each(|(mut row_idx, dst_row)| {
+                        row_idx += blit_info.rect.top;
+                        // Limit to the actual width of the output (rowbytes may include trailing padding)
+                        let dst_row = &mut dst_row[blit_info.destination.0 * num_components
+                            ..(blit_info.destination.0 + blit_info.rect.width()) * num_components];
+                        if blit_info.flip_y {
+                            row_idx = output_height - row_idx - 1;
+                        }
+                        for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
+                            let src_idx =
+                                row_idx.min(num_rows - 1) * width + pix_idx + blit_info.rect.left;
+                            let rgb = pixel_transform(yiq_to_rgb([
+                                self.y[src_idx],
+                                self.i[src_idx],
+                                self.q[src_idx],
+                            ]));
+                            pixel[r_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[0]));
+                            pixel[g_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[1]));
+                            pixel[b_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[2]));
+                            if fill_alpha {
+                                pixel[a_idx] = MaybeUninit::new(S::DataFormat::from_norm(1.0));
+                            }
+                        }
+                    });
+                }
             }
-            (DeinterlaceMode::Skip, YiqField::Upper | YiqField::Lower) => {
-                chunks.for_each(|(mut row_idx, dst_row)| {
-                    row_idx += blit_info.rect.top;
-                    // Limit to the actual width of the output (rowbytes may include trailing padding)
-                    let dst_row = &mut dst_row[blit_info.destination.0 * num_components
-                        ..(blit_info.destination.0 + blit_info.rect.width()) * num_components];
-                    if blit_info.flip_y {
-                        row_idx = output_height - row_idx - 1;
-                    }
-                    if (row_idx & 1) == skip_field {
-                        return;
-                    }
-                    for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
-                        let src_idx = (row_idx >> 1).min(num_rows - 1) * width
-                            + pix_idx
-                            + blit_info.rect.left;
-                        let rgb = pixel_transform(yiq_to_rgb([
-                            self.y[src_idx],
-                            self.i[src_idx],
-                            self.q[src_idx],
-                        ]));
-                        pixel[r_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[0]));
-                        pixel[g_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[1]));
-                        pixel[b_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[2]));
-                        if fill_alpha {
-                            pixel[a_idx] = MaybeUninit::new(S::DataFormat::from_norm(1.0));
-                        }
-                    }
-                });
-            }
-            (_, YiqField::InterleavedUpper | YiqField::InterleavedLower) => {
-                chunks.for_each(|(mut row_idx, dst_row)| {
-                    row_idx += blit_info.rect.top;
-                    // Limit to the actual width of the output (rowbytes may include trailing padding)
-                    let dst_row = &mut dst_row[blit_info.destination.0 * num_components
-                        ..(blit_info.destination.0 + blit_info.rect.width()) * num_components];
-                    if blit_info.flip_y {
-                        row_idx = output_height - row_idx - 1;
-                    }
-                    let row_offset = match self.field {
-                        YiqField::InterleavedUpper => {
-                            YiqField::Upper.num_image_rows(self.dimensions.1) * (row_idx & 1)
-                        }
-                        YiqField::InterleavedLower => {
-                            YiqField::Lower.num_image_rows(self.dimensions.1) * (1 - (row_idx & 1))
-                        }
-                        _ => unreachable!(),
-                    };
-                    // handle edge case where there's only one row and the mode is InterleavedLower
-                    let interleaved_row_idx =
-                        ((row_idx >> 1) + row_offset).min(self.dimensions.1 - 1);
-                    let src_idx = interleaved_row_idx * width;
-                    for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
-                        let rgb = pixel_transform(yiq_to_rgb([
-                            self.y[src_idx + pix_idx + blit_info.rect.left],
-                            self.i[src_idx + pix_idx + blit_info.rect.left],
-                            self.q[src_idx + pix_idx + blit_info.rect.left],
-                        ]));
-                        pixel[r_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[0]));
-                        pixel[g_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[1]));
-                        pixel[b_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[2]));
-                        if fill_alpha {
-                            pixel[a_idx] = MaybeUninit::new(S::DataFormat::from_norm(1.0));
-                        }
-                    }
-                });
-            }
-            _ => {
-                chunks.for_each(|(mut row_idx, dst_row)| {
-                    row_idx += blit_info.rect.top;
-                    // Limit to the actual width of the output (rowbytes may include trailing padding)
-                    let dst_row = &mut dst_row[blit_info.destination.0 * num_components
-                        ..(blit_info.destination.0 + blit_info.rect.width()) * num_components];
-                    if blit_info.flip_y {
-                        row_idx = output_height - row_idx - 1;
-                    }
-                    for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
-                        let src_idx =
-                            row_idx.min(num_rows - 1) * width + pix_idx + blit_info.rect.left;
-                        let rgb = pixel_transform(yiq_to_rgb([
-                            self.y[src_idx],
-                            self.i[src_idx],
-                            self.q[src_idx],
-                        ]));
-                        pixel[r_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[0]));
-                        pixel[g_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[1]));
-                        pixel[b_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[2]));
-                        if fill_alpha {
-                            pixel[a_idx] = MaybeUninit::new(S::DataFormat::from_norm(1.0));
-                        }
-                    }
-                });
-            }
-        }
+        });
     }
 
     pub fn write_to_strided_buffer<S: PixelFormat, F: PixelTransform>(
