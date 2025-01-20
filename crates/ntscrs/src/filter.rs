@@ -267,6 +267,12 @@ impl TransferFunction {
         scale: f32,
         delay: usize,
     ) {
+        // Ensure the chunks are actually of equal length
+        let width = signal[0].len();
+        for i in 1..ROWS {
+            assert_eq!(signal[i].len(), width);
+        }
+
         let mut z = initial.map(|initial| S::load(&self.initial_condition(initial)));
 
         let mut num: [f32; 4] = [0f32; 4];
@@ -406,12 +412,6 @@ impl TransferFunction {
         delay: usize,
     ) {
         let filter_len = usize::max(self.num.len(), self.den.len());
-
-        // Ensure the chunks are actually of equal length
-        let width = signal[0].len();
-        for i in 1..ROWS {
-            assert_eq!(signal[i].len(), width);
-        }
 
         match filter_len {
             // Specialize fixed-size implementations for filter sizes 1-8
