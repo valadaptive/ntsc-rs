@@ -158,45 +158,6 @@ impl TransferFunction {
         (filt_sample - sample) * scale + sample
     }
 
-    /// Filter a signal, reading from one slice and writing into another.
-    /// # Arguments
-    /// - `src` - The slice containing the signal to be filtered.
-    /// - `dst` - The slice to place the filtered signal into. This must be the same size as `src`.
-    /// - `initial` - The initial steady-state value of the filter.
-    /// - `scale` - Scale the effect of the filter on the output by this amount.
-    /// - `delay` - Offset the filter output backwards (to the left) by this amount.
-    pub fn filter_signal_into(
-        &self,
-        src: &[f32],
-        dst: &mut [f32],
-        initial: f32,
-        scale: f32,
-        delay: usize,
-    ) {
-        if dst.len() != src.len() {
-            panic!(
-                "Source slice is {} samples but destination is {} samples",
-                src.len(),
-                src.len()
-            );
-        }
-
-        let filter_len = usize::max(self.num.len(), self.den.len());
-        let mut z = self.initial_condition(initial);
-
-        for i in 0..(src.len() + delay) {
-            // Either the loop bound extending past items.len() or the min() call seems to prevent the optimizer from
-            // determining that we're in-bounds here. Since i.min(items.len() - 1) never exceeds items.len() - 1 by
-            // definition, this is safe.
-            let sample = unsafe { src.get_unchecked(i.min(src.len() - 1)) };
-            let filt_sample =
-                Self::filter_sample(filter_len, &self.num, &self.den, &mut z, *sample, scale);
-            if i >= delay {
-                dst[i - delay] = filt_sample;
-            }
-        }
-    }
-
     /// Scalar implementation of a linear filter.
     /// Adapted from https://github.com/scipy/scipy/blob/da82ac849a4ccade2d954a0998067e6aa706dd70/scipy/signal/_lfilter.c.in#L543
     #[inline(always)]
