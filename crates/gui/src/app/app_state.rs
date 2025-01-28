@@ -14,10 +14,16 @@ pub struct VideoZoom {
     pub fit: bool,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct VideoScaleState {
     pub scale: VideoScale,
     pub enabled: bool,
+}
+
+impl Default for VideoScaleState {
+    fn default() -> Self {
+        Self { scale: Default::default(), enabled: true }
+    }
 }
 
 #[derive(Debug)]
