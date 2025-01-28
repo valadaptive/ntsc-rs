@@ -364,7 +364,9 @@ fn slice_to_maybe_uninit<T>(slice: &[T]) -> &[MaybeUninit<T>] {
     unsafe { std::slice::from_raw_parts(slice.as_ptr() as _, slice.len()) }
 }
 
-fn slice_to_maybe_uninit_mut<T>(slice: &mut [T]) -> &mut [MaybeUninit<T>] {
+/// # Safety:
+/// - You must only write initialized values into the slice.
+unsafe fn slice_to_maybe_uninit_mut<T>(slice: &mut [T]) -> &mut [MaybeUninit<T>] {
     // Safety: we know these are all initialized, so it's fine to transmute into a type that makes fewer assumptions
     unsafe { std::slice::from_raw_parts_mut(slice.as_mut_ptr() as _, slice.len()) }
 }
@@ -832,7 +834,7 @@ impl<'a> YiqView<'a> {
         pixel_transform: F,
     ) {
         self.write_to_strided_buffer_maybe_uninit::<S, F>(
-            slice_to_maybe_uninit_mut(dst),
+            unsafe { slice_to_maybe_uninit_mut(dst) },
             blit_info,
             deinterlace_mode,
             false,
