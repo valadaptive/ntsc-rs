@@ -21,7 +21,7 @@ futures-lite = "2.3.0"
 async-executor = "1.12.0"
 log = "0.4.20"
 rfd = { git = "https://github.com/PolyMeilex/rfd", rev = "665230c", default-features = false, features = ["gtk3"] }
-rand = "0.8.5"
+rand = "0.9.0"
 tinyjson = "2.5.1"
 open = "5.1.4"
 serde = "1.0"

@@ -1,4 +1,4 @@
-use rand::distributions::Distribution;
+use rand::distr::Distribution;
 use siphasher::sip::SipHasher;
 use std::hash::{Hash, Hasher};
 
@@ -22,7 +22,7 @@ impl Distribution<usize> for Geometric {
     // We can simulate a geometric distribution by taking the floor of an exponential distribution
     // https://en.wikipedia.org/wiki/Geometric_distribution#Related_distributions
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> usize {
-        (rng.gen::<f64>().ln() / self.lambda) as usize
+        (rng.random::<f64>().ln() / self.lambda) as usize
     }
 }
 

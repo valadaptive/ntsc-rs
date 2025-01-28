@@ -521,7 +521,7 @@ fn video_noise_line(
     let width = row.len();
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(seeder.clone().mix(index as u64).finalize());
     let noise_seed = rng.next_u32();
-    let offset = rng.gen::<f32>() * width as f32;
+    let offset = rng.random::<f32>() * width as f32;
 
     NoiseBuilder::fbm_1d_offset(offset, width)
         .with_seed(noise_seed as i32)
@@ -735,7 +735,7 @@ fn row_speckles(
     // look like S-curves with increasing sharpness.
     // As a bonus, the integral of this function over (0, 1) as we transition from 0% to 100% anisotropy is *almost*
     // constant, meaning there's approximately the same amount of snow each time.
-    let logistic_factor = ((rng.gen::<f64>() - intensity)
+    let logistic_factor = ((rng.random::<f64>() - intensity)
         / (intensity * (1.0 - intensity) * (1.0 - anisotropy)))
         .exp();
     // Intensity of the "snow" for this specific line
@@ -763,8 +763,8 @@ fn row_speckles(
             break;
         }
 
-        let transient_len: f32 = rng.gen_range(TRANSIENT_LEN_RANGE) * bandwidth_scale;
-        let transient_freq = rng.gen_range(transient_len * 3.0..=transient_len * 5.0);
+        let transient_len: f32 = rng.random_range(TRANSIENT_LEN_RANGE) * bandwidth_scale;
+        let transient_freq = rng.random_range(transient_len * 3.0..=transient_len * 5.0);
         let pixel_idx_end = pixel_idx + transient_len.ceil() as isize;
 
         // Each transient gets its own RNG to determine the intensity of each pixel within it.
@@ -779,7 +779,7 @@ fn row_speckles(
             // Simulate transient with sin(pi*x / 4) * (1 - x/len)^2
             row[i as usize] += ((x * PI) / transient_freq).cos()
                 * (1.0 - x / transient_len).powi(2)
-                * transient_rng.gen_range(-1.0..2.0);
+                * transient_rng.random_range(-1.0..2.0);
         }
 
         // Make sure we advance the pixel index each time. Our geometric distribution gives us the time between
