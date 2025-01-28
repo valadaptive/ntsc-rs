@@ -22,7 +22,10 @@ pub struct VideoScaleState {
 
 impl Default for VideoScaleState {
     fn default() -> Self {
-        Self { scale: Default::default(), enabled: true }
+        Self {
+            scale: Default::default(),
+            enabled: true,
+        }
     }
 }
 
