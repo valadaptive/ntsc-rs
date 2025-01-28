@@ -470,8 +470,11 @@ impl<'a> YiqView<'a> {
 
             let num_rect_rows = field.num_image_rows(blit_info.rect.height());
 
-            y.par_chunks_mut(width)
-                .zip(i.par_chunks_mut(width).zip(q.par_chunks_mut(width)))
+            y.par_chunks_exact_mut(width)
+                .zip(
+                    i.par_chunks_exact_mut(width)
+                        .zip(q.par_chunks_exact_mut(width)),
+                )
                 .skip(num_skipped_rows)
                 .take(num_rect_rows)
                 .enumerate()
@@ -673,7 +676,9 @@ impl<'a> YiqView<'a> {
                             && dst_row_idx != 0
                             && dst_row_idx != output_height - 1
                         {
-                            for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
+                            for (pix_idx, pixel) in
+                                dst_row.chunks_exact_mut(num_components).enumerate()
+                            {
                                 let src_idx_lower = ((dst_row_idx - 1) >> 1) * width
                                     + pix_idx
                                     + blit_info.rect.left;
@@ -697,7 +702,9 @@ impl<'a> YiqView<'a> {
                             }
                         } else {
                             // Copy the field directly
-                            for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
+                            for (pix_idx, pixel) in
+                                dst_row.chunks_exact_mut(num_components).enumerate()
+                            {
                                 let src_idx = (dst_row_idx >> 1).min(num_rows - 1) * width
                                     + pix_idx
                                     + blit_info.rect.left;
@@ -728,7 +735,8 @@ impl<'a> YiqView<'a> {
                         if (row_idx & 1) == skip_field {
                             return;
                         }
-                        for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
+                        for (pix_idx, pixel) in dst_row.chunks_exact_mut(num_components).enumerate()
+                        {
                             let src_idx = (row_idx >> 1).min(num_rows - 1) * width
                                 + pix_idx
                                 + blit_info.rect.left;
@@ -769,7 +777,8 @@ impl<'a> YiqView<'a> {
                         let interleaved_row_idx =
                             ((row_idx >> 1) + row_offset).min(self.dimensions.1 - 1);
                         let src_idx = interleaved_row_idx * width;
-                        for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
+                        for (pix_idx, pixel) in dst_row.chunks_exact_mut(num_components).enumerate()
+                        {
                             let rgb = pixel_transform(yiq_to_rgb([
                                 self.y[src_idx + pix_idx + blit_info.rect.left],
                                 self.i[src_idx + pix_idx + blit_info.rect.left],
@@ -793,7 +802,8 @@ impl<'a> YiqView<'a> {
                         if blit_info.flip_y {
                             row_idx = output_height - row_idx - 1;
                         }
-                        for (pix_idx, pixel) in dst_row.chunks_mut(num_components).enumerate() {
+                        for (pix_idx, pixel) in dst_row.chunks_exact_mut(num_components).enumerate()
+                        {
                             let src_idx =
                                 row_idx.min(num_rows - 1) * width + pix_idx + blit_info.rect.left;
                             let rgb = pixel_transform(yiq_to_rgb([

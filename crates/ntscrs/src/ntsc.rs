@@ -183,24 +183,27 @@ fn luma_filter(frame: &mut YiqView, filter_mode: LumaLowpass) {
     match filter_mode {
         LumaLowpass::None => {}
         LumaLowpass::Box => {
-            frame.y.par_chunks_mut(frame.dimensions.0).for_each(|y| {
-                let mut delay = VecDeque::<f32>::with_capacity(4);
-                delay.push_back(16.0 / 255.0);
-                delay.push_back(16.0 / 255.0);
-                delay.push_back(y[0]);
-                delay.push_back(y[1]);
-                let mut sum: f32 = delay.iter().sum();
-                let width = y.len();
+            frame
+                .y
+                .par_chunks_exact_mut(frame.dimensions.0)
+                .for_each(|y| {
+                    let mut delay = VecDeque::<f32>::with_capacity(4);
+                    delay.push_back(16.0 / 255.0);
+                    delay.push_back(16.0 / 255.0);
+                    delay.push_back(y[0]);
+                    delay.push_back(y[1]);
+                    let mut sum: f32 = delay.iter().sum();
+                    let width = y.len();
 
-                for index in 0..width {
-                    // Box-blur the signal.
-                    let c = y[usize::min(index + 2, width - 1)];
-                    sum -= delay.pop_front().unwrap();
-                    delay.push_back(c);
-                    sum += c;
-                    y[index] = sum * 0.25;
-                }
-            });
+                    for index in 0..width {
+                        // Box-blur the signal.
+                        let c = y[usize::min(index + 2, width - 1)];
+                        sum -= delay.pop_front().unwrap();
+                        delay.push_back(c);
+                        sum += c;
+                        y[index] = sum * 0.25;
+                    }
+                });
         }
         LumaLowpass::Notch => filter_plane(
             frame.y,
@@ -278,9 +281,9 @@ fn chroma_into_luma(
 ) {
     let width = yiq.dimensions.0;
 
-    let y_lines = yiq.y.par_chunks_mut(width);
-    let i_lines = yiq.i.par_chunks_mut(width);
-    let q_lines = yiq.q.par_chunks_mut(width);
+    let y_lines = yiq.y.par_chunks_exact_mut(width);
+    let i_lines = yiq.i.par_chunks_exact_mut(width);
+    let q_lines = yiq.q.par_chunks_exact_mut(width);
 
     y_lines
         .zip(i_lines.zip(q_lines))
@@ -358,10 +361,10 @@ fn luma_into_chroma(
 
     match filter_mode {
         ChromaDemodulationFilter::Box => {
-            let y_lines = yiq.y.par_chunks_mut(width);
-            let i_lines = yiq.i.par_chunks_mut(width);
-            let q_lines = yiq.q.par_chunks_mut(width);
-            let scratch_lines = yiq.scratch.par_chunks_mut(width);
+            let y_lines = yiq.y.par_chunks_exact_mut(width);
+            let i_lines = yiq.i.par_chunks_exact_mut(width);
+            let q_lines = yiq.q.par_chunks_exact_mut(width);
+            let scratch_lines = yiq.scratch.par_chunks_exact_mut(width);
 
             y_lines
                 .zip(i_lines.zip(q_lines.zip(scratch_lines)))
@@ -381,10 +384,10 @@ fn luma_into_chroma(
             scratch.copy_from_slice(yiq.y);
             filter_plane(yiq.y, width, &filter, InitialCondition::Zero, 1.0, 0);
 
-            let y_lines = yiq.y.par_chunks_mut(width);
-            let i_lines = yiq.i.par_chunks_mut(width);
-            let q_lines = yiq.q.par_chunks_mut(width);
-            let scratch_lines = scratch.par_chunks_mut(width);
+            let y_lines = yiq.y.par_chunks_exact_mut(width);
+            let i_lines = yiq.i.par_chunks_exact_mut(width);
+            let q_lines = yiq.q.par_chunks_exact_mut(width);
+            let scratch_lines = scratch.par_chunks_exact_mut(width);
 
             y_lines
                 .zip(i_lines.zip(q_lines.zip(scratch_lines)))
@@ -407,10 +410,10 @@ fn luma_into_chroma(
             delay[0..width].copy_from_slice(&yiq.y[width..width * 2]);
             delay[width..].copy_from_slice(&yiq.y[0..yiq.y.len() - width]);
 
-            let y_lines = yiq.y.par_chunks_mut(width);
-            let i_lines = yiq.i.par_chunks_mut(width);
-            let q_lines = yiq.q.par_chunks_mut(width);
-            let delay_lines = delay.par_chunks_mut(width);
+            let y_lines = yiq.y.par_chunks_exact_mut(width);
+            let i_lines = yiq.i.par_chunks_exact_mut(width);
+            let q_lines = yiq.q.par_chunks_exact_mut(width);
+            let delay_lines = delay.par_chunks_exact_mut(width);
             y_lines
                 .zip(i_lines.zip(q_lines.zip(delay_lines)))
                 .enumerate()
@@ -434,9 +437,9 @@ fn luma_into_chroma(
             let modulated = &mut yiq.scratch;
             modulated.copy_from_slice(yiq.y);
 
-            let y_lines = yiq.y.par_chunks_mut(width);
-            let i_lines = yiq.i.par_chunks_mut(width);
-            let q_lines = yiq.q.par_chunks_mut(width);
+            let y_lines = yiq.y.par_chunks_exact_mut(width);
+            let i_lines = yiq.i.par_chunks_exact_mut(width);
+            let q_lines = yiq.q.par_chunks_exact_mut(width);
             y_lines
                 .zip(i_lines.zip(q_lines))
                 .enumerate()
@@ -546,7 +549,7 @@ fn composite_noise(yiq: &mut YiqView, info: &CommonInfo, noise_settings: &FbmNoi
         .mix(info.frame_num);
 
     yiq.y
-        .par_chunks_mut(width)
+        .par_chunks_exact_mut(width)
         .zip(yiq.scratch.par_chunks_exact_mut(width))
         .enumerate()
         .for_each(|(index, (row, scratch))| {
@@ -574,8 +577,8 @@ fn plane_noise(
     let seeder = Seeder::new(info.seed).mix(noise_seed).mix(info.frame_num);
 
     plane
-        .par_chunks_mut(width)
-        .zip(scratch.par_chunks_mut(width))
+        .par_chunks_exact_mut(width)
+        .zip(scratch.par_chunks_exact_mut(width))
         .enumerate()
         .for_each(|(index, (row, scratch))| {
             video_noise_line(
@@ -612,8 +615,8 @@ fn chroma_phase_error(yiq: &mut YiqView, intensity: f32) {
     let width = yiq.dimensions.0;
 
     yiq.i
-        .par_chunks_mut(width)
-        .zip(yiq.q.par_chunks_mut(width))
+        .par_chunks_exact_mut(width)
+        .zip(yiq.q.par_chunks_exact_mut(width))
         .for_each(|(i, q)| {
             chroma_phase_offset_line(i, q, intensity);
         });
@@ -627,8 +630,8 @@ fn chroma_phase_noise(yiq: &mut YiqView, info: &CommonInfo, intensity: f32) {
         .mix(info.frame_num);
 
     yiq.i
-        .par_chunks_mut(width)
-        .zip(yiq.q.par_chunks_mut(width))
+        .par_chunks_exact_mut(width)
+        .zip(yiq.q.par_chunks_exact_mut(width))
         .enumerate()
         .for_each(|(index, (i, q))| {
             // Phase shift angle in radians. Mapped so that an intensity of 1.0 is a phase shift ranging from a full
@@ -665,7 +668,7 @@ fn head_switching(
         .mix(info.frame_num);
 
     affected_rows
-        .par_chunks_mut(width)
+        .par_chunks_exact_mut(width)
         .enumerate()
         .for_each(|(index, row)| {
             let index = num_affected_rows - (index + cut_off_rows);
@@ -822,8 +825,8 @@ fn tracking_noise(
     let scratch_rows = &mut yiq.scratch[start_row * width..];
 
     affected_rows
-        .par_chunks_mut(width)
-        .zip(scratch_rows.par_chunks_mut(width))
+        .par_chunks_exact_mut(width)
+        .zip(scratch_rows.par_chunks_exact_mut(width))
         .enumerate()
         .for_each(|(index, (row, scratch))| {
             let index = index + cut_off_rows;
@@ -862,7 +865,7 @@ fn snow(yiq: &mut YiqView, info: &CommonInfo, intensity: f32, anisotropy: f32) {
         .mix(info.frame_num);
 
     yiq.y
-        .par_chunks_mut(yiq.dimensions.0)
+        .par_chunks_exact_mut(yiq.dimensions.0)
         .enumerate()
         .for_each(|(index, row)| {
             let line_seed = seeder.clone().mix(index);
@@ -921,8 +924,8 @@ fn chroma_delay(yiq: &mut YiqView, info: &CommonInfo, offset: (f32, isize)) {
         std::cmp::Ordering::Equal => {
             // Only a horizontal shift is necessary. We can do this in-place easily.
             yiq.i
-                .par_chunks_mut(width)
-                .zip(yiq.q.par_chunks_mut(width))
+                .par_chunks_exact_mut(width)
+                .zip(yiq.q.par_chunks_exact_mut(width))
                 .for_each(|(i, q)| {
                     shift_row(i, horiz_shift, BoundaryHandling::Constant(0.0));
                     shift_row(q, horiz_shift, BoundaryHandling::Constant(0.0));
@@ -978,7 +981,7 @@ fn vhs_edge_wave(yiq: &mut YiqView, info: &CommonInfo, settings: &VHSEdgeWaveSet
 
     for plane in [&mut yiq.y, &mut yiq.i, &mut yiq.q] {
         plane
-            .par_chunks_mut(width)
+            .par_chunks_exact_mut(width)
             .enumerate()
             .for_each(|(index, row)| {
                 let shift =
@@ -1025,8 +1028,8 @@ fn chroma_vert_blend(yiq: &mut YiqView) {
     let mut delay_q = vec![0f32; width];
 
     yiq.i
-        .chunks_mut(width)
-        .zip(yiq.q.chunks_mut(width))
+        .chunks_exact_mut(width)
+        .zip(yiq.q.chunks_exact_mut(width))
         .for_each(|(i_row, q_row)| {
             // TODO: check if this is faster than interleaved (I think the cache locality is better this way)
             i_row.iter_mut().enumerate().for_each(|(index, i)| {
