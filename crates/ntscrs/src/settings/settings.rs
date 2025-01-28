@@ -289,7 +289,7 @@ pub trait Settings: Default {
         &self,
         id: &SettingID<Self>,
     ) -> Result<T, GetSetFieldError> {
-        let value = (id.get)(&self);
+        let value = (id.get)(self);
         Downcast::downcast(&value).ok_or_else(|| GetSetFieldError::TypeMismatch {
             actual_type: value.type_name(),
             requested_type: std::any::type_name::<T>(),
