@@ -815,8 +815,7 @@ fn tracking_noise(
     let shift_noise = NoiseBuilder::gradient_1d_offset(offset, num_rows)
         .with_seed(noise_seed)
         .with_freq(0.5)
-        .generate()
-        .0;
+        .generate();
 
     // Handle cases where the number of affected rows exceeds the number of actual rows in the image
     let start_row = height.max(num_rows) - num_rows;
