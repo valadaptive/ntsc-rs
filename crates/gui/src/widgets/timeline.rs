@@ -1,5 +1,5 @@
-use std::f32;
 use std::ops::RangeInclusive;
+use std::{f32, sync::Arc};
 
 use eframe::{
     egui::{self, vec2, Context, Id, Sense, TextStyle, Widget},
@@ -182,11 +182,11 @@ fn make_cursor_shape(
         bottom_right_tri_feather,bottom_right_tri, bottom_right_rect_feather,
     ];
 
-    egui::Shape::Mesh(egui::epaint::Mesh {
+    egui::Shape::Mesh(Arc::new(egui::epaint::Mesh {
         indices,
         vertices,
         texture_id: egui::TextureId::Managed(0),
-    })
+    }))
 }
 
 impl Widget for Timeline<'_> {
@@ -302,7 +302,7 @@ impl Widget for Timeline<'_> {
                 / ui.ctx().pixels_per_point();
 
             // Draw background
-            painter.rect_filled(rect, egui::Rounding::ZERO, visuals.bg_fill);
+            painter.rect_filled(rect, egui::CornerRadius::ZERO, visuals.bg_fill);
 
             let fine_tick_mark_interval = if let Some(framerate) = self.framerate {
                 framerate.denom() as f64 * ClockTime::SECOND.nseconds() as f64
@@ -393,7 +393,9 @@ impl Widget for Timeline<'_> {
             );
         }
 
-        response.changed = get(&mut self.get_set_value) != old_value;
+        if get(&mut self.get_set_value) != old_value {
+            response.mark_changed();
+        }
 
         response
     }

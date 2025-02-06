@@ -249,7 +249,7 @@ impl Widget for SplitScreen<'_> {
             if ui.ctx().debug_on_hover() && ui.interact(rect, id, Sense::hover()).hovered() {
                 painter.rect_filled(
                     rect,
-                    egui::Rounding::ZERO,
+                    egui::CornerRadius::ZERO,
                     egui::Color32::from_rgba_unmultiplied(255, 0, 0, 64),
                 );
             }

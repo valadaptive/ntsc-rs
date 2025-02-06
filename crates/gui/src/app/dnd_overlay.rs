@@ -32,7 +32,7 @@ impl UiDndExt for egui::Ui {
             .default_size(overlay_size);
         area.show(self.ctx(), |ui| {
             ui.allocate_ui(overlay_size, |ui| {
-                egui::Frame::none()
+                egui::Frame::NONE
                     .fill(ui.visuals().extreme_bg_color.gamma_multiply(0.8))
                     .stroke(ui.style().visuals.widgets.noninteractive.bg_stroke)
                     .show(ui, |ui| {

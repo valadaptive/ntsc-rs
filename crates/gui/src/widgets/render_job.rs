@@ -36,10 +36,10 @@ impl RenderJobWidget<'_> {
             let mut error = None;
 
             let fill = ui.style().visuals.faint_bg_color;
-            egui::Frame::none()
+            egui::Frame::NONE
                 .fill(fill)
                 .stroke(ui.style().visuals.window_stroke)
-                .rounding(ui.style().noninteractive().rounding)
+                .corner_radius(ui.style().noninteractive().corner_radius)
                 .inner_margin(ui.style().spacing.window_margin)
                 .show(ui, |ui| {
                     let job_state = job.state.lock().unwrap().clone();

@@ -1,5 +1,4 @@
 use std::{
-    borrow::Cow,
     cell::RefCell,
     error::Error,
     ffi::OsStr,
@@ -893,13 +892,12 @@ impl NtscApp {
                     }
 
                     if ui.button("📋 Copy").clicked() {
-                        ui.output_mut(|output| {
-                            output.copied_text = self
-                                .settings_list
+                        ui.ctx().send_cmd(egui::OutputCommand::CopyText(
+                            self.settings_list
                                 .to_json(&self.effect_settings)
                                 .stringify()
-                                .unwrap()
-                        });
+                                .unwrap(),
+                        ));
                     }
 
                     let btn = ui.button("📄 Paste");
@@ -1469,16 +1467,7 @@ impl NtscApp {
                     if let Some(res) = copy_image_res {
                         match res {
                             Ok(image) => {
-                                let res = arboard::Clipboard::new().and_then(|mut cb| {
-                                    let data = arboard::ImageData {
-                                        width: image.width(),
-                                        height: image.height(),
-                                        bytes: Cow::from(image.as_raw()),
-                                    };
-                                    cb.set_image(data)?;
-                                    Ok(())
-                                });
-                                self.handle_result(res);
+                                ui.ctx().send_cmd(egui::OutputCommand::CopyImage(image));
                             }
                             Err(e) => {
                                 self.handle_error(&e);
@@ -2118,8 +2107,8 @@ impl NtscApp {
 
                         let mut close_error = false;
                         if let Some(error) = self.last_error.borrow().as_ref() {
-                            egui::Frame::none()
-                                .rounding(3.0)
+                            egui::Frame::NONE
+                                .corner_radius(3)
                                 .stroke(ui.style().noninteractive().fg_stroke)
                                 .inner_margin(ui.style().spacing.button_padding)
                                 .show(ui, |ui| {
