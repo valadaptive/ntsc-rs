@@ -7,16 +7,19 @@ pub trait UiDndExt {
 impl UiDndExt for egui::Ui {
     fn show_dnd_overlay(&mut self, text: impl Into<egui::RichText>) -> Option<Vec<DroppedFile>> {
         let max_rect = self.max_rect();
-        let dropped_files = self.ctx().input_mut(|input| {
+
+        let pointer_in_drop_area = self.ctx().input(|input| {
             input
                 .pointer
                 .latest_pos()
                 .is_some_and(|p| max_rect.contains(p))
-                .then(|| std::mem::take(&mut input.raw.dropped_files))
-                .and_then(|files| if files.is_empty() { None } else { Some(files) })
         });
-        if dropped_files.is_some() {
-            return dropped_files;
+
+        if pointer_in_drop_area {
+            let files = self.ctx().take_dropped_files_last_frame();
+            if files.is_some() {
+                return files;
+            }
         }
 
         let dragging_files = self
@@ -44,5 +47,41 @@ impl UiDndExt for egui::Ui {
         });
 
         None
+    }
+}
+
+pub trait CtxDndExt {
+    fn update_dnd_state(&self);
+    fn take_dropped_files_last_frame(&self) -> Option<Vec<DroppedFile>>;
+}
+
+impl CtxDndExt for egui::Context {
+    fn update_dnd_state(&self) {
+        // Due to event order, dropped files may come in before the pointer position is updated. To avoid this, we need
+        // to delay handling them by one frame.
+        //
+        // TODO: Remove this once winit 0.31 comes out and its DnD rework makes it into egui.
+        let files_id = egui::Id::new("dropped_files_last_frame");
+
+        let dropped_files = self.input_mut(|input| {
+            if input.raw.dropped_files.is_empty() {
+                None
+            } else {
+                Some(std::mem::take(&mut input.raw.dropped_files))
+            }
+        });
+
+        self.data_mut(|data| {
+            data.remove_temp::<Vec<DroppedFile>>(files_id);
+
+            if let Some(dropped_files) = dropped_files {
+                data.insert_temp(files_id, dropped_files);
+            }
+        });
+    }
+
+    fn take_dropped_files_last_frame(&self) -> Option<Vec<DroppedFile>> {
+        let files_id = egui::Id::new("dropped_files_last_frame");
+        self.data_mut(|data| data.remove_temp::<Vec<DroppedFile>>(files_id))
     }
 }

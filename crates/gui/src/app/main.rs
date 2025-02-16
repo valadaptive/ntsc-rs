@@ -49,7 +49,7 @@ use super::{
         AudioVolume, EffectPreviewMode, EffectPreviewSettings, GstreamerInitState, LeftPanelState,
         VideoScaleState, VideoZoom,
     },
-    dnd_overlay::UiDndExt,
+    dnd_overlay::{CtxDndExt, UiDndExt},
     error::{ApplicationError, JSONParseSnafu, JSONReadSnafu, JSONSaveSnafu, LoadVideoSnafu},
     executor::AppExecutor,
     layout_helper::{LayoutHelper, TopBottomPanelExt},
@@ -2256,6 +2256,8 @@ impl eframe::App for NtscApp {
 
         self.undoer
             .feed_state(ctx.input(|input| input.time), &self.effect_settings);
+
+        ctx.update_dnd_state();
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
