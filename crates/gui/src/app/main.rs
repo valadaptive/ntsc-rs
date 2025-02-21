@@ -1841,9 +1841,9 @@ impl NtscApp {
                                     };
                                     let scale_factor = if self.video_zoom.fit {
                                         // Due to floating-point error, a scrollbar may appear even if we scale down. To
-                                        // avoid the scrollbar popping in and out of existence, subtract a constant value
-                                        // from available_size.
-                                        ((ui.available_size() - vec2(1.0, 1.0)) / texture_size)
+                                        // avoid a spurious scrollbar, we need to subtract 2 (TODO: this used to be 1,
+                                        // but in egui 0.31, it needs to be 2 for some reason. Why?)
+                                        ((ui.available_size() - vec2(2.0, 2.0)) / texture_size)
                                             .min_elem()
                                             .min(1.0)
                                     } else {
