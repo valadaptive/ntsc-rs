@@ -20,6 +20,7 @@ pub mod pipeline_info;
 pub mod presets;
 pub mod render_job;
 pub mod render_settings;
+pub mod system_fonts;
 pub mod third_party_licenses_dialog;
 pub mod ui_context;
 

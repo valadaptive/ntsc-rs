@@ -65,6 +65,7 @@ use super::{
         RenderInterlaceMode, RenderPipelineCodec, RenderPipelineSettings, RenderSettings,
         StillImageSettings,
     },
+    system_fonts::system_fallback_fonts,
     AppFn, NtscApp,
 };
 
@@ -114,9 +115,27 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         NtscApp::APP_ID,
         options,
         Box::new(|cc| {
-            // GStreamer can be slow to initialize (on the order of minutes). Do it off-thread so we can display a
-            // loading screen in the meantime. Thanks for being thread-safe, unlike GTK!
-            let handle = thread::spawn(initialize_gstreamer);
+            let ctx = cc.egui_ctx.clone();
+            // Load fonts and GStreamer in separate threads. Cascade the JoinHandles.
+            let fonts_thread_handle = {
+                let ctx = ctx.clone();
+                thread::spawn(move || {
+                    debug!("Loading fonts");
+                    for font in system_fallback_fonts() {
+                        ctx.add_font(font);
+                    }
+                    debug!("Loaded fonts");
+                })
+            };
+            let handle = thread::spawn(move || {
+                // GStreamer can be slow to initialize (on the order of minutes). Do it off-thread so we can display a
+                // loading screen in the meantime. Thanks for being thread-safe, unlike GTK!
+                debug!("Loading GStreamer");
+                let init_result = initialize_gstreamer();
+                debug!("Loaded GStreamer");
+                fonts_thread_handle.join().unwrap();
+                init_result
+            });
             let init_state = GstreamerInitState::Initializing(Some(handle));
 
             let settings_list = SettingsList::<NtscEffectFullSettings>::new();
@@ -169,7 +188,6 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
             easy_mode_enabled &= EXPERIMENTAL_EASY_MODE;
 
-            let ctx = cc.egui_ctx.clone();
             ctx.style_mut(|style| style.interaction.tooltip_delay = 0.5);
             Ok(Box::new(NtscApp::new(
                 ctx,
