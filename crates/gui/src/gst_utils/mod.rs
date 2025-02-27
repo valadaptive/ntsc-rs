@@ -2,6 +2,7 @@ pub mod clock_format;
 pub mod egui_sink;
 pub mod gstreamer_error;
 pub mod init;
+pub mod multi_file_path;
 pub mod ntsc_pipeline;
 pub mod ntscrs_filter;
 pub mod process_gst_frame;

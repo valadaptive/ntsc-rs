@@ -10,6 +10,7 @@ use std::{
     thread,
 };
 
+use blocking::unblock;
 use eframe::egui::{
     self, util::undoer::Undoer, vec2, Color32, ColorImage, Response, TextureOptions,
 };
@@ -50,15 +51,19 @@ use super::{
         VideoScaleState, VideoZoom,
     },
     dnd_overlay::{CtxDndExt, UiDndExt},
-    error::{ApplicationError, JSONParseSnafu, JSONReadSnafu, JSONSaveSnafu, LoadVideoSnafu},
+    error::{
+        ApplicationError, CreateRenderJobSnafu, FsSnafu, JSONParseSnafu, JSONReadSnafu,
+        JSONSaveSnafu, LoadVideoSnafu,
+    },
     executor::AppExecutor,
     layout_helper::{LayoutHelper, TopBottomPanelExt},
     pipeline_info::{PipelineInfo, PipelineMetadata, PipelineStatus},
     presets::PresetsState,
     render_job::RenderJob,
     render_settings::{
-        Ffv1BitDepth, OutputCodec, PngSettings, RenderInterlaceMode, RenderPipelineCodec,
-        RenderPipelineSettings, RenderSettings, StillImageSettings,
+        Ffv1BitDepth, H264Settings, OutputCodec, PngSequenceSettings, PngSettings,
+        RenderInterlaceMode, RenderPipelineCodec, RenderPipelineSettings, RenderSettings,
+        StillImageSettings,
     },
     AppFn, NtscApp,
 };
@@ -1131,16 +1136,16 @@ impl NtscApp {
             egui::ComboBox::from_label("Codec")
                 .selected_text(self.render_settings.output_codec.label())
                 .show_ui(ui, |ui| {
-                    codec_changed |= ui.selectable_value(
-                        &mut self.render_settings.output_codec,
-                        OutputCodec::H264,
-                        OutputCodec::H264.label(),
-                    ).changed();
-                    codec_changed |= ui.selectable_value(
-                        &mut self.render_settings.output_codec,
-                        OutputCodec::Ffv1,
-                        OutputCodec::Ffv1.label(),
-                    ).changed();
+                    let mut item = |item: OutputCodec| {
+                        codec_changed |= ui.selectable_value(
+                            &mut self.render_settings.output_codec,
+                            item,
+                            item.label(),
+                        ).changed();
+                    };
+                    item(OutputCodec::H264);
+                    item(OutputCodec::Ffv1);
+                    item(OutputCodec::PngSequence);
                 });
 
             if codec_changed {
@@ -1150,13 +1155,13 @@ impl NtscApp {
             match self.render_settings.output_codec {
                 OutputCodec::H264 => {
                     ui.add(
-                        egui::Slider::new(&mut self.render_settings.h264_settings.quality, 0..=50)
+                        egui::Slider::new(&mut self.render_settings.h264_settings.quality, H264Settings::QUALITY_RANGE)
                             .text("Quality"),
                     ).on_hover_text("Video quality factor, where 0 is the worst quality and 50 is the best. Higher quality videos take up more space.");
                     ui.add(
                         egui::Slider::new(
                             &mut self.render_settings.h264_settings.encode_speed,
-                            0..=8,
+                            H264Settings::ENCODE_SPEED_RANGE,
                         )
                         .text("Encoding speed"),
                     ).on_hover_text("Encoding speed preset. Higher encoding speeds provide a worse compression ratio, resulting in larger videos at a given quality.");
@@ -1197,6 +1202,16 @@ impl NtscApp {
                         "4:2:0 chroma subsampling",
                     ).on_hover_text("Subsample the chrominance planes to half the resolution of the luminance plane. Results in smaller files.");
                 }
+
+                OutputCodec::PngSequence => {
+                    ui.add(
+                        egui::Slider::new(
+                            &mut self.render_settings.png_sequence_settings.compression_level,
+                            PngSequenceSettings::COMPRESSION_LEVEL_RANGE,
+                        )
+                        .text("Compression level"),
+                    ).on_hover_text("Compression level for PNG encoding. Higher compression levels produce smaller files but take longer to render.");
+                }
             }
 
             ui.separator();
@@ -1217,18 +1232,22 @@ impl NtscApp {
                     let mut file_dialog = rfd::AsyncFileDialog::new().set_parent(frame);
 
                     if output_path.as_os_str().is_empty() {
-                        // By default, name the output file [source filename]_ntsc.[ext] and put it in the same
-                        // directory as the source file.
+                        // By default, name the output file [source filename]_ntsc.[ext] (for video files) or [source
+                        // filename]_####.[ext] (for image sequences) and put it in the same directory as the source
+                        // file.
                         if let Some(PipelineInfo { path: source_path, .. }) = &self.pipeline {
                             if let Some(parent) = source_path.parent() {
                                 file_dialog = file_dialog.set_directory(parent);
                             }
                             if let Some(file_stem) = source_path.file_stem() {
-                                file_dialog = file_dialog.set_file_name(format!(
-                                    "{}_ntsc.{}",
-                                    file_stem.to_string_lossy(),
-                                    self.render_settings.output_codec.extension()
-                                ));
+                                let mut file_name = file_stem.to_string_lossy().into_owned();
+                                if self.render_settings.output_codec.is_image_sequence() {
+                                    file_name.push_str("_####.");
+                                } else {
+                                    file_name.push_str("_ntsc.");
+                                }
+                                file_name.push_str(self.render_settings.output_codec.extension());
+                                file_dialog = file_dialog.set_file_name(file_name);
                             }
                         }
                     } else {
@@ -1241,16 +1260,18 @@ impl NtscApp {
                     }
 
                     let file_dialog = file_dialog.save_file();
+                    let output_codec = self.render_settings.output_codec;
                     self.spawn(async move {
-                        let handle = file_dialog.await;
-                        Some(Box::new(|app: &mut NtscApp| {
-                            if let Some(handle) = handle {
-                                let mut output_path: PathBuf = handle.into();
-                                if output_path.extension().is_none() {
-                                    output_path.set_extension(app.render_settings.output_codec.extension());
-                                }
-                                app.render_settings.output_path = output_path;
+                        let Some(handle) = file_dialog.await else {
+                            return None;
+                        };
+                        let mut output_path: PathBuf = handle.into();
+
+                        Some(Box::new(move |app: &mut NtscApp| {
+                            if output_path.extension().is_none() {
+                                output_path.set_extension(output_codec.extension());
                             }
+                            app.render_settings.output_path = output_path;
 
                             Ok(())
                         }) as _)
@@ -1292,11 +1313,16 @@ impl NtscApp {
 
             ui
                 .add_enabled(
-                    self.effect_settings.use_field.interlaced_output_allowed(),
+                    self.effect_settings.use_field.interlaced_output_allowed() && self.render_settings.interlaced_output_allowed(),
                     egui::Checkbox::new(&mut self.render_settings.interlaced, "Interlaced output")
                 )
-                .on_disabled_hover_text("To enable interlaced output, set the \"Use field\" setting to \"Interleaved\".");
-
+                .on_disabled_hover_text(
+                    if !self.render_settings.interlaced_output_allowed() {
+                        "Image sequences do not support interlaced output."
+                    } else {
+                        "To enable interlaced output, set the \"Use field\" setting to \"Interleaved\"."
+                    }
+                );
 
             if ui
                 .add_enabled(
@@ -1305,19 +1331,56 @@ impl NtscApp {
                 )
                 .clicked()
             {
-                let render_job = self.create_render_job(
-                    ui.ctx(),
-                    &src_path.unwrap().clone(),
-                    RenderPipelineSettings::from_gui_settings(&self.effect_settings, &self.render_settings),
-                );
-                match render_job {
-                    Ok(render_job) => {
-                        self.render_jobs.push(render_job);
+                let effect_settings = self.effect_settings.clone();
+                let render_settings = self.render_settings.clone();
+                let output_codec = render_settings.output_codec;
+                let output_dir_path = render_settings.output_path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+                let ctx = ui.ctx().clone();
+                let src_path = src_path.cloned();
+                self.spawn(async move {
+                    if output_codec.is_image_sequence() {
+                        let is_empty = match unblock(move || output_dir_path.read_dir()).await {
+                            Ok(mut read_dir) => unblock(move || read_dir.next()).await.is_none(),
+                            Err(e) => {
+                                return Some(Box::new(move |_: &mut NtscApp| {
+                                    Err(e).context(FsSnafu)
+                                }) as _)
+                            }
+                        };
+
+                        if !is_empty {
+                            let dialog_result = rfd::AsyncMessageDialog::new()
+                                .set_buttons(rfd::MessageButtons::OkCancel)
+                                .set_level(rfd::MessageLevel::Warning)
+                                .set_title("Output directory is not empty")
+                                .set_description("You're rendering an image sequence into a directory that isn't empty. This will output many individual image files into that directory.")
+                                .show()
+                                .await;
+
+                            if dialog_result != rfd::MessageDialogResult::Ok {
+                                return None;
+                            }
+                        }
                     }
-                    Err(err) => {
-                        self.handle_error(&err);
-                    }
-                }
+
+                    Some(Box::new(move |app: &mut NtscApp| {
+                        let render_job = app.create_render_job(
+                            &ctx,
+                            &src_path.unwrap(),
+                            RenderPipelineSettings::from_gui_settings(&effect_settings, &render_settings),
+                        );
+                        match render_job {
+                            Ok(render_job) => {
+                                app.render_jobs.push(render_job);
+                                Ok(())
+                            }
+                            Err(err) => {
+                                Err(err).context(CreateRenderJobSnafu)
+                            }
+                        }
+                    }) as _)
+                });
+
             }
 
             ui.separator();
@@ -1506,6 +1569,7 @@ impl NtscApp {
                                         RenderPipelineSettings {
                                             codec_settings: RenderPipelineCodec::Png(PngSettings {
                                                 seek_to: current_time,
+                                                settings: Default::default(),
                                             }),
                                             output_path: handle.into(),
                                             interlacing: RenderInterlaceMode::Progressive,

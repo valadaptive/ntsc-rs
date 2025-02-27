@@ -26,7 +26,7 @@ open = "5.1.4"
 serde = "1.0"
 trash = "5.0.0"
 blocking = "1.6.1"
-clap = { version = "4.5.17", features = ["cargo"] }
+clap = { version = "4.5.17", features = ["cargo", "string"] }
 color-eyre = "0.6.3"
 console = "0.15.8"
 

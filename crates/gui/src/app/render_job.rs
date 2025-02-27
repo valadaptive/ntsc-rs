@@ -16,6 +16,7 @@ use crate::{
     app::render_settings::RenderPipelineSettings,
     gst_utils::{
         gstreamer_error::GstreamerError,
+        multi_file_path::format_path_for_multi_file,
         ntsc_pipeline::{NtscPipeline, VideoElemMetadata, VideoScale},
         ntscrs_filter::NtscFilterSettings,
     },
@@ -125,12 +126,22 @@ impl RenderJob {
                         .name("output_muxer")
                         .build()?,
                 ),
-                RenderPipelineCodec::Png(_) => None,
+                RenderPipelineCodec::Png(_) | RenderPipelineCodec::PngSequence(_) => None,
             };
 
-            let file_sink = gstreamer::ElementFactory::make("filesink")
-                .property("location", closure_settings.output_path.as_path())
-                .build()?;
+            let file_sink = match &closure_settings.codec_settings {
+                RenderPipelineCodec::PngSequence(_) => {
+                    gstreamer::ElementFactory::make("multifilesink")
+                        .property(
+                            "location",
+                            format_path_for_multi_file(closure_settings.output_path.as_path()),
+                        )
+                        .build()?
+                }
+                _ => gstreamer::ElementFactory::make("filesink")
+                    .property("location", closure_settings.output_path.as_path())
+                    .build()?,
+            };
 
             pipeline.add(&file_sink)?;
             file_sink.sync_state_with_parent()?;
@@ -174,7 +185,9 @@ impl RenderJob {
                         RenderPipelineCodec::Ffv1(_) => {
                             gstreamer::ElementFactory::make("flacenc").build()?
                         }
-                        RenderPipelineCodec::Png(_) => return Ok(None),
+                        RenderPipelineCodec::Png(_) | RenderPipelineCodec::PngSequence(_) => {
+                            return Ok(None)
+                        }
                     };
 
                     pipeline.add(&audio_enc)?;
@@ -254,10 +267,19 @@ impl RenderJob {
 
                         (video_enc, pixel_formats)
                     }
-                    RenderPipelineCodec::Png(_) => {
-                        let video_enc = gstreamer::ElementFactory::make("pngenc")
-                            .property("snapshot", true)
-                            .build()?;
+                    RenderPipelineCodec::Png(PngSettings { settings, .. })
+                    | RenderPipelineCodec::PngSequence(settings) => {
+                        let mut builder = gstreamer::ElementFactory::make("pngenc")
+                            .property("compression-level", settings.compression_level as u32);
+
+                        if matches!(
+                            &settings_video_closure.codec_settings,
+                            RenderPipelineCodec::Png(_)
+                        ) {
+                            builder = builder.property("snapshot", true)
+                        }
+
+                        let video_enc = builder.build()?;
 
                         let pixel_formats: &[VideoFormat] = &[VideoFormat::Rgb];
 
@@ -301,6 +323,7 @@ impl RenderJob {
 
                 if settings_video_closure.interlacing != RenderInterlaceMode::Progressive
                     && matches!(interlace_mode, Some(VideoInterlaceMode::Progressive))
+                    && !settings_video_closure.codec_settings.is_image_sequence()
                 {
                     // Load the interlace plugin so the enum class exists. Nothing seems to work except actually instantiating an Element.
                     let _ = gstreamer::ElementFactory::make("interlace")
