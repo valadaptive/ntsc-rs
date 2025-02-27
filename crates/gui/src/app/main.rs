@@ -1280,9 +1280,7 @@ impl NtscApp {
                     let file_dialog = file_dialog.save_file();
                     let output_codec = self.render_settings.output_codec;
                     self.spawn(async move {
-                        let Some(handle) = file_dialog.await else {
-                            return None;
-                        };
+                        let handle = file_dialog.await?;
                         let mut output_path: PathBuf = handle.into();
 
                         Some(Box::new(move |app: &mut NtscApp| {
