@@ -10,7 +10,7 @@ repository = "https://github.com/valadaptive/ntsc-rs/tree/main/crates/gui"
 ntscrs = { path = "../ntscrs" }
 eframe = { git = "https://github.com/valadaptive/egui", rev = "29776ea", features = ["persistence", "x11", "wayland"] }
 env_logger = "0.11.3"
-fontique = "0.2.0"
+fontique = { git = "https://github.com/valadaptive/parley", rev = "a3b6cee" }
 snafu = "0.8.3"
 logos = "0.15"
 gstreamer = {version = "0.23", features = ["serde"]}

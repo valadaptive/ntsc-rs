@@ -1,7 +1,4 @@
-use std::{
-    ffi::OsString,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 /// Convert an output file path, with the sequence number specified as a series of "#" placeholders, to a printf-style
 /// format string. Handles escaping percent signs and prevents any potential pitfalls from passing a user-supplied
@@ -47,7 +44,7 @@ pub fn format_path_for_multi_file(path: impl AsRef<Path>) -> PathBuf {
     #[cfg(unix)]
     {
         use std::os::unix::ffi::OsStringExt;
-        PathBuf::from(OsString::from_vec(sequence_path))
+        PathBuf::from(std::ffi::OsString::from_vec(sequence_path))
     }
 
     #[cfg(not(unix))]
