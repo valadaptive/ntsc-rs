@@ -78,7 +78,7 @@ pub fn process_gst_frame<S: PixelFormat>(
             let field = settings.use_field.to_yiq_field(frame as usize);
             let mut yiq = frame_to_yiq(in_frame, field)?;
             let mut view = YiqView::from(&mut yiq);
-            settings.apply_effect_to_yiq(&mut view, frame as usize);
+            settings.apply_effect_to_yiq(&mut view, frame as usize, [1.0, 1.0]);
             view.write_to_strided_buffer::<S, _>(
                 out_frame,
                 blit_info,
@@ -103,6 +103,7 @@ pub fn process_gst_frame<S: PixelFormat>(
                 } else {
                     frame as usize
                 },
+                [1.0, 1.0],
             );
             view.write_to_strided_buffer::<S, _>(
                 out_frame,

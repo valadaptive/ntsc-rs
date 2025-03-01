@@ -1,6 +1,6 @@
 use macros::FullSettings;
 
-use crate::ntsc::{NtscEffectFullSettings, VHSEdgeWaveSettings};
+use crate::ntsc::{NtscEffectFullSettings, ScaleSettings, VHSEdgeWaveSettings};
 
 use super::{
     standard::{
@@ -523,7 +523,14 @@ impl From<&EasyModeFullSettings> for NtscEffectFullSettings {
             },
             chroma_vert_blend: !easy_settings.vhs_settings.enabled,
             chroma_lowpass_out: ChromaLowpass::Full,
-            bandwidth_scale: 1.0,
+            scale: SettingsBlock {
+                enabled: false,
+                settings: ScaleSettings {
+                    horizontal_scale: 1.0,
+                    vertical_scale: 1.0,
+                    scale_with_video_size: false,
+                },
+            },
         }
     }
 }

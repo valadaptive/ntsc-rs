@@ -173,7 +173,9 @@ struct CommonInfo {
     /// Current frame index.
     frame_num: usize,
     /// The "bandwidth scale" setting, used mainly for IIR filters.
-    bandwidth_scale: f32,
+    horizontal_scale: f32,
+    /// The "vertical scale" setting.
+    vertical_scale: f32,
 }
 
 /// Apply a lowpass filter to the luminance (Y) plane before the Y, I, and Q planes are modulated together. This should
@@ -220,8 +222,8 @@ fn luma_filter(frame: &mut YiqView, filter_mode: LumaLowpass) {
 /// (Well, almost--Wikipedia (https://en.wikipedia.org/wiki/YIQ) puts the Q bandwidth at 0.4 MHz, not 0.6. Although
 /// that statement seems unsourced and I can't find any info on it...)
 fn composite_chroma_lowpass(frame: &mut YiqView, info: &CommonInfo, filter_type: FilterType) {
-    let i_filter = make_lowpass_for_type(1300000.0, NTSC_RATE * info.bandwidth_scale, filter_type);
-    let q_filter = make_lowpass_for_type(600000.0, NTSC_RATE * info.bandwidth_scale, filter_type);
+    let i_filter = make_lowpass_for_type(1300000.0, NTSC_RATE * info.horizontal_scale, filter_type);
+    let q_filter = make_lowpass_for_type(600000.0, NTSC_RATE * info.horizontal_scale, filter_type);
 
     let width = frame.dimensions.0;
 
@@ -231,7 +233,7 @@ fn composite_chroma_lowpass(frame: &mut YiqView, info: &CommonInfo, filter_type:
 
 /// Apply a less intense lowpass filter to the input chroma.
 fn composite_chroma_lowpass_lite(frame: &mut YiqView, info: &CommonInfo, filter_type: FilterType) {
-    let filter = make_lowpass_for_type(2600000.0, NTSC_RATE * info.bandwidth_scale, filter_type);
+    let filter = make_lowpass_for_type(2600000.0, NTSC_RATE * info.horizontal_scale, filter_type);
 
     let width = frame.dimensions.0;
 
@@ -483,7 +485,7 @@ fn luma_into_chroma(
 
 /// Blur the luminance plane using a lowpass filter.
 fn luma_smear(yiq: &mut YiqView, info: &CommonInfo, amount: f32) {
-    let lowpass = make_lowpass(f32::exp2(-4.0 * amount) * 0.25, info.bandwidth_scale);
+    let lowpass = make_lowpass(f32::exp2(-4.0 * amount) * 0.25, info.horizontal_scale);
     filter_plane(
         yiq.y,
         yiq.dimensions.0,
@@ -558,7 +560,7 @@ fn composite_noise(yiq: &mut YiqView, info: &CommonInfo, noise_settings: &FbmNoi
                 scratch,
                 &seeder,
                 index,
-                noise_settings.frequency / info.bandwidth_scale,
+                noise_settings.frequency / info.horizontal_scale,
                 noise_settings.intensity,
                 noise_settings.detail,
             );
@@ -586,7 +588,7 @@ fn plane_noise(
                 scratch,
                 &seeder,
                 index,
-                settings.frequency / info.bandwidth_scale,
+                settings.frequency / info.horizontal_scale,
                 settings.intensity,
                 settings.detail,
             );
@@ -651,6 +653,8 @@ fn head_switching(
     shift: f32,
     mid_line: Option<&HeadSwitchingMidLineSettings>,
 ) {
+    let num_rows = (num_rows as f32 * info.vertical_scale as f32).round() as usize;
+    let offset = (offset as f32 * info.vertical_scale as f32).round() as usize;
     if offset > num_rows {
         return;
     }
@@ -674,7 +678,7 @@ fn head_switching(
             let index = num_affected_rows - (index + cut_off_rows);
             let row_shift = shift * ((index + offset) as f32 / num_rows as f32).powf(1.5);
             let noisy_shift = (row_shift + (seeder.clone().mix(index).finalize::<f32>() - 0.5))
-                * info.bandwidth_scale;
+                * info.horizontal_scale;
 
             // because if-let chains are unstable :(
             if index == num_affected_rows && mid_line.is_some() {
@@ -706,7 +710,7 @@ fn head_switching(
 
                 // Add a transient where the head switch is supposed to start
                 let transient_intensity = (seeder.clone().mix(0).finalize::<f32>() + 0.5) * 0.5;
-                let transient_len = 16.0 * info.bandwidth_scale;
+                let transient_len = 16.0 * info.horizontal_scale;
 
                 for i in copy_start..(copy_start + transient_len.ceil() as usize).min(width) {
                     let x = (i - copy_start) as f32;
@@ -803,6 +807,7 @@ fn tracking_noise(
     snow_anisotropy: f32,
     noise_intensity: f32,
 ) {
+    let num_rows = (num_rows as f32 * info.vertical_scale).round() as usize;
     let width = yiq.dimensions.0;
     let height = yiq.num_rows();
 
@@ -833,7 +838,11 @@ fn tracking_noise(
             let intensity_scale = index as f32 / num_rows as f32;
             shift_row(
                 row,
-                shift_noise[index] * intensity_scale * wave_intensity * 0.25 * info.bandwidth_scale,
+                shift_noise[index]
+                    * intensity_scale
+                    * wave_intensity
+                    * 0.25
+                    * info.horizontal_scale,
                 BoundaryHandling::Constant(0.0),
             );
 
@@ -842,7 +851,7 @@ fn tracking_noise(
                 scratch,
                 &seeder,
                 index,
-                0.25 / info.bandwidth_scale,
+                0.25 / info.horizontal_scale,
                 intensity_scale.powi(2) * noise_intensity * 4.0,
                 1,
             );
@@ -852,7 +861,7 @@ fn tracking_noise(
                 &mut Xoshiro256PlusPlus::seed_from_u64(seeder.clone().mix(index).finalize()),
                 snow_intensity * intensity_scale.powi(2),
                 snow_anisotropy,
-                info.bandwidth_scale,
+                info.horizontal_scale,
             );
         });
 }
@@ -874,7 +883,7 @@ fn snow(yiq: &mut YiqView, info: &CommonInfo, intensity: f32, anisotropy: f32) {
                 &mut Xoshiro256PlusPlus::seed_from_u64(line_seed.finalize()),
                 intensity,
                 anisotropy,
-                info.bandwidth_scale,
+                info.horizontal_scale,
             );
         });
 }
@@ -883,7 +892,11 @@ fn snow(yiq: &mut YiqView, info: &CommonInfo, intensity: f32, anisotropy: f32) {
 /// Note how the horizontal shift is a float (the signal is continuous), but the vertical shift is an int (each scanline
 /// is discrete).
 fn chroma_delay(yiq: &mut YiqView, info: &CommonInfo, offset: (f32, isize)) {
-    let horiz_shift = offset.0 * info.bandwidth_scale;
+    let offset = (
+        offset.0 * info.horizontal_scale,
+        ((offset.1 as f32) * info.vertical_scale).round() as isize,
+    );
+    let horiz_shift = offset.0 * info.horizontal_scale;
     let copy_or_shift = |src: &mut [f32], dst: &mut [f32]| {
         if offset.0.abs() == 0.0 {
             dst.copy_from_slice(src);
@@ -970,7 +983,7 @@ fn vhs_edge_wave(yiq: &mut YiqView, info: &CommonInfo, settings: &VHSEdgeWaveSet
     let noise = &mut yiq.scratch[..height];
     NoiseBuilder::fbm_2d_offset(offset, height, info.frame_num as f32 * settings.speed, 1)
         .with_seed(noise_seed)
-        .with_freq(settings.frequency)
+        .with_freq(settings.frequency / info.vertical_scale)
         .with_octaves(settings.detail.clamp(1, 5) as u8)
         // Yes, they got the lacunarity backwards by making it apply to frequency instead of scale.
         // 2.0 *halves* the scale each time because it doubles the frequency.
@@ -984,7 +997,7 @@ fn vhs_edge_wave(yiq: &mut YiqView, info: &CommonInfo, settings: &VHSEdgeWaveSet
             .enumerate()
             .for_each(|(index, row)| {
                 let shift =
-                    (noise[index] / 0.022) * settings.intensity * 0.5 * info.bandwidth_scale;
+                    (noise[index] / 0.022) * settings.intensity * 0.5 * info.horizontal_scale;
                 shift_row(row, shift, BoundaryHandling::Extend);
             })
     }
@@ -1045,15 +1058,41 @@ fn chroma_vert_blend(yiq: &mut YiqView) {
 }
 
 impl NtscEffect {
-    fn apply_effect_to_yiq_field(&self, yiq: &mut YiqView, frame_num: usize) {
+    fn apply_effect_to_yiq_field(
+        &self,
+        yiq: &mut YiqView,
+        frame_num: usize,
+        scale_factor: [f32; 2],
+    ) {
         let width = yiq.dimensions.0;
 
         let seed = self.random_seed as u32 as u64;
 
+        let scale_factor = scale_factor.map(|scale_factor| {
+            scale_factor
+                * if self
+                    .scale
+                    .as_ref()
+                    .is_some_and(|scale| scale.scale_with_video_size)
+                {
+                    yiq.dimensions.1 as f32 / 480.0
+                } else {
+                    1.0
+                }
+        });
         let info = CommonInfo {
             seed,
             frame_num,
-            bandwidth_scale: self.bandwidth_scale,
+            horizontal_scale: self
+                .scale
+                .as_ref()
+                .map(|scale| scale.horizontal_scale * scale_factor[0])
+                .unwrap_or(1.0),
+            vertical_scale: self
+                .scale
+                .as_ref()
+                .map(|scale| scale.vertical_scale * scale_factor[1])
+                .unwrap_or(1.0),
         };
 
         luma_filter(yiq, self.input_luma_filter);
@@ -1077,8 +1116,8 @@ impl NtscEffect {
 
         if self.composite_sharpening != 0.0 {
             let preemphasis_filter = make_lowpass(
-                (315000000.0 / 88.0 / 2.0) * self.bandwidth_scale,
-                NTSC_RATE * self.bandwidth_scale,
+                (315000000.0 / 88.0 / 2.0) * info.horizontal_scale,
+                NTSC_RATE * info.horizontal_scale,
             );
             filter_plane(
                 yiq.y,
@@ -1094,7 +1133,7 @@ impl NtscEffect {
             composite_noise(yiq, &info, noise);
         }
 
-        if self.snow_intensity > 0.0 && self.bandwidth_scale > 0.0 {
+        if self.snow_intensity > 0.0 && info.horizontal_scale > 0.0 {
             snow(yiq, &info, self.snow_intensity * 0.01, self.snow_anisotropy);
         }
 
@@ -1148,7 +1187,7 @@ impl NtscEffect {
 
         if let Some(ringing) = &self.ringing {
             let notch_filter = make_notch_filter(
-                (ringing.frequency / self.bandwidth_scale).clamp(0.0, 1.0),
+                (ringing.frequency / info.horizontal_scale).clamp(0.0, 1.0),
                 ringing.power,
             );
             filter_plane(
@@ -1228,12 +1267,12 @@ impl NtscEffect {
                 // TODO: use a better filter! this effect's output looks way more smear-y than real VHS
                 let luma_filter = make_lowpass_for_type(
                     luma_cut,
-                    NTSC_RATE * self.bandwidth_scale,
+                    NTSC_RATE * info.horizontal_scale,
                     self.filter_type,
                 );
                 let chroma_filter = make_lowpass_for_type(
                     chroma_cut,
-                    NTSC_RATE * self.bandwidth_scale,
+                    NTSC_RATE * info.horizontal_scale,
                     self.filter_type,
                 );
                 filter_plane(yiq.y, width, &luma_filter, InitialCondition::Zero, 1.0, 0);
@@ -1253,7 +1292,7 @@ impl NtscEffect {
                     1.0,
                     chroma_delay,
                 );
-                let luma_filter_single = make_lowpass(luma_cut, NTSC_RATE * self.bandwidth_scale);
+                let luma_filter_single = make_lowpass(luma_cut, NTSC_RATE * info.horizontal_scale);
                 filter_plane(
                     yiq.y,
                     width,
@@ -1278,7 +1317,7 @@ impl NtscEffect {
                     };
                     let luma_sharpen_filter = make_lowpass_for_type(
                         luma_cut * frequency_extra_multiplier * sharpen.frequency,
-                        NTSC_RATE * self.bandwidth_scale,
+                        NTSC_RATE * info.horizontal_scale,
                         self.filter_type,
                     );
                     // The composite-video-simulator code sharpens the chroma plane, but ntscqt and this effect do not.
@@ -1331,10 +1370,15 @@ impl NtscEffect {
         };
     }
 
-    fn apply_effect_to_all_fields(&self, yiq: &mut YiqView, frame_num: usize) {
+    fn apply_effect_to_all_fields(
+        &self,
+        yiq: &mut YiqView,
+        frame_num: usize,
+        scale_factor: [f32; 2],
+    ) {
         match yiq.field {
             YiqField::Upper | YiqField::Lower | YiqField::Both => {
-                self.apply_effect_to_yiq_field(yiq, frame_num);
+                self.apply_effect_to_yiq_field(yiq, frame_num, scale_factor);
             }
             YiqField::InterleavedUpper | YiqField::InterleavedLower => {
                 // "Interleaved" basically means we apply the effect to one set of fields, then apply it again to the
@@ -1358,20 +1402,20 @@ impl NtscEffect {
 
                 if let Some(yiq_upper) = yiq_upper.as_mut() {
                     yiq_upper.field = YiqField::Upper;
-                    self.apply_effect_to_yiq_field(yiq_upper, frame_num_upper);
+                    self.apply_effect_to_yiq_field(yiq_upper, frame_num_upper, scale_factor);
                 }
 
                 if let Some(yiq_lower) = yiq_lower.as_mut() {
                     yiq_lower.field = YiqField::Lower;
-                    self.apply_effect_to_yiq_field(yiq_lower, frame_num_lower);
+                    self.apply_effect_to_yiq_field(yiq_lower, frame_num_lower, scale_factor);
                 }
             }
         }
     }
 
     /// Apply the effect to YIQ image data.
-    pub fn apply_effect_to_yiq(&self, yiq: &mut YiqView, frame_num: usize) {
-        with_thread_pool(|| self.apply_effect_to_all_fields(yiq, frame_num));
+    pub fn apply_effect_to_yiq(&self, yiq: &mut YiqView, frame_num: usize, scale_factor: [f32; 2]) {
+        with_thread_pool(|| self.apply_effect_to_all_fields(yiq, frame_num, scale_factor));
     }
 
     /// Apply the effect to a buffer which contains pixels in the given format.
@@ -1382,6 +1426,7 @@ impl NtscEffect {
         dimensions: (usize, usize),
         input_frame: &mut [S::DataFormat],
         frame_num: usize,
+        scale_factor: [f32; 2],
     ) {
         let field = self.use_field.to_yiq_field(frame_num);
         let row_bytes = dimensions.0 * S::pixel_bytes();
@@ -1393,7 +1438,7 @@ impl NtscEffect {
             field,
         );
         let mut view = YiqView::from(&mut yiq);
-        self.apply_effect_to_yiq(&mut view, frame_num);
+        self.apply_effect_to_yiq(&mut view, frame_num, scale_factor);
         view.write_to_strided_buffer::<S, _>(
             input_frame,
             BlitInfo::from_full_frame(dimensions.0, dimensions.1, row_bytes),

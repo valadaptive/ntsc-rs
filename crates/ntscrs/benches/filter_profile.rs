@@ -17,7 +17,12 @@ fn criterion_benchmark(c: &mut Criterion) {
             let width = img.width() as usize;
             let height = img.height() as usize;
             let mut buf = img.into_raw();
-            NtscEffect::default().apply_effect_to_buffer::<Rgb8>((width, height), &mut buf, 0);
+            NtscEffect::default().apply_effect_to_buffer::<Rgb8>(
+                (width, height),
+                &mut buf,
+                0,
+                [1.0, 1.0],
+            );
             black_box(&mut buf);
         })
     });

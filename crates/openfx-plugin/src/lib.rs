@@ -1111,6 +1111,7 @@ struct EffectApplicationParams<'a> {
     effect: &'a NtscEffect,
     frame_num: usize,
     apply_srgb_gamma: bool,
+    proxy_scale: [f32; 2],
 }
 
 struct EffectStorageParams<'a> {
@@ -1171,7 +1172,7 @@ impl<'a> EffectApplicationParams<'a> {
         }
 
         self.effect
-            .apply_effect_to_yiq(&mut yiq_view, self.frame_num);
+            .apply_effect_to_yiq(&mut yiq_view, self.frame_num, self.proxy_scale);
 
         Ok(EffectStorageParams {
             yiq_data: ntsc_buf,
@@ -1505,6 +1506,29 @@ unsafe fn action_render(
     let effect: NtscEffect = out_settings.into();
     let frame_num = time as usize;
 
+    let mut proxy_scale_x = 1.0;
+    let mut proxy_scale_y = 1.0;
+    if !effect
+        .scale
+        .as_ref()
+        .is_some_and(|scale| scale.scale_with_video_size)
+    {
+        propGetDouble(
+            sourceImg.0,
+            kOfxImageEffectPropRenderScale.as_ptr(),
+            0,
+            &mut proxy_scale_x,
+        );
+        propGetDouble(
+            sourceImg.0,
+            kOfxImageEffectPropRenderScale.as_ptr(),
+            1,
+            &mut proxy_scale_y,
+        );
+        proxy_scale_x = proxy_scale_x.recip();
+        proxy_scale_y = proxy_scale_y.recip();
+    }
+
     let application_params = EffectApplicationParams {
         src_ptr: srcPtr,
         src_row_bytes: srcRowBytes,
@@ -1515,6 +1539,7 @@ unsafe fn action_render(
         effect: &effect,
         frame_num,
         apply_srgb_gamma,
+        proxy_scale: [proxy_scale_x as f32, proxy_scale_y as f32],
     };
 
     let storage_params =

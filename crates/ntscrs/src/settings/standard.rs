@@ -261,6 +261,23 @@ pub struct FbmNoiseSettings {
     pub detail: u32,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScaleSettings {
+    pub horizontal_scale: f32,
+    pub vertical_scale: f32,
+    pub scale_with_video_size: bool,
+}
+
+impl Default for ScaleSettings {
+    fn default() -> Self {
+        Self {
+            horizontal_scale: 1.0,
+            vertical_scale: 1.0,
+            scale_with_video_size: false,
+        }
+    }
+}
+
 #[rustfmt::skip]
 pub mod setting_id {
     use crate::{setting_id, settings::SettingID};
@@ -299,7 +316,7 @@ pub mod setting_id {
     pub const VHS_EDGE_WAVE_SPEED: NtscSettingID = setting_id!(29, "vhs_edge_wave_speed", vhs_settings.settings.edge_wave.settings.speed);
     pub const USE_FIELD: NtscSettingID = setting_id!(30, "use_field", use_field);
     pub const TRACKING_NOISE_NOISE_INTENSITY: NtscSettingID = setting_id!(31, "tracking_noise_noise_intensity", tracking_noise.settings.noise_intensity);
-    pub const BANDWIDTH_SCALE: NtscSettingID = setting_id!(32, "bandwidth_scale", bandwidth_scale);
+    pub const HORIZONTAL_SCALE: NtscSettingID = setting_id!(32, "bandwidth_scale", scale.settings.horizontal_scale);
     pub const CHROMA_DEMODULATION: NtscSettingID = setting_id!(33, "chroma_demodulation", chroma_demodulation);
     pub const SNOW_ANISOTROPY: NtscSettingID = setting_id!(34, "snow_anisotropy", snow_anisotropy);
     pub const TRACKING_NOISE_SNOW_ANISOTROPY: NtscSettingID = setting_id!(35, "tracking_noise_snow_anisotropy", tracking_noise.settings.snow_anisotropy);
@@ -326,6 +343,9 @@ pub mod setting_id {
     pub const LUMA_NOISE_FREQUENCY: NtscSettingID = setting_id!(56, "luma_noise_frequency", luma_noise.settings.frequency);
     pub const LUMA_NOISE_INTENSITY: NtscSettingID = setting_id!(57, "luma_noise_intensity", luma_noise.settings.intensity);
     pub const LUMA_NOISE_DETAIL: NtscSettingID = setting_id!(58, "luma_noise_detail", luma_noise.settings.detail);
+    pub const VERTICAL_SCALE: NtscSettingID = setting_id!(59, "vertical_scale", scale.settings.vertical_scale);
+    pub const SCALE_WITH_VIDEO_SIZE: NtscSettingID = setting_id!(60, "scale_with_video_size", scale.settings.scale_with_video_size);
+    pub const SCALE_SETTINGS: NtscSettingID = setting_id!(61, "scale_settings", scale.enabled);
 }
 
 #[derive(FullSettings, Clone, Debug, PartialEq)]
@@ -363,7 +383,8 @@ pub struct NtscEffect {
     pub vhs_settings: Option<VHSSettings>,
     pub chroma_vert_blend: bool,
     pub chroma_lowpass_out: ChromaLowpass,
-    pub bandwidth_scale: f32,
+    #[settings_block]
+    pub scale: Option<ScaleSettings>,
 }
 
 impl Default for NtscEffect {
@@ -406,7 +427,7 @@ impl Default for NtscEffect {
             chroma_delay_vertical: 0,
             vhs_settings: Some(VHSSettings::default()),
             chroma_vert_blend: true,
-            bandwidth_scale: 1.0,
+            scale: Some(ScaleSettings::default()),
         }
     }
 }
@@ -962,10 +983,31 @@ impl Settings for NtscEffectFullSettings {
                 id: setting_id::CHROMA_LOWPASS_OUT,
             },
             SettingDescriptor {
-                label: "Bandwidth scale",
-                description: Some("Horizontally scale the effect by this amount. For 480p video, leave this at 1.0 for the most physically-accurate result."),
-                kind: SettingKind::FloatRange { range: 0.125..=8.0, logarithmic: false },
-                id: setting_id::BANDWIDTH_SCALE,
+                label: "Scale",
+                description: Some("Scale the effect by these factors."),
+                kind: SettingKind::Group {
+                    children: vec![
+                        SettingDescriptor {
+                            label: "Horizontal scale",
+                            description: Some("Horizontally scale the effect by this amount. For 480p video, leave this at 1.0 for the most physically-accurate result."),
+                            kind: SettingKind::FloatRange { range: 0.125..=8.0, logarithmic: false },
+                            id: setting_id::HORIZONTAL_SCALE,
+                        },
+                        SettingDescriptor {
+                            label: "Vertical scale",
+                            description: Some("Vertically scale the effect by this amount. You should probably leave this at 1.0."),
+                            kind: SettingKind::FloatRange { range: 0.125..=8.8, logarithmic: false },
+                            id: setting_id::VERTICAL_SCALE,
+                        },
+                        SettingDescriptor {
+                            label: "Scale with video size",
+                            description: Some("Multiply the scaling factors by the video's height. Prefer scaling the input video to 480p instead, which gives much more accurate-looking results."),
+                            kind: SettingKind::Boolean,
+                            id: setting_id::SCALE_WITH_VIDEO_SIZE,
+                        }
+                    ],
+                },
+                id: setting_id::SCALE_SETTINGS
             },
         ].into_boxed_slice()
     }
@@ -1228,7 +1270,10 @@ impl SettingsList<NtscEffectFullSettings> {
                 _ => ChromaLowpass::None,
             }
         };
-        settings.bandwidth_scale = 1.0;
+        settings.scale = SettingsBlock {
+            enabled: false,
+            settings: ScaleSettings::default(),
+        };
 
         Ok(settings)
     }

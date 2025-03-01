@@ -495,7 +495,16 @@ impl Plugin {
             },
         }
 
-        effect.apply_effect_to_yiq(&mut view, frame_num);
+        let scale_factors: [f32; 2] = if effect
+            .scale
+            .as_ref()
+            .is_some_and(|scale| scale.scale_with_video_size)
+        {
+            [1.0, 1.0]
+        } else {
+            [in_data.downsample_x(), in_data.downsample_y()].map(|factor| factor.into())
+        };
+        effect.apply_effect_to_yiq(&mut view, frame_num, scale_factors);
 
         match out_pixel_format {
             NtscrsPixelFormat::Xrgb8 => {
