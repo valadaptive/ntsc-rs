@@ -728,7 +728,7 @@ fn row_speckles(
     rng: &mut Xoshiro256PlusPlus,
     intensity: f32,
     anisotropy: f32,
-    bandwidth_scale: f32,
+    horizontal_scale: f32,
 ) {
     let intensity = intensity as f64;
     let anisotropy = anisotropy as f64;
@@ -770,7 +770,7 @@ fn row_speckles(
             break;
         }
 
-        let transient_len: f32 = rng.random_range(TRANSIENT_LEN_RANGE) * bandwidth_scale;
+        let transient_len: f32 = rng.random_range(TRANSIENT_LEN_RANGE) * horizontal_scale;
         let transient_freq = rng.random_range(transient_len * 3.0..=transient_len * 5.0);
         let pixel_idx_end = pixel_idx + transient_len.ceil() as isize;
 
@@ -1262,6 +1262,7 @@ impl NtscEffect {
                 chroma_delay,
             }) = vhs_settings.tape_speed.filter_params()
             {
+                let chroma_delay = (chroma_delay as f32 * info.horizontal_scale).round() as usize;
                 // TODO: add an option to control whether there should be a line on the left from the filter starting
                 // at 0. it's present in both the original C++ code and Python port but probably not an actual VHS
                 // TODO: use a better filter! this effect's output looks way more smear-y than real VHS
@@ -1324,7 +1325,7 @@ impl NtscEffect {
                     // I'm not sure if I'm implementing it wrong, but chroma sharpening looks awful.
                     /*let chroma_sharpen_filter = make_lowpass_for_type(
                         chroma_cut * frequency_extra_multiplier * sharpen.frequency,
-                        NTSC_RATE * self.bandwidth_scale,
+                        NTSC_RATE * info.horizontal_scale,
                         self.filter_type,
                     );*/
                     filter_plane(
