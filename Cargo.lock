@@ -2224,6 +2224,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "gst-plugin-version-helper"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e5e874f1660252fd2ec81c602066df3633b3a6fcbe2b196f7f93c27cf069b2a"
+dependencies = [
+ "chrono",
+ "toml_edit",
+]
+
+[[package]]
+name = "gst-plugin-webp"
+version = "0.13.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73606d7307b33f135e8153ecf294c3db78c3d34340f75da673ccdb64119e655c"
+dependencies = [
+ "gst-plugin-version-helper",
+ "gstreamer",
+ "gstreamer-video",
+ "libwebp-sys2",
+ "once_cell",
+]
+
+[[package]]
 name = "gstreamer"
 version = "0.23.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2412,6 +2435,7 @@ dependencies = [
  "env_logger",
  "fontique",
  "futures-lite",
+ "gst-plugin-webp",
  "gstreamer",
  "gstreamer-base",
  "gstreamer-pbutils",
@@ -2892,6 +2916,19 @@ dependencies = [
  "bitflags 2.8.0",
  "libc",
  "redox_syscall 0.5.8",
+]
+
+[[package]]
+name = "libwebp-sys2"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4790186411a6843ecc0a141c8948c8e623a0bb5e886834b1b6c90f3dfa85bb99"
+dependencies = [
+ "cc",
+ "cfg-if",
+ "libc",
+ "pkg-config",
+ "vcpkg",
 ]
 
 [[package]]
@@ -5030,6 +5067,12 @@ name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
+
+[[package]]
+name = "vcpkg"
+version = "0.2.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "version-compare"

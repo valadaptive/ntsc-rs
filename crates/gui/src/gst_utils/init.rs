@@ -26,6 +26,15 @@ pub fn initialize_gstreamer() -> Result<(), GstreamerError> {
         elements::VideoPadFilter::static_type(),
     )?;
 
+    // GStreamer's distribution packages currently don't include the webp codecs (either the elements themselves are
+    // missing or they don't work without libwebp; not sure). Instead, use and statically link gst-plugins-rs/webp.
+    // Even if webpdec is supported on the platform (e.g. Linux with a package-manager-provided gstreamer), we want to
+    // always use the Rust webp decoder to avoid weird platform-specific bugs.
+    if let Some(dec) = gstreamer::ElementFactory::find("webpdec") {
+        dec.set_rank(gstreamer::Rank::NONE);
+    }
+    gstrswebp::plugin_register_static()?;
+
     // PulseAudio has a severe bug that will greatly delay initial playback to the point of unusability:
     // https://gitlab.freedesktop.org/pulseaudio/pulseaudio/-/issues/1383
     // A fix was merged a *year* ago, but the Pulse devs, in their infinite wisdom, won't give it to us until their
