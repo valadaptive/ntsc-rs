@@ -2189,8 +2189,7 @@ impl NtscApp {
                         if let Some(error) = self.last_error.borrow().as_ref() {
                             egui::Frame::NONE
                                 .corner_radius(3)
-                                .stroke(ui.style().noninteractive().fg_stroke)
-                                .inner_margin(ui.style().spacing.button_padding)
+                                .fill(ui.style().visuals.extreme_bg_color)
                                 .show(ui, |ui| {
                                     if ui.button("OK").clicked() {
                                         close_error = true;
