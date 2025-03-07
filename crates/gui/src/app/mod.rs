@@ -50,4 +50,7 @@ pub struct NtscApp {
     pub credits_dialog_open: bool,
     pub third_party_licenses_dialog_open: bool,
     pub license_dialog_open: bool,
+    pub image_sequence_dialog_queued_render_job: Option<
+        Box<dyn FnOnce(&mut Self) -> Result<render_job::RenderJob, error::ApplicationError>>,
+    >,
 }

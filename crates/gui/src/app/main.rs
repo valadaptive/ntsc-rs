@@ -244,6 +244,7 @@ impl NtscApp {
             credits_dialog_open: false,
             third_party_licenses_dialog_open: false,
             license_dialog_open: false,
+            image_sequence_dialog_queued_render_job: None,
         }
     }
 
@@ -1354,45 +1355,32 @@ impl NtscApp {
                 let ctx = ui.ctx().clone();
                 let src_path = src_path.cloned();
                 self.spawn(async move {
-                    if output_codec.is_image_sequence() {
-                        let is_empty = match unblock(move || output_dir_path.read_dir()).await {
+                    let is_empty = if output_codec.is_image_sequence() {
+                        match unblock(move || output_dir_path.read_dir()).await {
                             Ok(mut read_dir) => unblock(move || read_dir.next()).await.is_none(),
                             Err(e) => {
                                 return Some(Box::new(move |_: &mut NtscApp| {
                                     Err(e).context(FsSnafu)
                                 }) as _)
                             }
-                        };
-
-                        if !is_empty {
-                            let dialog_result = rfd::AsyncMessageDialog::new()
-                                .set_buttons(rfd::MessageButtons::OkCancel)
-                                .set_level(rfd::MessageLevel::Warning)
-                                .set_title("Output directory is not empty")
-                                .set_description("You're rendering an image sequence into a directory that isn't empty. This will output many individual image files into that directory.")
-                                .show()
-                                .await;
-
-                            if dialog_result != rfd::MessageDialogResult::Ok {
-                                return None;
-                            }
                         }
-                    }
+                    } else {
+                        true
+                    };
 
                     Some(Box::new(move |app: &mut NtscApp| {
-                        let render_job = app.create_render_job(
+                        let render_job = move |app: &mut NtscApp| app.create_render_job(
                             &ctx,
                             &src_path.unwrap(),
                             RenderPipelineSettings::from_gui_settings(&effect_settings, &render_settings),
-                        );
-                        match render_job {
-                            Ok(render_job) => {
-                                app.render_jobs.push(render_job);
-                                Ok(())
-                            }
-                            Err(err) => {
-                                Err(err).context(CreateRenderJobSnafu)
-                            }
+                        ).context(CreateRenderJobSnafu);
+                        if is_empty {
+                            let render_job = render_job(app)?;
+                            app.render_jobs.push(render_job);
+                            Ok(())
+                        } else {
+                            app.image_sequence_dialog_queued_render_job = Some(Box::new(render_job) as _);
+                            Ok(())
                         }
                     }) as _)
                 });
@@ -2049,6 +2037,37 @@ impl NtscApp {
 
         if self.license_dialog_open {
             self.show_license_dialog(ctx);
+        }
+
+        if self.image_sequence_dialog_queued_render_job.is_some() {
+            let modal = egui::Modal::new(egui::Id::new("directory_not_empty")).show(ctx, |ui| {
+                ui.set_max_width(ctx.input(|i| i.screen_rect().width() - 24.0).min(400.0));
+                ui.set_min_width(200.0);
+                ui.heading("Output directory is not empty");
+                ui.label("You're rendering an image sequence into a directory that isn't empty. This will output many individual image files into that directory.");
+                ui.separator();
+
+                egui::Sides::new().show(ui, |_| {}, |ui| {
+                    if ui.button("OK").clicked() {
+                        let job = self.image_sequence_dialog_queued_render_job.take().unwrap()(self);
+                        match job {
+                            Ok(job) => {
+                                self.render_jobs.push(job);
+                            }
+                            Err(e) => {
+                                self.handle_error(&e);
+                            }
+                        }
+                    } else if ui.button("Cancel").clicked() {
+                        self.image_sequence_dialog_queued_render_job = None;
+                    }
+                });
+
+            });
+
+            if modal.should_close() {
+                self.image_sequence_dialog_queued_render_job = None;
+            }
         }
 
         egui::TopBottomPanel::top("menu_bar")
