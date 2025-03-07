@@ -9,6 +9,8 @@ repository = "https://github.com/valadaptive/ntsc-rs/tree/main/crates/openfx-plu
 allocator-api2 = "0.2.16"
 ntscrs = { path = "../ntscrs" }
 rfd = "0.15.0"
+# TODO: remove this once https://github.com/PolyMeilex/rfd/pull/240 is merged
+futures-util = { version = "*", features = ["io"] }
 
 [build-dependencies]
 bindgen = "0.71"
