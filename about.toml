@@ -13,4 +13,6 @@ accepted = [
     "Zlib",
     "Unicode-DFS-2016",
     "Unicode-3.0",
+    "MPL-2.0",
+    "Ubuntu-font-1.0",
 ]
