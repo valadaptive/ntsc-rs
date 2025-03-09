@@ -2,9 +2,9 @@ use std::ops::RangeInclusive;
 use std::{f32, sync::Arc};
 
 use eframe::{
-    egui::{self, vec2, Context, Id, Sense, TextStyle, Widget},
+    egui::{self, Context, Id, Sense, TextStyle, Widget, vec2},
     emath::{remap, remap_clamp},
-    epaint::{pos2, Color32, Pos2, Stroke},
+    epaint::{Color32, Pos2, Stroke, pos2},
 };
 use gstreamer::{ClockTime, Fraction};
 

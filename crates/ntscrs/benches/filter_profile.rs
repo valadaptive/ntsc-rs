@@ -1,5 +1,5 @@
 extern crate criterion;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use image::ImageReader;
 use ntscrs::{ntsc::NtscEffect, yiq_fielding::Rgb8};
 #[cfg(not(target_os = "windows"))]

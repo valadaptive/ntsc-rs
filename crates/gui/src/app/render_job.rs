@@ -7,7 +7,7 @@ use std::{
 };
 
 use futures_lite::FutureExt;
-use gstreamer::{prelude::*, ClockTime};
+use gstreamer::{ClockTime, prelude::*};
 use gstreamer_video::{VideoFormat, VideoInterlaceMode};
 use log::debug;
 use snafu::ResultExt;
@@ -186,7 +186,7 @@ impl RenderJob {
                             gstreamer::ElementFactory::make("flacenc").build()?
                         }
                         RenderPipelineCodec::Png(_) | RenderPipelineCodec::PngSequence(_) => {
-                            return Ok(None)
+                            return Ok(None);
                         }
                     };
 

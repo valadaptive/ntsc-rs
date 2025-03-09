@@ -11,9 +11,12 @@ pub fn main() -> Result<(), std::io::Error> {
         rfd::MessageDialog::new()
             .set_level(rfd::MessageLevel::Error)
             .set_title("Could not launch ntsc-rs")
-            .set_description(format!("ntsc-rs could not be launched. This may happen if you move the ntsc-rs launcher \
-                out of its folder without copying the \"bin\" and \"lib\" folders along with it.\n\n\
-                Error message: {}", e))
+            .set_description(format!(
+                "ntsc-rs could not be launched. This may happen if you move the ntsc-rs launcher \
+                 out of its folder without copying the \"bin\" and \"lib\" folders along with \
+                 it.\n\nError message: {}",
+                e
+            ))
             .show();
     }
 

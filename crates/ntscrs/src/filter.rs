@@ -1,4 +1,4 @@
-use crate::f32x4::{get_supported_simd_type, F32x4, SupportedSimdType};
+use crate::f32x4::{F32x4, SupportedSimdType, get_supported_simd_type};
 
 /// Multiplies two polynomials (lowest coefficients first).
 /// Note that this function does not trim trailing zero coefficients--see below for that.

@@ -6,7 +6,7 @@ use gstreamer_video::subclass::prelude::*;
 use gstreamer_video::{VideoFormat, VideoFrameExt};
 
 use ntscrs::ntsc::NtscEffect;
-use ntscrs::yiq_fielding::{Bgrx8, Rgbx8, Xbgr8, Xrgb16, Xrgb8};
+use ntscrs::yiq_fielding::{Bgrx8, Rgbx8, Xbgr8, Xrgb8, Xrgb16};
 
 use super::process_gst_frame::process_gst_frame;
 

@@ -11,7 +11,7 @@ use simdnoise::{NoiseBuilder, Settings as NoiseSettings, SimplexSettings};
 use crate::{
     filter::TransferFunction,
     random::{Geometric, Seeder},
-    shift::{shift_row, shift_row_to, BoundaryHandling},
+    shift::{BoundaryHandling, shift_row, shift_row_to},
     thread_pool::with_thread_pool,
     yiq_fielding::{BlitInfo, PixelFormat, YiqField, YiqOwned, YiqView},
 };

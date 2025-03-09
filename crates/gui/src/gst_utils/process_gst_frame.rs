@@ -5,7 +5,7 @@ use gstreamer_video::{VideoFormat, VideoFrameExt, VideoFrameRef, VideoInterlaceM
 use ntscrs::{
     settings::standard::NtscEffect,
     yiq_fielding::{
-        Bgrx8, BlitInfo, DeinterlaceMode, PixelFormat, Rect, Rgbx8, Xbgr8, Xrgb16, Xrgb8, YiqField,
+        Bgrx8, BlitInfo, DeinterlaceMode, PixelFormat, Rect, Rgbx8, Xbgr8, Xrgb8, Xrgb16, YiqField,
         YiqOwned, YiqView,
     },
 };

@@ -3,9 +3,9 @@ extern crate proc_macro;
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    parse2, parse_macro_input, spanned::Spanned, AngleBracketedGenericArguments, Attribute, Expr,
-    FieldValue, Fields, GenericArgument, Ident, ItemStruct, Member, PathArguments, PathSegment,
-    Token, Type, TypePath,
+    AngleBracketedGenericArguments, Attribute, Expr, FieldValue, Fields, GenericArgument, Ident,
+    ItemStruct, Member, PathArguments, PathSegment, Token, Type, TypePath, parse_macro_input,
+    parse2, spanned::Spanned,
 };
 
 fn gen_fields(

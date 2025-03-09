@@ -1,5 +1,5 @@
 use eframe::{
-    egui::{self, pos2, Context, Id, Rect, Sense, Widget},
+    egui::{self, Context, Id, Rect, Sense, Widget, pos2},
     emath::{lerp, remap_clamp},
 };
 

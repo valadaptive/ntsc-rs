@@ -278,7 +278,14 @@ pub enum GetSetFieldError {
 impl Display for GetSetFieldError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            GetSetFieldError::TypeMismatch { actual_type, requested_type } => write!(f, "Tried to get or set field with type {requested_type}, but actual type is {actual_type}"),
+            GetSetFieldError::TypeMismatch {
+                actual_type,
+                requested_type,
+            } => write!(
+                f,
+                "Tried to get or set field with type {requested_type}, but actual type is \
+                 {actual_type}"
+            ),
             GetSetFieldError::NoSuchID(id) => write!(f, "No such field with ID {id}"),
         }
     }

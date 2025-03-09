@@ -4,8 +4,8 @@
 
 use clap::builder::PathBufValueParser;
 
-use crate::util::targets::{Target, MACOS_AARCH64, MACOS_X86_64, TARGETS};
-use crate::util::{workspace_dir, PathBufExt, StatusExt};
+use crate::util::targets::{MACOS_AARCH64, MACOS_X86_64, TARGETS, Target};
+use crate::util::{PathBufExt, StatusExt, workspace_dir};
 
 use std::error::Error;
 use std::ffi::OsString;

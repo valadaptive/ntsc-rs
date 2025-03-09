@@ -7,7 +7,7 @@ mod bindings;
 use core::slice;
 use std::{
     convert::identity,
-    ffi::{c_char, c_int, c_void, CStr, CString},
+    ffi::{CStr, CString, c_char, c_int, c_void},
     fs,
     mem::{self, MaybeUninit},
     ptr::{self, NonNull},
@@ -29,9 +29,9 @@ use ntscrs::{
 };
 use ntscrs::{
     settings::{
-        standard::NtscEffectFullSettings, SettingDescriptor, SettingKind, Settings, SettingsList,
+        SettingDescriptor, SettingKind, Settings, SettingsList, standard::NtscEffectFullSettings,
     },
-    yiq_fielding::{PixelFormat, Rgb16, Rgb32f, Rgb8, Rgbx16, Rgbx32f, Rgbx8},
+    yiq_fielding::{PixelFormat, Rgb8, Rgb16, Rgb32f, Rgbx8, Rgbx16, Rgbx32f},
 };
 
 use bindings::*;

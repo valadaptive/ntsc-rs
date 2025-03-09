@@ -3,13 +3,13 @@ use macros::FullSettings;
 use crate::ntsc::{NtscEffectFullSettings, ScaleSettings, VHSEdgeWaveSettings};
 
 use super::{
+    MenuItem, SettingDescriptor, SettingKind, Settings, SettingsBlock,
     standard::{
         ChromaDemodulationFilter, ChromaLowpass, FbmNoiseSettings, FilterType,
         HeadSwitchingMidLineSettings, HeadSwitchingSettingsFullSettings, LumaLowpass, PhaseShift,
         RingingSettings, TrackingNoiseSettings, UseField, VHSSettingsFullSettings,
         VHSSharpenSettings, VHSTapeSpeed,
     },
-    MenuItem, SettingDescriptor, SettingKind, Settings, SettingsBlock,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -140,17 +140,25 @@ impl Settings for EasyModeFullSettings {
             SettingDescriptor {
                 label: "Random seed",
                 description: None,
-                kind: SettingKind::IntRange { range: i32::MIN..=i32::MAX },
+                kind: SettingKind::IntRange {
+                    range: i32::MIN..=i32::MAX,
+                },
                 id: setting_id::RANDOM_SEED,
             },
             SettingDescriptor {
                 label: "Use field",
-                description: Some("Choose which rows (\"fields\" in NTSC parlance) of the source image will be used."),
+                description: Some(
+                    "Choose which rows (\"fields\" in NTSC parlance) of the source image will be \
+                     used.",
+                ),
                 kind: SettingKind::Enumeration {
                     options: vec![
                         MenuItem {
                             label: "Alternating",
-                            description: Some("Skip every other row, alternating between skipping even and odd rows."),
+                            description: Some(
+                                "Skip every other row, alternating between skipping even and odd \
+                                 rows.",
+                            ),
                             index: UseField::Alternating as u32,
                         },
                         MenuItem {
@@ -165,12 +173,18 @@ impl Settings for EasyModeFullSettings {
                         },
                         MenuItem {
                             label: "Interleaved (upper first)",
-                            description: Some("Treat the video as interlaced, with the upper field as the earlier frame."),
+                            description: Some(
+                                "Treat the video as interlaced, with the upper field as the \
+                                 earlier frame.",
+                            ),
                             index: UseField::InterleavedUpper as u32,
                         },
                         MenuItem {
                             label: "Interleaved (lower first)",
-                            description: Some("Treat the video as interlaced, with the lower field as the earlier frame."),
+                            description: Some(
+                                "Treat the video as interlaced, with the lower field as the \
+                                 earlier frame.",
+                            ),
                             index: UseField::InterleavedLower as u32,
                         },
                         MenuItem {
@@ -189,12 +203,17 @@ impl Settings for EasyModeFullSettings {
                     options: vec![
                         MenuItem {
                             label: "Constant K (blurry)",
-                            description: Some("Simple constant-k filter. Produces longer, blurry results."),
+                            description: Some(
+                                "Simple constant-k filter. Produces longer, blurry results.",
+                            ),
                             index: FilterType::ConstantK as u32,
                         },
                         MenuItem {
                             label: "Butterworth (sharper)",
-                            description: Some("Filter with a sharper falloff. Produces sharpened, less blurry results."),
+                            description: Some(
+                                "Filter with a sharper falloff. Produces sharpened, less blurry \
+                                 results.",
+                            ),
                             index: FilterType::Butterworth as u32,
                         },
                     ],
@@ -203,7 +222,10 @@ impl Settings for EasyModeFullSettings {
             },
             SettingDescriptor {
                 label: "Saturation",
-                description: Some("Boost high frequencies in the NTSC signal, sharpening the image and intensifying colors."),
+                description: Some(
+                    "Boost high frequencies in the NTSC signal, sharpening the image and \
+                     intensifying colors.",
+                ),
                 kind: SettingKind::FloatRange {
                     range: -1.0..=2.0,
                     logarithmic: false,
@@ -221,29 +243,43 @@ impl Settings for EasyModeFullSettings {
             },
             SettingDescriptor {
                 label: "Chroma demodulation filter",
-                description: Some("Filter used to modulate the chrominance (color) data out of the composite NTSC signal."),
+                description: Some(
+                    "Filter used to modulate the chrominance (color) data out of the composite \
+                     NTSC signal.",
+                ),
                 kind: SettingKind::Enumeration {
                     options: vec![
                         MenuItem {
                             label: "Box",
                             description: Some("Simple horizontal box blur."),
-                            index: ChromaDemodulationFilter::Box as u32
+                            index: ChromaDemodulationFilter::Box as u32,
                         },
                         MenuItem {
                             label: "Notch",
-                            description: Some("Notch filter. Sharper than a box blur, but with ringing artifacts."),
-                            index: ChromaDemodulationFilter::Notch as u32
+                            description: Some(
+                                "Notch filter. Sharper than a box blur, but with ringing \
+                                 artifacts.",
+                            ),
+                            index: ChromaDemodulationFilter::Notch as u32,
                         },
                         MenuItem {
                             label: "1-line comb",
-                            description: Some("Average the current row with the previous one, phase-cancelling the chrominance signals. Only works if the scanline phase shift is 180 degrees."),
-                            index: ChromaDemodulationFilter::OneLineComb as u32
+                            description: Some(
+                                "Average the current row with the previous one, phase-cancelling \
+                                 the chrominance signals. Only works if the scanline phase shift \
+                                 is 180 degrees.",
+                            ),
+                            index: ChromaDemodulationFilter::OneLineComb as u32,
                         },
                         MenuItem {
                             label: "2-line comb",
-                            description: Some("Average the current row with the previous and next ones, phase-cancelling the chrominance signals. Only works if the scanline phase shift is 180 degrees."),
-                            index: ChromaDemodulationFilter::TwoLineComb as u32
-                        }
+                            description: Some(
+                                "Average the current row with the previous and next ones, \
+                                 phase-cancelling the chrominance signals. Only works if the \
+                                 scanline phase shift is 180 degrees.",
+                            ),
+                            index: ChromaDemodulationFilter::TwoLineComb as u32,
+                        },
                     ],
                 },
                 id: setting_id::CHROMA_DEMODULATION_FILTER,
@@ -251,8 +287,11 @@ impl Settings for EasyModeFullSettings {
             SettingDescriptor {
                 label: "Luma smear",
                 description: None,
-                kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false },
-                id: setting_id::LUMA_SMEAR
+                kind: SettingKind::FloatRange {
+                    range: 0.0..=1.0,
+                    logarithmic: false,
+                },
+                id: setting_id::LUMA_SMEAR,
             },
             SettingDescriptor {
                 label: "Ringing",
@@ -262,26 +301,32 @@ impl Settings for EasyModeFullSettings {
             },
             SettingDescriptor {
                 label: "Luma noise",
-                description: Some("Noise applied to the luminance signal. Useful for higher-frequency noise than the \"Composite noise\" setting can provide."),
+                description: Some(
+                    "Noise applied to the luminance signal. Useful for higher-frequency noise \
+                     than the \"Composite noise\" setting can provide.",
+                ),
                 kind: SettingKind::Group {
                     children: vec![
                         SettingDescriptor {
                             label: "Intensity",
                             description: Some("Intensity of the noise."),
                             kind: SettingKind::Percentage { logarithmic: true },
-                            id: setting_id::LUMA_NOISE_INTENSITY
+                            id: setting_id::LUMA_NOISE_INTENSITY,
                         },
                         SettingDescriptor {
                             label: "Frequency",
                             description: Some("Base wavelength, in pixels, of the noise."),
-                            kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false },
-                            id: setting_id::LUMA_NOISE_FREQUENCY
+                            kind: SettingKind::FloatRange {
+                                range: 0.0..=1.0,
+                                logarithmic: false,
+                            },
+                            id: setting_id::LUMA_NOISE_FREQUENCY,
                         },
                         SettingDescriptor {
                             label: "Detail",
                             description: Some("Octaves of noise."),
                             kind: SettingKind::IntRange { range: 1..=5 },
-                            id: setting_id::LUMA_NOISE_DETAIL
+                            id: setting_id::LUMA_NOISE_DETAIL,
                         },
                     ],
                 },
@@ -296,19 +341,22 @@ impl Settings for EasyModeFullSettings {
                             label: "Intensity",
                             description: Some("Intensity of the noise."),
                             kind: SettingKind::Percentage { logarithmic: true },
-                            id: setting_id::CHROMA_NOISE_INTENSITY
+                            id: setting_id::CHROMA_NOISE_INTENSITY,
                         },
                         SettingDescriptor {
                             label: "Frequency",
                             description: Some("Base wavelength, in pixels, of the noise."),
-                            kind: SettingKind::FloatRange { range: 0.0..=0.5, logarithmic: false },
-                            id: setting_id::CHROMA_NOISE_FREQUENCY
+                            kind: SettingKind::FloatRange {
+                                range: 0.0..=0.5,
+                                logarithmic: false,
+                            },
+                            id: setting_id::CHROMA_NOISE_FREQUENCY,
                         },
                         SettingDescriptor {
                             label: "Detail",
                             description: Some("Octaves of noise."),
                             kind: SettingKind::IntRange { range: 1..=5 },
-                            id: setting_id::CHROMA_NOISE_DETAIL
+                            id: setting_id::CHROMA_NOISE_DETAIL,
                         },
                     ],
                 },
@@ -316,10 +364,10 @@ impl Settings for EasyModeFullSettings {
             },
             SettingDescriptor {
                 label: "Chroma phase noise",
-                description: Some("Noise applied per-scanline to the phase of the chrominance signal."),
-                kind: SettingKind::Percentage {
-                    logarithmic: false,
-                },
+                description: Some(
+                    "Noise applied per-scanline to the phase of the chrominance signal.",
+                ),
+                kind: SettingKind::Percentage { logarithmic: false },
                 id: setting_id::CHROMA_PHASE_NOISE,
             },
             SettingDescriptor {
@@ -329,7 +377,10 @@ impl Settings for EasyModeFullSettings {
                     children: vec![
                         SettingDescriptor {
                             label: "Tape speed",
-                            description: Some("Emulate cutoff of high-frequency data at various VHS recording speeds."),
+                            description: Some(
+                                "Emulate cutoff of high-frequency data at various VHS recording \
+                                 speeds.",
+                            ),
                             kind: SettingKind::Enumeration {
                                 options: vec![
                                     MenuItem {
@@ -354,12 +405,17 @@ impl Settings for EasyModeFullSettings {
                                     },
                                 ],
                             },
-                            id: setting_id::VHS_TAPE_SPEED
+                            id: setting_id::VHS_TAPE_SPEED,
                         },
                         SettingDescriptor {
                             label: "Head switching",
-                            description: Some("Emulate VHS head-switching artifacts at the bottom of the image."),
-                            kind: SettingKind::FloatRange { range: 0.0..=24.0,  logarithmic: false },
+                            description: Some(
+                                "Emulate VHS head-switching artifacts at the bottom of the image.",
+                            ),
+                            kind: SettingKind::FloatRange {
+                                range: 0.0..=24.0,
+                                logarithmic: false,
+                            },
                             id: setting_id::VHS_HEAD_SWITCHING,
                         },
                         SettingDescriptor {
@@ -371,13 +427,13 @@ impl Settings for EasyModeFullSettings {
                                         label: "Height",
                                         description: None,
                                         kind: SettingKind::IntRange { range: 0..=120 },
-                                        id: setting_id::TRACKING_NOISE_HEIGHT
+                                        id: setting_id::TRACKING_NOISE_HEIGHT,
                                     },
                                     SettingDescriptor {
                                         label: "Intensity",
                                         description: None,
                                         kind: SettingKind::Percentage { logarithmic: false },
-                                        id: setting_id::TRACKING_NOISE_INTENSITY
+                                        id: setting_id::TRACKING_NOISE_INTENSITY,
                                     },
                                 ],
                             },
@@ -385,27 +441,36 @@ impl Settings for EasyModeFullSettings {
                         },
                         SettingDescriptor {
                             label: "Chroma loss",
-                            description: Some("Chance that the chrominance signal is completely lost in each scanline."),
+                            description: Some(
+                                "Chance that the chrominance signal is completely lost in each \
+                                 scanline.",
+                            ),
                             kind: SettingKind::Percentage { logarithmic: true },
-                            id: setting_id::VHS_CHROMA_LOSS
+                            id: setting_id::VHS_CHROMA_LOSS,
                         },
                         SettingDescriptor {
                             label: "Sharpen",
-                            description: Some("Sharpening of the image, as done by some VHS decks."),
+                            description: Some(
+                                "Sharpening of the image, as done by some VHS decks.",
+                            ),
                             kind: SettingKind::Percentage { logarithmic: false },
-                            id: setting_id::VHS_SHARPEN
+                            id: setting_id::VHS_SHARPEN,
                         },
                         SettingDescriptor {
                             label: "Edge wave",
                             description: Some("Horizontal waving of the image."),
-                            kind: SettingKind::FloatRange { range: 0.0..=20.0, logarithmic: false },
-                            id: setting_id::VHS_EDGE_WAVE
-                        }
+                            kind: SettingKind::FloatRange {
+                                range: 0.0..=20.0,
+                                logarithmic: false,
+                            },
+                            id: setting_id::VHS_EDGE_WAVE,
+                        },
                     ],
                 },
                 id: setting_id::VHS_SETTINGS,
             },
-        ].into_boxed_slice()
+        ]
+        .into_boxed_slice()
     }
 
     fn legacy_value() -> Self {

@@ -1,6 +1,6 @@
 //! Builds and bundles the standalone GUI as a macOS .app bundle.
 
-use crate::util::{copy_recursive, workspace_dir, PathBufExt, StatusExt};
+use crate::util::{PathBufExt, StatusExt, copy_recursive, workspace_dir};
 
 use std::error::Error;
 use std::ffi::{OsStr, OsString};

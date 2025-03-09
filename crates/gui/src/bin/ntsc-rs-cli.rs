@@ -5,19 +5,20 @@ use std::{
     ops::RangeInclusive,
     path::PathBuf,
     sync::{
-        mpsc::{RecvTimeoutError, Sender},
         Arc, Mutex,
+        mpsc::{RecvTimeoutError, Sender},
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
 use clap::{
+    Arg, ArgAction, ArgGroup, ValueEnum,
     builder::{EnumValueParser, PathBufValueParser, PossibleValue},
-    command, Arg, ArgAction, ArgGroup, ValueEnum,
+    command,
 };
 use color_eyre::eyre::{Report, Result, WrapErr};
-use console::{measure_text_width, style, truncate_str, StyledObject, Term};
+use console::{StyledObject, Term, measure_text_width, style, truncate_str};
 use gstreamer::ClockTime;
 use gui::{
     app::{
@@ -169,7 +170,11 @@ pub fn main() -> Result<()> {
                 .long("output")
                 .value_parser(PathBufValueParser::new())
                 .help("Name/path of the file(s) to render to.")
-                .long_help("Name/path of the file(s) to render to. If the codec is an image, sequential \"#\" characters in the output filename will be replaced with the frame number.")
+                .long_help(
+                    "Name/path of the file(s) to render to. If the codec is an image, sequential \
+                     \"#\" characters in the output filename will be replaced with the frame \
+                     number.",
+                )
                 .required(true),
         )
         .arg(
@@ -177,16 +182,22 @@ pub fn main() -> Result<()> {
                 .short('y')
                 .long("overwrite")
                 .action(ArgAction::SetTrue)
-                .help("If the output file already exists, overwrite it without first prompting the user.")
-                .conflicts_with("no-overwrite")
+                .help(
+                    "If the output file already exists, overwrite it without first prompting the \
+                     user.",
+                )
+                .conflicts_with("no-overwrite"),
         )
         .arg(
             Arg::new("no-overwrite")
                 .short('n')
                 .long("no-overwrite")
                 .action(ArgAction::SetTrue)
-                .help("If the output file already exists, exit immediately without first prompting the user.")
-                .conflicts_with("overwrite")
+                .help(
+                    "If the output file already exists, exit immediately without first prompting \
+                     the user.",
+                )
+                .conflicts_with("overwrite"),
         )
         .arg(
             Arg::new("settings-path")
@@ -205,10 +216,7 @@ pub fn main() -> Result<()> {
                 .conflicts_with("settings-path")
                 .value_parser(parse_standard_settings.clone()),
         )
-        .group(
-            ArgGroup::new("settings")
-                .args(["settings-path", "settings-json"]),
-        )
+        .group(ArgGroup::new("settings").args(["settings-path", "settings-json"]))
         .arg(
             Arg::new("fps")
                 .long("fps")
@@ -239,7 +247,10 @@ pub fn main() -> Result<()> {
         .arg(
             Arg::new("interlace")
                 .long("interlace")
-                .help("Interlace progressive (non-interlaced) input media. Has no effect on media that's already interlaced.")
+                .help(
+                    "Interlace progressive (non-interlaced) input media. Has no effect on media \
+                     that's already interlaced.",
+                )
                 .action(ArgAction::SetTrue),
         )
         .next_help_heading("Codec settings")
@@ -254,21 +265,35 @@ pub fn main() -> Result<()> {
         .arg(
             Arg::new("chroma-subsampling")
                 .long("chroma-subsampling")
-                .help("Encode the chrominance (color) information at a lower resolution than the luminance (brightness). Maximizes playback compatibility for H.264 videos when enabled. Also works with FFV1.")
+                .help(
+                    "Encode the chrominance (color) information at a lower resolution than the \
+                     luminance (brightness). Maximizes playback compatibility for H.264 videos \
+                     when enabled. Also works with FFV1.",
+                )
                 .action(ArgAction::SetTrue),
         )
         .arg(
             Arg::new("quality")
                 .long("quality")
-                .help("Video quality factor for H.264 encoding. Ranges from 0-50, where 50 is the best quality and 0 is the worst.")
-                .value_parser(clap::value_parser!(u8).range(as_i64_range(H264Settings::QUALITY_RANGE)))
+                .help(
+                    "Video quality factor for H.264 encoding. Ranges from 0-50, where 50 is the \
+                     best quality and 0 is the worst.",
+                )
+                .value_parser(
+                    clap::value_parser!(u8).range(as_i64_range(H264Settings::QUALITY_RANGE)),
+                )
                 .default_value(H264Settings::default().quality.to_string()),
         )
         .arg(
             Arg::new("encoding-speed")
                 .long("encoding-speed")
-                .help("Encoding speed for H.264 encoding. Ranges from 0-8, where 8 is fastest and 0 is smallest.")
-                .value_parser(clap::value_parser!(u8).range(as_i64_range(H264Settings::ENCODE_SPEED_RANGE)))
+                .help(
+                    "Encoding speed for H.264 encoding. Ranges from 0-8, where 8 is fastest and 0 \
+                     is smallest.",
+                )
+                .value_parser(
+                    clap::value_parser!(u8).range(as_i64_range(H264Settings::ENCODE_SPEED_RANGE)),
+                )
                 .default_value(H264Settings::default().encode_speed.to_string()),
         )
         .arg(
@@ -276,20 +301,34 @@ pub fn main() -> Result<()> {
                 .long("bit-depth")
                 .help("Bit depth for FFV1 encoding.")
                 .value_parser(EnumValueParser::<Ffv1BitDepthArg>::new())
-                .default_value(Ffv1BitDepthArg::to_possible_value(&Ffv1BitDepthArg::default()).unwrap().get_name().to_owned()),
+                .default_value(
+                    Ffv1BitDepthArg::to_possible_value(&Ffv1BitDepthArg::default())
+                        .unwrap()
+                        .get_name()
+                        .to_owned(),
+                ),
         )
         .arg(
             Arg::new("compression-level")
                 .long("compression-level")
-                .help("Compression level for PNG encoding. Ranges from 0-9, where 0 is fastest and 9 is smallest.")
-                .value_parser(clap::value_parser!(u8).range(as_i64_range(PngSequenceSettings::COMPRESSION_LEVEL_RANGE)))
+                .help(
+                    "Compression level for PNG encoding. Ranges from 0-9, where 0 is fastest and \
+                     9 is smallest.",
+                )
+                .value_parser(
+                    clap::value_parser!(u8)
+                        .range(as_i64_range(PngSequenceSettings::COMPRESSION_LEVEL_RANGE)),
+                )
                 .default_value(PngSequenceSettings::default().compression_level.to_string()),
         )
         .arg(
             Arg::new("single-frame-time")
-            .long("single-frame-time")
-            .help("If provided and the \"png\" codec is used, a single frame at this time will be rendered.")
-            .value_parser(clock_time_parser_clap)
+                .long("single-frame-time")
+                .help(
+                    "If provided and the \"png\" codec is used, a single frame at this time will \
+                     be rendered.",
+                )
+                .value_parser(clock_time_parser_clap),
         );
 
     let matches = command.get_matches();
@@ -380,7 +419,8 @@ pub fn main() -> Result<()> {
         if extension != codec.extension() {
             warn!(
                 term,
-                "Warning: the provided output file name's extension (.{}) does not match the file extension for the container being used (.{})",
+                "Warning: the provided output file name's extension (.{}) does not match the file \
+                 extension for the container being used (.{})",
                 extension.to_string_lossy(),
                 codec.extension(),
             )?;

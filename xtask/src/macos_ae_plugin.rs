@@ -3,8 +3,8 @@
 
 use clap::builder::PathBufValueParser;
 
-use crate::util::targets::{Target, MACOS_AARCH64, MACOS_X86_64, TARGETS};
-use crate::util::{workspace_dir, PathBufExt, StatusExt};
+use crate::util::targets::{MACOS_AARCH64, MACOS_X86_64, TARGETS, Target};
+use crate::util::{PathBufExt, StatusExt, workspace_dir};
 
 use std::error::Error;
 use std::ffi::OsString;
@@ -14,7 +14,10 @@ use std::process::Command;
 
 pub fn command() -> clap::Command {
     clap::Command::new("macos-ae-plugin")
-        .about("Builds and bundles the After Effects plugin for macOS, handling Apple-specific things like creating a universal binary and a bundle.")
+        .about(
+            "Builds and bundles the After Effects plugin for macOS, handling Apple-specific \
+             things like creating a universal binary and a bundle.",
+        )
         .arg(
             clap::Arg::new("release")
                 .long("release")
@@ -47,11 +50,7 @@ pub fn command() -> clap::Command {
                 .long("destdir")
                 .help("The directory that the After Effects plugin bundle will be output to")
                 .value_parser(PathBufValueParser::new())
-                .default_value(
-                    workspace_dir().plus("build")
-                        .as_os_str()
-                        .to_owned(),
-                ),
+                .default_value(workspace_dir().plus("build").as_os_str().to_owned()),
         )
 }
 

@@ -438,17 +438,25 @@ impl Settings for NtscEffectFullSettings {
             SettingDescriptor {
                 label: "Random seed",
                 description: None,
-                kind: SettingKind::IntRange { range: i32::MIN..=i32::MAX },
+                kind: SettingKind::IntRange {
+                    range: i32::MIN..=i32::MAX,
+                },
                 id: setting_id::RANDOM_SEED,
             },
             SettingDescriptor {
                 label: "Use field",
-                description: Some("Choose which rows (\"fields\" in NTSC parlance) of the source image will be used."),
+                description: Some(
+                    "Choose which rows (\"fields\" in NTSC parlance) of the source image will be \
+                     used.",
+                ),
                 kind: SettingKind::Enumeration {
                     options: vec![
                         MenuItem {
                             label: "Alternating",
-                            description: Some("Skip every other row, alternating between skipping even and odd rows."),
+                            description: Some(
+                                "Skip every other row, alternating between skipping even and odd \
+                                 rows.",
+                            ),
                             index: UseField::Alternating as u32,
                         },
                         MenuItem {
@@ -463,12 +471,18 @@ impl Settings for NtscEffectFullSettings {
                         },
                         MenuItem {
                             label: "Interleaved (upper first)",
-                            description: Some("Treat the video as interlaced, with the upper field as the earlier frame."),
+                            description: Some(
+                                "Treat the video as interlaced, with the upper field as the \
+                                 earlier frame.",
+                            ),
                             index: UseField::InterleavedUpper as u32,
                         },
                         MenuItem {
                             label: "Interleaved (lower first)",
-                            description: Some("Treat the video as interlaced, with the lower field as the earlier frame."),
+                            description: Some(
+                                "Treat the video as interlaced, with the lower field as the \
+                                 earlier frame.",
+                            ),
                             index: UseField::InterleavedLower as u32,
                         },
                         MenuItem {
@@ -487,12 +501,17 @@ impl Settings for NtscEffectFullSettings {
                     options: vec![
                         MenuItem {
                             label: "Constant K (blurry)",
-                            description: Some("Simple constant-k filter. Produces longer, blurry results."),
+                            description: Some(
+                                "Simple constant-k filter. Produces longer, blurry results.",
+                            ),
                             index: FilterType::ConstantK as u32,
                         },
                         MenuItem {
                             label: "Butterworth (sharper)",
-                            description: Some("Filter with a sharper falloff. Produces sharpened, less blurry results."),
+                            description: Some(
+                                "Filter with a sharper falloff. Produces sharpened, less blurry \
+                                 results.",
+                            ),
                             index: FilterType::Butterworth as u32,
                         },
                     ],
@@ -506,17 +525,24 @@ impl Settings for NtscEffectFullSettings {
                     options: vec![
                         MenuItem {
                             label: "Notch",
-                            description: Some("Apply a notch filter to the input luminance signal. Sharp, but has ringing artifacts."),
+                            description: Some(
+                                "Apply a notch filter to the input luminance signal. Sharp, but \
+                                 has ringing artifacts.",
+                            ),
                             index: LumaLowpass::Notch as u32,
                         },
                         MenuItem {
                             label: "Box",
-                            description: Some("Apply a simple box filter to the input luminance signal."),
+                            description: Some(
+                                "Apply a simple box filter to the input luminance signal.",
+                            ),
                             index: LumaLowpass::Box as u32,
                         },
                         MenuItem {
                             label: "None",
-                            description: Some("Do not filter the luminance signal. Adds rainbow artifacts."),
+                            description: Some(
+                                "Do not filter the luminance signal. Adds rainbow artifacts.",
+                            ),
                             index: LumaLowpass::None as u32,
                         },
                     ],
@@ -525,7 +551,9 @@ impl Settings for NtscEffectFullSettings {
             },
             SettingDescriptor {
                 label: "Chroma low-pass in",
-                description: Some("Apply a low-pass filter to the input chrominance (color) signal."),
+                description: Some(
+                    "Apply a low-pass filter to the input chrominance (color) signal.",
+                ),
                 kind: SettingKind::Enumeration {
                     options: vec![
                         MenuItem {
@@ -549,14 +577,16 @@ impl Settings for NtscEffectFullSettings {
             },
             SettingDescriptor {
                 label: "Composite signal sharpening",
-                description: Some("Boost high frequencies in the NTSC signal, sharpening the image and intensifying colors."),
+                description: Some(
+                    "Boost high frequencies in the NTSC signal, sharpening the image and \
+                     intensifying colors.",
+                ),
                 kind: SettingKind::FloatRange {
                     range: -1.0..=2.0,
                     logarithmic: false,
                 },
                 id: setting_id::COMPOSITE_SHARPENING,
             },
-
             SettingDescriptor {
                 label: "Composite signal noise",
                 description: Some("Noise applied to the composite NTSC signal."),
@@ -566,19 +596,22 @@ impl Settings for NtscEffectFullSettings {
                             label: "Intensity",
                             description: Some("Intensity of the noise."),
                             kind: SettingKind::Percentage { logarithmic: true },
-                            id: setting_id::COMPOSITE_NOISE_INTENSITY
+                            id: setting_id::COMPOSITE_NOISE_INTENSITY,
                         },
                         SettingDescriptor {
                             label: "Frequency",
                             description: Some("Base wavelength, in pixels, of the noise."),
-                            kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false },
-                            id: setting_id::COMPOSITE_NOISE_FREQUENCY
+                            kind: SettingKind::FloatRange {
+                                range: 0.0..=1.0,
+                                logarithmic: false,
+                            },
+                            id: setting_id::COMPOSITE_NOISE_FREQUENCY,
                         },
                         SettingDescriptor {
                             label: "Detail",
                             description: Some("Octaves of noise."),
                             kind: SettingKind::IntRange { range: 1..=5 },
-                            id: setting_id::COMPOSITE_NOISE_DETAIL
+                            id: setting_id::COMPOSITE_NOISE_DETAIL,
                         },
                     ],
                 },
@@ -587,18 +620,27 @@ impl Settings for NtscEffectFullSettings {
             SettingDescriptor {
                 label: "Snow",
                 description: Some("Frequency of random speckles in the image."),
-                kind: SettingKind::FloatRange { range: 0.0..=100.0, logarithmic: true },
+                kind: SettingKind::FloatRange {
+                    range: 0.0..=100.0,
+                    logarithmic: true,
+                },
                 id: setting_id::SNOW_INTENSITY,
             },
             SettingDescriptor {
                 label: "Snow anisotropy",
-                description: Some("Determines whether the speckles are placed truly randomly or concentrated in certain rows."),
+                description: Some(
+                    "Determines whether the speckles are placed truly randomly or concentrated in \
+                     certain rows.",
+                ),
                 kind: SettingKind::Percentage { logarithmic: false },
                 id: setting_id::SNOW_ANISOTROPY,
             },
             SettingDescriptor {
                 label: "Scanline phase shift",
-                description: Some("Phase shift of the chrominance (color) signal each scanline. Usually 180 degrees."),
+                description: Some(
+                    "Phase shift of the chrominance (color) signal each scanline. Usually 180 \
+                     degrees.",
+                ),
                 kind: SettingKind::Enumeration {
                     options: vec![
                         MenuItem {
@@ -633,29 +675,43 @@ impl Settings for NtscEffectFullSettings {
             },
             SettingDescriptor {
                 label: "Chroma demodulation filter",
-                description: Some("Filter used to modulate the chrominance (color) data out of the composite NTSC signal."),
+                description: Some(
+                    "Filter used to modulate the chrominance (color) data out of the composite \
+                     NTSC signal.",
+                ),
                 kind: SettingKind::Enumeration {
                     options: vec![
                         MenuItem {
                             label: "Box",
                             description: Some("Simple horizontal box blur."),
-                            index: ChromaDemodulationFilter::Box as u32
+                            index: ChromaDemodulationFilter::Box as u32,
                         },
                         MenuItem {
                             label: "Notch",
-                            description: Some("Notch filter. Sharper than a box blur, but with ringing artifacts."),
-                            index: ChromaDemodulationFilter::Notch as u32
+                            description: Some(
+                                "Notch filter. Sharper than a box blur, but with ringing \
+                                 artifacts.",
+                            ),
+                            index: ChromaDemodulationFilter::Notch as u32,
                         },
                         MenuItem {
                             label: "1-line comb",
-                            description: Some("Average the current row with the previous one, phase-cancelling the chrominance (color) signals. Only works if the scanline phase shift is 180 degrees."),
-                            index: ChromaDemodulationFilter::OneLineComb as u32
+                            description: Some(
+                                "Average the current row with the previous one, phase-cancelling \
+                                 the chrominance (color) signals. Only works if the scanline \
+                                 phase shift is 180 degrees.",
+                            ),
+                            index: ChromaDemodulationFilter::OneLineComb as u32,
                         },
                         MenuItem {
                             label: "2-line comb",
-                            description: Some("Average the current row with the previous and next ones, phase-cancelling the chrominance (color) signals. Only works if the scanline phase shift is 180 degrees."),
-                            index: ChromaDemodulationFilter::TwoLineComb as u32
-                        }
+                            description: Some(
+                                "Average the current row with the previous and next ones, \
+                                 phase-cancelling the chrominance (color) signals. Only works if \
+                                 the scanline phase shift is 180 degrees.",
+                            ),
+                            index: ChromaDemodulationFilter::TwoLineComb as u32,
+                        },
                     ],
                 },
                 id: setting_id::CHROMA_DEMODULATION,
@@ -663,51 +719,74 @@ impl Settings for NtscEffectFullSettings {
             SettingDescriptor {
                 label: "Luma smear",
                 description: None,
-                kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false },
-                id: setting_id::LUMA_SMEAR
+                kind: SettingKind::FloatRange {
+                    range: 0.0..=1.0,
+                    logarithmic: false,
+                },
+                id: setting_id::LUMA_SMEAR,
             },
             SettingDescriptor {
                 label: "Head switching",
-                description: Some("Emulate VHS head-switching artifacts at the bottom of the image."),
+                description: Some(
+                    "Emulate VHS head-switching artifacts at the bottom of the image.",
+                ),
                 kind: SettingKind::Group {
                     children: vec![
                         SettingDescriptor {
                             label: "Height",
                             description: Some("Total height of the head-switching artifact."),
                             kind: SettingKind::IntRange { range: 0..=24 },
-                            id: setting_id::HEAD_SWITCHING_HEIGHT
+                            id: setting_id::HEAD_SWITCHING_HEIGHT,
                         },
                         SettingDescriptor {
                             label: "Offset",
-                            description: Some("How much of the head-switching artifact is off-screen."),
+                            description: Some(
+                                "How much of the head-switching artifact is off-screen.",
+                            ),
                             kind: SettingKind::IntRange { range: 0..=24 },
-                            id: setting_id::HEAD_SWITCHING_OFFSET
+                            id: setting_id::HEAD_SWITCHING_OFFSET,
                         },
                         SettingDescriptor {
                             label: "Horizontal shift",
-                            description: Some("How much the head-switching artifact shifts rows horizontally."),
-                            kind: SettingKind::FloatRange { range: -100.0..=100.0, logarithmic: false },
-                            id: setting_id::HEAD_SWITCHING_HORIZONTAL_SHIFT
+                            description: Some(
+                                "How much the head-switching artifact shifts rows horizontally.",
+                            ),
+                            kind: SettingKind::FloatRange {
+                                range: -100.0..=100.0,
+                                logarithmic: false,
+                            },
+                            id: setting_id::HEAD_SWITCHING_HORIZONTAL_SHIFT,
                         },
                         SettingDescriptor {
                             label: "Start mid-line",
-                            description: Some("Start the head-switching artifact mid-scanline, with some static where it begins."),
-                            kind: SettingKind::Group { children: vec![
-                                SettingDescriptor {
-                                    label: "Position",
-                                    description: Some("Horizontal position at which the head-switching starts."),
-                                    kind: SettingKind::Percentage { logarithmic: false },
-                                    id: setting_id::HEAD_SWITCHING_MID_LINE_POSITION
-                                },
-                                SettingDescriptor {
-                                    label: "Jitter",
-                                    description: Some("How much the head-switching artifact \"jitters\" horizontally."),
-                                    kind: SettingKind::Percentage { logarithmic: true },
-                                    id: setting_id::HEAD_SWITCHING_MID_LINE_JITTER
-                                }
-                            ] },
-                            id: setting_id::HEAD_SWITCHING_START_MID_LINE
-                        }
+                            description: Some(
+                                "Start the head-switching artifact mid-scanline, with some static \
+                                 where it begins.",
+                            ),
+                            kind: SettingKind::Group {
+                                children: vec![
+                                    SettingDescriptor {
+                                        label: "Position",
+                                        description: Some(
+                                            "Horizontal position at which the head-switching \
+                                             starts.",
+                                        ),
+                                        kind: SettingKind::Percentage { logarithmic: false },
+                                        id: setting_id::HEAD_SWITCHING_MID_LINE_POSITION,
+                                    },
+                                    SettingDescriptor {
+                                        label: "Jitter",
+                                        description: Some(
+                                            "How much the head-switching artifact \"jitters\" \
+                                             horizontally.",
+                                        ),
+                                        kind: SettingKind::Percentage { logarithmic: true },
+                                        id: setting_id::HEAD_SWITCHING_MID_LINE_JITTER,
+                                    },
+                                ],
+                            },
+                            id: setting_id::HEAD_SWITCHING_START_MID_LINE,
+                        },
                     ],
                 },
                 id: setting_id::HEAD_SWITCHING,
@@ -721,31 +800,39 @@ impl Settings for NtscEffectFullSettings {
                             label: "Height",
                             description: Some("Total height of the tracking artifacts."),
                             kind: SettingKind::IntRange { range: 0..=120 },
-                            id: setting_id::TRACKING_NOISE_HEIGHT
+                            id: setting_id::TRACKING_NOISE_HEIGHT,
                         },
                         SettingDescriptor {
                             label: "Wave intensity",
-                            description: Some("How much the affected scanlines \"wave\" back and forth."),
-                            kind: SettingKind::FloatRange { range: -50.0..=50.0, logarithmic: false },
-                            id: setting_id::TRACKING_NOISE_WAVE_INTENSITY
+                            description: Some(
+                                "How much the affected scanlines \"wave\" back and forth.",
+                            ),
+                            kind: SettingKind::FloatRange {
+                                range: -50.0..=50.0,
+                                logarithmic: false,
+                            },
+                            id: setting_id::TRACKING_NOISE_WAVE_INTENSITY,
                         },
                         SettingDescriptor {
                             label: "Snow intensity",
                             description: Some("Frequency of speckle-type noise in the artifacts."),
-                            kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: true },
-                            id: setting_id::TRACKING_NOISE_SNOW_INTENSITY
+                            kind: SettingKind::FloatRange {
+                                range: 0.0..=1.0,
+                                logarithmic: true,
+                            },
+                            id: setting_id::TRACKING_NOISE_SNOW_INTENSITY,
                         },
                         SettingDescriptor {
                             label: "Snow anisotropy",
                             description: Some("How much the speckles are clustered by scanline."),
                             kind: SettingKind::Percentage { logarithmic: false },
-                            id: setting_id::TRACKING_NOISE_SNOW_ANISOTROPY
+                            id: setting_id::TRACKING_NOISE_SNOW_ANISOTROPY,
                         },
                         SettingDescriptor {
                             label: "Noise intensity",
                             description: Some("Intensity of non-speckle noise."),
                             kind: SettingKind::Percentage { logarithmic: true },
-                            id: setting_id::TRACKING_NOISE_NOISE_INTENSITY
+                            id: setting_id::TRACKING_NOISE_NOISE_INTENSITY,
                         },
                     ],
                 },
@@ -758,21 +845,31 @@ impl Settings for NtscEffectFullSettings {
                     children: vec![
                         SettingDescriptor {
                             label: "Frequency",
-                            description: Some("Frequency/period of the ringing, in \"rings per pixel\"."),
+                            description: Some(
+                                "Frequency/period of the ringing, in \"rings per pixel\".",
+                            ),
                             kind: SettingKind::Percentage { logarithmic: false },
-                            id: setting_id::RINGING_FREQUENCY
+                            id: setting_id::RINGING_FREQUENCY,
                         },
                         SettingDescriptor {
                             label: "Power",
-                            description: Some("The power of the notch filter / how far out the ringing extends."),
-                            kind: SettingKind::FloatRange { range: 1.0..=10.0, logarithmic: false },
-                            id: setting_id::RINGING_POWER
+                            description: Some(
+                                "The power of the notch filter / how far out the ringing extends.",
+                            ),
+                            kind: SettingKind::FloatRange {
+                                range: 1.0..=10.0,
+                                logarithmic: false,
+                            },
+                            id: setting_id::RINGING_POWER,
                         },
                         SettingDescriptor {
                             label: "Scale",
                             description: Some("Intensity of the ringing."),
-                            kind: SettingKind::FloatRange { range: 0.0..=10.0, logarithmic: false },
-                            id: setting_id::RINGING_SCALE
+                            kind: SettingKind::FloatRange {
+                                range: 0.0..=10.0,
+                                logarithmic: false,
+                            },
+                            id: setting_id::RINGING_SCALE,
                         },
                     ],
                 },
@@ -780,26 +877,32 @@ impl Settings for NtscEffectFullSettings {
             },
             SettingDescriptor {
                 label: "Luma noise",
-                description: Some("Noise applied to the luminance signal. Useful for higher-frequency noise than the \"Composite noise\" setting can provide."),
+                description: Some(
+                    "Noise applied to the luminance signal. Useful for higher-frequency noise \
+                     than the \"Composite noise\" setting can provide.",
+                ),
                 kind: SettingKind::Group {
                     children: vec![
                         SettingDescriptor {
                             label: "Intensity",
                             description: Some("Intensity of the noise."),
                             kind: SettingKind::Percentage { logarithmic: true },
-                            id: setting_id::LUMA_NOISE_INTENSITY
+                            id: setting_id::LUMA_NOISE_INTENSITY,
                         },
                         SettingDescriptor {
                             label: "Frequency",
                             description: Some("Base wavelength, in pixels, of the noise."),
-                            kind: SettingKind::FloatRange { range: 0.0..=1.0, logarithmic: false },
-                            id: setting_id::LUMA_NOISE_FREQUENCY
+                            kind: SettingKind::FloatRange {
+                                range: 0.0..=1.0,
+                                logarithmic: false,
+                            },
+                            id: setting_id::LUMA_NOISE_FREQUENCY,
                         },
                         SettingDescriptor {
                             label: "Detail",
                             description: Some("Octaves of noise."),
                             kind: SettingKind::IntRange { range: 1..=5 },
-                            id: setting_id::LUMA_NOISE_DETAIL
+                            id: setting_id::LUMA_NOISE_DETAIL,
                         },
                     ],
                 },
@@ -814,19 +917,22 @@ impl Settings for NtscEffectFullSettings {
                             label: "Intensity",
                             description: Some("Intensity of the noise."),
                             kind: SettingKind::Percentage { logarithmic: true },
-                            id: setting_id::CHROMA_NOISE_INTENSITY
+                            id: setting_id::CHROMA_NOISE_INTENSITY,
                         },
                         SettingDescriptor {
                             label: "Frequency",
                             description: Some("Base wavelength, in pixels, of the noise."),
-                            kind: SettingKind::FloatRange { range: 0.0..=0.5, logarithmic: false },
-                            id: setting_id::CHROMA_NOISE_FREQUENCY
+                            kind: SettingKind::FloatRange {
+                                range: 0.0..=0.5,
+                                logarithmic: false,
+                            },
+                            id: setting_id::CHROMA_NOISE_FREQUENCY,
                         },
                         SettingDescriptor {
                             label: "Detail",
                             description: Some("Octaves of noise."),
                             kind: SettingKind::IntRange { range: 1..=5 },
-                            id: setting_id::CHROMA_NOISE_DETAIL
+                            id: setting_id::CHROMA_NOISE_DETAIL,
                         },
                     ],
                 },
@@ -840,19 +946,27 @@ impl Settings for NtscEffectFullSettings {
             },
             SettingDescriptor {
                 label: "Chroma phase noise",
-                description: Some("Noise applied per-scanline to the phase of the chrominance (color) signal."),
+                description: Some(
+                    "Noise applied per-scanline to the phase of the chrominance (color) signal.",
+                ),
                 kind: SettingKind::Percentage { logarithmic: true },
                 id: setting_id::CHROMA_PHASE_NOISE_INTENSITY,
             },
             SettingDescriptor {
                 label: "Chroma delay (horizontal)",
                 description: Some("Horizontal offset of the chrominance (color) signal."),
-                kind: SettingKind::FloatRange { range: -40.0..=40.0, logarithmic: false },
+                kind: SettingKind::FloatRange {
+                    range: -40.0..=40.0,
+                    logarithmic: false,
+                },
                 id: setting_id::CHROMA_DELAY_HORIZONTAL,
             },
             SettingDescriptor {
                 label: "Chroma delay (vertical)",
-                description: Some("Vertical offset of the chrominance (color) signal. Usually increases with VHS generation loss."),
+                description: Some(
+                    "Vertical offset of the chrominance (color) signal. Usually increases with \
+                     VHS generation loss.",
+                ),
                 kind: SettingKind::IntRange { range: -20..=20 },
                 id: setting_id::CHROMA_DELAY_VERTICAL,
             },
@@ -863,7 +977,10 @@ impl Settings for NtscEffectFullSettings {
                     children: vec![
                         SettingDescriptor {
                             label: "Tape speed",
-                            description: Some("Emulate cutoff of high-frequency data at various VHS recording speeds."),
+                            description: Some(
+                                "Emulate cutoff of high-frequency data at various VHS recording \
+                                 speeds.",
+                            ),
                             kind: SettingKind::Enumeration {
                                 options: vec![
                                     MenuItem {
@@ -888,32 +1005,48 @@ impl Settings for NtscEffectFullSettings {
                                     },
                                 ],
                             },
-                            id: setting_id::VHS_TAPE_SPEED
+                            id: setting_id::VHS_TAPE_SPEED,
                         },
                         SettingDescriptor {
                             label: "Chroma loss",
-                            description: Some("Chance that the chrominance (color) signal is completely lost in each scanline."),
+                            description: Some(
+                                "Chance that the chrominance (color) signal is completely lost in \
+                                 each scanline.",
+                            ),
                             kind: SettingKind::Percentage { logarithmic: true },
-                            id: setting_id::VHS_CHROMA_LOSS
+                            id: setting_id::VHS_CHROMA_LOSS,
                         },
                         SettingDescriptor {
                             label: "Sharpen",
-                            description: Some("Sharpening of the image, as done by some VHS decks."),
-                            kind: SettingKind::Group { children: vec![
-                                SettingDescriptor {
-                                    label: "Intensity",
-                                    description: Some("Amount of sharpening to apply."),
-                                    kind: SettingKind::FloatRange { range: 0.0..=5.0, logarithmic: false },
-                                    id: setting_id::VHS_SHARPEN_INTENSITY
-                                },
-                                SettingDescriptor {
-                                    label: "Frequency",
-                                    description: Some("Frequency / radius of the sharpening, relative to the tape speed's cutoff frequency."),
-                                    kind: SettingKind::FloatRange { range: 0.5..=4.0, logarithmic: false },
-                                    id: setting_id::VHS_SHARPEN_FREQUENCY
-                                }
-                            ] },
-                            id: setting_id::VHS_SHARPEN_ENABLED
+                            description: Some(
+                                "Sharpening of the image, as done by some VHS decks.",
+                            ),
+                            kind: SettingKind::Group {
+                                children: vec![
+                                    SettingDescriptor {
+                                        label: "Intensity",
+                                        description: Some("Amount of sharpening to apply."),
+                                        kind: SettingKind::FloatRange {
+                                            range: 0.0..=5.0,
+                                            logarithmic: false,
+                                        },
+                                        id: setting_id::VHS_SHARPEN_INTENSITY,
+                                    },
+                                    SettingDescriptor {
+                                        label: "Frequency",
+                                        description: Some(
+                                            "Frequency / radius of the sharpening, relative to \
+                                             the tape speed's cutoff frequency.",
+                                        ),
+                                        kind: SettingKind::FloatRange {
+                                            range: 0.5..=4.0,
+                                            logarithmic: false,
+                                        },
+                                        id: setting_id::VHS_SHARPEN_FREQUENCY,
+                                    },
+                                ],
+                            },
+                            id: setting_id::VHS_SHARPEN_ENABLED,
                         },
                         SettingDescriptor {
                             label: "Edge wave",
@@ -922,41 +1055,58 @@ impl Settings for NtscEffectFullSettings {
                                 children: vec![
                                     SettingDescriptor {
                                         label: "Intensity",
-                                        description: Some("Horizontal waving of the image, in pixels."),
-                                        kind: SettingKind::FloatRange { range: 0.0..=20.0, logarithmic: false },
-                                        id: setting_id::VHS_EDGE_WAVE_INTENSITY
+                                        description: Some(
+                                            "Horizontal waving of the image, in pixels.",
+                                        ),
+                                        kind: SettingKind::FloatRange {
+                                            range: 0.0..=20.0,
+                                            logarithmic: false,
+                                        },
+                                        id: setting_id::VHS_EDGE_WAVE_INTENSITY,
                                     },
                                     SettingDescriptor {
                                         label: "Speed",
-                                        description: Some("Speed at which the horizontal waving occurs."),
-                                        kind: SettingKind::FloatRange { range: 0.0..=10.0, logarithmic: false },
-                                        id: setting_id::VHS_EDGE_WAVE_SPEED
+                                        description: Some(
+                                            "Speed at which the horizontal waving occurs.",
+                                        ),
+                                        kind: SettingKind::FloatRange {
+                                            range: 0.0..=10.0,
+                                            logarithmic: false,
+                                        },
+                                        id: setting_id::VHS_EDGE_WAVE_SPEED,
                                     },
                                     SettingDescriptor {
                                         label: "Frequency",
-                                        description: Some("Base wavelength for the horizontal waving."),
-                                        kind: SettingKind::FloatRange { range: 0.0..=0.5, logarithmic: false },
-                                        id: setting_id::VHS_EDGE_WAVE_FREQUENCY
+                                        description: Some(
+                                            "Base wavelength for the horizontal waving.",
+                                        ),
+                                        kind: SettingKind::FloatRange {
+                                            range: 0.0..=0.5,
+                                            logarithmic: false,
+                                        },
+                                        id: setting_id::VHS_EDGE_WAVE_FREQUENCY,
                                     },
                                     SettingDescriptor {
                                         label: "Detail",
                                         description: Some("Octaves of noise for the waves."),
                                         kind: SettingKind::IntRange { range: 1..=5 },
-                                        id: setting_id::VHS_EDGE_WAVE_DETAIL
+                                        id: setting_id::VHS_EDGE_WAVE_DETAIL,
                                     },
                                 ],
                             },
-                            id: setting_id::VHS_EDGE_WAVE_ENABLED
-                        }
+                            id: setting_id::VHS_EDGE_WAVE_ENABLED,
+                        },
                     ],
                 },
                 id: setting_id::VHS_SETTINGS,
             },
             SettingDescriptor {
                 label: "Vertically blend chroma",
-                description: Some("Vertically blend each scanline's chrominance with the scanline above it."),
+                description: Some(
+                    "Vertically blend each scanline's chrominance with the scanline above it.",
+                ),
                 kind: SettingKind::Boolean,
-                id: setting_id::CHROMA_VERT_BLEND
+                id: setting_id::CHROMA_VERT_BLEND,
             },
             SettingDescriptor {
                 label: "Chroma low-pass out",
@@ -989,27 +1139,44 @@ impl Settings for NtscEffectFullSettings {
                     children: vec![
                         SettingDescriptor {
                             label: "Horizontal scale",
-                            description: Some("Horizontally scale the effect by this amount. For 480p video, leave this at 1.0 for the most physically-accurate result."),
-                            kind: SettingKind::FloatRange { range: 0.125..=8.0, logarithmic: false },
+                            description: Some(
+                                "Horizontally scale the effect by this amount. For 480p video, \
+                                 leave this at 1.0 for the most physically-accurate result.",
+                            ),
+                            kind: SettingKind::FloatRange {
+                                range: 0.125..=8.0,
+                                logarithmic: false,
+                            },
                             id: setting_id::HORIZONTAL_SCALE,
                         },
                         SettingDescriptor {
                             label: "Vertical scale",
-                            description: Some("Vertically scale the effect by this amount. You should probably leave this at 1.0."),
-                            kind: SettingKind::FloatRange { range: 0.125..=8.8, logarithmic: false },
+                            description: Some(
+                                "Vertically scale the effect by this amount. You should probably \
+                                 leave this at 1.0.",
+                            ),
+                            kind: SettingKind::FloatRange {
+                                range: 0.125..=8.8,
+                                logarithmic: false,
+                            },
                             id: setting_id::VERTICAL_SCALE,
                         },
                         SettingDescriptor {
                             label: "Scale with video size",
-                            description: Some("Multiply the scaling factors by the video's height. Prefer scaling the input video to 480p instead, which gives much more accurate-looking results."),
+                            description: Some(
+                                "Multiply the scaling factors by the video's height. Prefer \
+                                 scaling the input video to 480p instead, which gives much more \
+                                 accurate-looking results.",
+                            ),
                             kind: SettingKind::Boolean,
                             id: setting_id::SCALE_WITH_VIDEO_SIZE,
-                        }
+                        },
                     ],
                 },
-                id: setting_id::SCALE_SETTINGS
+                id: setting_id::SCALE_SETTINGS,
             },
-        ].into_boxed_slice()
+        ]
+        .into_boxed_slice()
     }
 
     fn legacy_value() -> Self {

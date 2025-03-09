@@ -1,11 +1,10 @@
 use super::{gstreamer_error::GstreamerError, scale_from_caps};
 use gstreamer::{
-    element_error, element_warning,
+    ClockTime, Pipeline, element_error, element_warning,
     format::SpecificFormattedValueIntrinsic,
     glib::{self, BoolError},
     prelude::*,
     query::Duration,
-    ClockTime, Pipeline,
 };
 use gstreamer_pbutils::MissingPluginMessage;
 use gstreamer_video::{VideoCapsBuilder, VideoInterlaceMode};
@@ -15,8 +14,8 @@ use std::{
     error::Error,
     fmt::Display,
     sync::{
-        atomic::{AtomicBool, AtomicU32},
         Arc, Mutex,
+        atomic::{AtomicBool, AtomicU32},
     },
 };
 
@@ -104,9 +103,16 @@ impl VideoScaleFilter {
 
     pub fn label_and_tooltip(&self) -> (&'static str, &'static str) {
         match self {
-            Self::Nearest => ("Nearest", "Nearest-neighbor (pixelated) scaling. Note that this is still slower than Bilinear"),
+            Self::Nearest => (
+                "Nearest",
+                "Nearest-neighbor (pixelated) scaling. Note that this is still slower than \
+                 Bilinear",
+            ),
             Self::Bilinear => ("Bilinear", "Lower-quality but faster scaling filter"),
-            Self::Bicubic => ("Bicubic", "Sharper scaling filter; ~20% slower than Bilinear"),
+            Self::Bicubic => (
+                "Bicubic",
+                "Sharper scaling filter; ~20% slower than Bilinear",
+            ),
         }
     }
 

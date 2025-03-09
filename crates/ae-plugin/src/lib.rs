@@ -16,12 +16,12 @@ use handle::SliceHandle;
 use ntscrs::{
     ntsc::{NtscEffect, NtscEffectFullSettings},
     settings::{
-        standard::UseField, Downcast, EnumValue, SettingDescriptor, SettingID, SettingKind,
-        Settings, SettingsList,
+        Downcast, EnumValue, SettingDescriptor, SettingID, SettingKind, Settings, SettingsList,
+        standard::UseField,
     },
     yiq_fielding::{
-        self, AfterEffectsU16, Bgrx16, Bgrx32f, Bgrx8, BlitInfo, DeinterlaceMode, Xrgb16AE,
-        Xrgb32f, Xrgb8, YiqField, YiqView,
+        self, AfterEffectsU16, Bgrx8, Bgrx16, Bgrx32f, BlitInfo, DeinterlaceMode, Xrgb8, Xrgb16AE,
+        Xrgb32f, YiqField, YiqView,
     },
 };
 use raw_window_handle::Win32WindowHandle;

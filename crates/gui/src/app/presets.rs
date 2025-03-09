@@ -16,12 +16,12 @@ use ntscrs::ntsc::NtscEffectFullSettings;
 use snafu::prelude::*;
 
 use super::{
+    AppFn, NtscApp,
     error::{
         ApplicationError, CreatePresetSnafu, CreatePresetsDirectorySnafu, DeletePresetSnafu,
         FsSnafu, InstallPresetSnafu, JSONParseSnafu, JSONReadSnafu, RenamePresetSnafu,
     },
     layout_helper::LayoutHelper,
-    AppFn, NtscApp,
 };
 
 #[derive(Debug)]

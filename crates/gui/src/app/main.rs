@@ -12,10 +12,10 @@ use std::{
 
 use blocking::unblock;
 use eframe::egui::{
-    self, util::undoer::Undoer, vec2, Color32, ColorImage, Response, TextureOptions,
+    self, Color32, ColorImage, Response, TextureOptions, util::undoer::Undoer, vec2,
 };
 use futures_lite::Future;
-use gstreamer::{glib::subclass::types::ObjectSubclassExt, prelude::*, ClockTime, Fraction};
+use gstreamer::{ClockTime, Fraction, glib::subclass::types::ObjectSubclassExt, prelude::*};
 use gstreamer_video::VideoInterlaceMode;
 
 use crate::{
@@ -37,15 +37,16 @@ use crate::{
 };
 
 use ntscrs::settings::{
-    easy::{self, EasyModeFullSettings},
-    standard::{setting_id, NtscEffectFullSettings},
     EnumValue as SettingsEnumValue, SettingDescriptor, SettingKind, Settings, SettingsList,
+    easy::{self, EasyModeFullSettings},
+    standard::{NtscEffectFullSettings, setting_id},
 };
 use snafu::ResultExt;
 
 use log::debug;
 
 use super::{
+    AppFn, NtscApp,
     app_state::{
         AudioVolume, EffectPreviewMode, EffectPreviewSettings, GstreamerInitState, LeftPanelState,
         VideoScaleState, VideoZoom,
@@ -66,7 +67,6 @@ use super::{
         StillImageSettings,
     },
     system_fonts::system_fallback_fonts,
-    AppFn, NtscApp,
 };
 
 const EXPERIMENTAL_EASY_MODE: bool = false;
@@ -1048,7 +1048,13 @@ impl NtscApp {
                     Self::setup_control_rows(ui);
 
                     ui.horizontal(|ui| {
-                        let scale_checkbox = ui.checkbox(&mut self.video_scale.enabled, "Scale to").on_hover_text("Scale the video prior to applying the effect. Real NTSC footage is 480 lines tall. This applies to both the preview and the final render, and is not saved as part of presets.");
+                        let scale_checkbox = ui
+                            .checkbox(&mut self.video_scale.enabled, "Scale to")
+                            .on_hover_text(
+                                "Scale the video prior to applying the effect. Real NTSC footage \
+                                 is 480 lines tall. This applies to both the preview and the \
+                                 final render, and is not saved as part of presets.",
+                            );
                         ui.add_enabled_ui(self.video_scale.enabled, |ui| {
                             let drag_resp = ui.add(
                                 egui::DragValue::new(&mut self.video_scale.scale.scanlines)
@@ -1156,11 +1162,13 @@ impl NtscApp {
                 .selected_text(self.render_settings.output_codec.label())
                 .show_ui(ui, |ui| {
                     let mut item = |item: OutputCodec| {
-                        codec_changed |= ui.selectable_value(
-                            &mut self.render_settings.output_codec,
-                            item,
-                            item.label(),
-                        ).changed();
+                        codec_changed |= ui
+                            .selectable_value(
+                                &mut self.render_settings.output_codec,
+                                item,
+                                item.label(),
+                            )
+                            .changed();
                     };
                     item(OutputCodec::H264);
                     item(OutputCodec::Ffv1);
@@ -1168,22 +1176,35 @@ impl NtscApp {
                 });
 
             if codec_changed {
-                self.render_settings.output_path.set_extension(self.render_settings.output_codec.extension());
+                self.render_settings
+                    .output_path
+                    .set_extension(self.render_settings.output_codec.extension());
             }
 
             match self.render_settings.output_codec {
                 OutputCodec::H264 => {
                     ui.add(
-                        egui::Slider::new(&mut self.render_settings.h264_settings.quality, H264Settings::QUALITY_RANGE)
-                            .text("Quality"),
-                    ).on_hover_text("Video quality factor, where 0 is the worst quality and 50 is the best. Higher quality videos take up more space.");
+                        egui::Slider::new(
+                            &mut self.render_settings.h264_settings.quality,
+                            H264Settings::QUALITY_RANGE,
+                        )
+                        .text("Quality"),
+                    )
+                    .on_hover_text(
+                        "Video quality factor, where 0 is the worst quality and 50 is the best. \
+                         Higher quality videos take up more space.",
+                    );
                     ui.add(
                         egui::Slider::new(
                             &mut self.render_settings.h264_settings.encode_speed,
                             H264Settings::ENCODE_SPEED_RANGE,
                         )
                         .text("Encoding speed"),
-                    ).on_hover_text("Encoding speed preset. Higher encoding speeds provide a worse compression ratio, resulting in larger videos at a given quality.");
+                    )
+                    .on_hover_text(
+                        "Encoding speed preset. Higher encoding speeds provide a worse \
+                         compression ratio, resulting in larger videos at a given quality.",
+                    );
                     // Disabled for now until I can find a way to query for 10-bit support
                     /*ui.checkbox(
                         &mut self.render_settings.h264_settings.ten_bit,
@@ -1192,7 +1213,11 @@ impl NtscApp {
                     ui.checkbox(
                         &mut self.render_settings.h264_settings.chroma_subsampling,
                         "4:2:0 chroma subsampling",
-                    ).on_hover_text("Subsample the chrominance planes to half the resolution of the luminance plane. Increases playback compatibility.");
+                    )
+                    .on_hover_text(
+                        "Subsample the chrominance planes to half the resolution of the luminance \
+                         plane. Increases playback compatibility.",
+                    );
                 }
 
                 OutputCodec::Ffv1 => {
@@ -1219,7 +1244,11 @@ impl NtscApp {
                     ui.checkbox(
                         &mut self.render_settings.ffv1_settings.chroma_subsampling,
                         "4:2:0 chroma subsampling",
-                    ).on_hover_text("Subsample the chrominance planes to half the resolution of the luminance plane. Results in smaller files.");
+                    )
+                    .on_hover_text(
+                        "Subsample the chrominance planes to half the resolution of the luminance \
+                         plane. Results in smaller files.",
+                    );
                 }
 
                 OutputCodec::PngSequence => {
@@ -1229,7 +1258,11 @@ impl NtscApp {
                             PngSequenceSettings::COMPRESSION_LEVEL_RANGE,
                         )
                         .text("Compression level"),
-                    ).on_hover_text("Compression level for PNG encoding. Higher compression levels produce smaller files but take longer to render.");
+                    )
+                    .on_hover_text(
+                        "Compression level for PNG encoding. Higher compression levels produce \
+                         smaller files but take longer to render.",
+                    );
                 }
             }
 
@@ -1241,7 +1274,10 @@ impl NtscApp {
                 ui.ltr(|ui| {
                     ui.label("Destination file:");
                     let mut path = self.render_settings.output_path.to_string_lossy();
-                    if ui.add_sized(ui.available_size(), egui::TextEdit::singleline(&mut path)).changed() {
+                    if ui
+                        .add_sized(ui.available_size(), egui::TextEdit::singleline(&mut path))
+                        .changed()
+                    {
                         self.render_settings.output_path = PathBuf::from(OsStr::new(path.as_ref()));
                     }
                 });
@@ -1254,7 +1290,10 @@ impl NtscApp {
                         // By default, name the output file [source filename]_ntsc.[ext] (for video files) or [source
                         // filename]_####.[ext] (for image sequences) and put it in the same directory as the source
                         // file.
-                        if let Some(PipelineInfo { path: source_path, .. }) = &self.pipeline {
+                        if let Some(PipelineInfo {
+                            path: source_path, ..
+                        }) = &self.pipeline
+                        {
                             if let Some(parent) = source_path.parent() {
                                 file_dialog = file_dialog.set_directory(parent);
                             }
@@ -1313,8 +1352,7 @@ impl NtscApp {
                             egui::DragValue::new(&mut duration)
                                 .custom_formatter(|value, _| {
                                     clock_time_format(
-                                        (value * ClockTime::MSECOND.nseconds() as f64)
-                                            as u64,
+                                        (value * ClockTime::MSECOND.nseconds() as f64) as u64,
                                     )
                                 })
                                 .custom_parser(clock_time_parser)
@@ -1322,24 +1360,23 @@ impl NtscApp {
                         )
                         .changed()
                     {
-                        self.render_settings.duration =
-                            ClockTime::from_mseconds(duration);
+                        self.render_settings.duration = ClockTime::from_mseconds(duration);
                     }
                 });
             }
 
-            ui
-                .add_enabled(
-                    self.effect_settings.use_field.interlaced_output_allowed() && self.render_settings.interlaced_output_allowed(),
-                    egui::Checkbox::new(&mut self.render_settings.interlaced, "Interlaced output")
-                )
-                .on_disabled_hover_text(
-                    if !self.render_settings.interlaced_output_allowed() {
-                        "Image sequences do not support interlaced output."
-                    } else {
-                        "To enable interlaced output, set the \"Use field\" setting to \"Interleaved\"."
-                    }
-                );
+            ui.add_enabled(
+                self.effect_settings.use_field.interlaced_output_allowed()
+                    && self.render_settings.interlaced_output_allowed(),
+                egui::Checkbox::new(&mut self.render_settings.interlaced, "Interlaced output"),
+            )
+            .on_disabled_hover_text(
+                if !self.render_settings.interlaced_output_allowed() {
+                    "Image sequences do not support interlaced output."
+                } else {
+                    "To enable interlaced output, set the \"Use field\" setting to \"Interleaved\"."
+                },
+            );
 
             if ui
                 .add_enabled(
@@ -1351,7 +1388,11 @@ impl NtscApp {
                 let effect_settings = self.effect_settings.clone();
                 let render_settings = self.render_settings.clone();
                 let output_codec = render_settings.output_codec;
-                let output_dir_path = render_settings.output_path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+                let output_dir_path = render_settings
+                    .output_path
+                    .parent()
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_default();
                 let ctx = ui.ctx().clone();
                 let src_path = src_path.cloned();
                 self.spawn(async move {
@@ -1359,9 +1400,9 @@ impl NtscApp {
                         match unblock(move || output_dir_path.read_dir()).await {
                             Ok(mut read_dir) => unblock(move || read_dir.next()).await.is_none(),
                             Err(e) => {
-                                return Some(Box::new(move |_: &mut NtscApp| {
-                                    Err(e).context(FsSnafu)
-                                }) as _)
+                                return Some(
+                                    Box::new(move |_: &mut NtscApp| Err(e).context(FsSnafu)) as _,
+                                );
                             }
                         }
                     } else {
@@ -1369,22 +1410,28 @@ impl NtscApp {
                     };
 
                     Some(Box::new(move |app: &mut NtscApp| {
-                        let render_job = move |app: &mut NtscApp| app.create_render_job(
-                            &ctx,
-                            &src_path.unwrap(),
-                            RenderPipelineSettings::from_gui_settings(&effect_settings, &render_settings),
-                        ).context(CreateRenderJobSnafu);
+                        let render_job = move |app: &mut NtscApp| {
+                            app.create_render_job(
+                                &ctx,
+                                &src_path.unwrap(),
+                                RenderPipelineSettings::from_gui_settings(
+                                    &effect_settings,
+                                    &render_settings,
+                                ),
+                            )
+                            .context(CreateRenderJobSnafu)
+                        };
                         if is_empty {
                             let render_job = render_job(app)?;
                             app.render_jobs.push(render_job);
                             Ok(())
                         } else {
-                            app.image_sequence_dialog_queued_render_job = Some(Box::new(render_job) as _);
+                            app.image_sequence_dialog_queued_render_job =
+                                Some(Box::new(render_job) as _);
                             Ok(())
                         }
                     }) as _)
                 });
-
             }
 
             ui.separator();
@@ -1394,7 +1441,8 @@ impl NtscApp {
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     self.render_jobs.retain_mut(|job| {
-                        let RenderJobResponse {closed, error, ..} = RenderJobWidget::new(job).show(ui);
+                        let RenderJobResponse { closed, error, .. } =
+                            RenderJobWidget::new(job).show(ui);
                         if let Some(error) = error {
                             render_job_error = Some(error);
                         }
@@ -2044,25 +2092,32 @@ impl NtscApp {
                 ui.set_max_width(ctx.input(|i| i.screen_rect().width() - 24.0).min(400.0));
                 ui.set_min_width(200.0);
                 ui.heading("Output directory is not empty");
-                ui.label("You're rendering an image sequence into a directory that isn't empty. This will output many individual image files into that directory.");
+                ui.label(
+                    "You're rendering an image sequence into a directory that isn't empty. This \
+                     will output many individual image files into that directory.",
+                );
                 ui.separator();
 
-                egui::Sides::new().show(ui, |_| {}, |ui| {
-                    if ui.button("OK").clicked() {
-                        let job = self.image_sequence_dialog_queued_render_job.take().unwrap()(self);
-                        match job {
-                            Ok(job) => {
-                                self.render_jobs.push(job);
+                egui::Sides::new().show(
+                    ui,
+                    |_| {},
+                    |ui| {
+                        if ui.button("OK").clicked() {
+                            let job =
+                                self.image_sequence_dialog_queued_render_job.take().unwrap()(self);
+                            match job {
+                                Ok(job) => {
+                                    self.render_jobs.push(job);
+                                }
+                                Err(e) => {
+                                    self.handle_error(&e);
+                                }
                             }
-                            Err(e) => {
-                                self.handle_error(&e);
-                            }
+                        } else if ui.button("Cancel").clicked() {
+                            self.image_sequence_dialog_queued_render_job = None;
                         }
-                    } else if ui.button("Cancel").clicked() {
-                        self.image_sequence_dialog_queued_render_job = None;
-                    }
-                });
-
+                    },
+                );
             });
 
             if modal.should_close() {

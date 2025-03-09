@@ -2,11 +2,11 @@ use core::slice;
 use std::{
     borrow::{Borrow, BorrowMut},
     marker::PhantomData,
-    mem::{transmute, MaybeUninit},
+    mem::{MaybeUninit, transmute},
     ptr::NonNull,
 };
 
-use after_effects::{suites, Error};
+use after_effects::{Error, suites};
 
 #[cfg(not(target_os = "macos"))]
 type HandleInner = *mut std::os::raw::c_void;

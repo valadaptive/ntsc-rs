@@ -1,7 +1,7 @@
 use eframe::egui::{ColorImage, Context, Rect, TextureFilter, TextureOptions};
 use eframe::epaint::{Color32, TextureHandle};
-use gstreamer::{glib, PadTemplate};
-use gstreamer::{prelude::*, Fraction};
+use gstreamer::{Fraction, prelude::*};
+use gstreamer::{PadTemplate, glib};
 use gstreamer_video::subclass::prelude::*;
 use gstreamer_video::video_frame::Readable;
 use gstreamer_video::{VideoFrame, VideoFrameExt};

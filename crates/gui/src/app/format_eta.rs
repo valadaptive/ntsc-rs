@@ -21,8 +21,11 @@ pub fn format_eta(
         write!(dest, "{value}{unit_label}{separator}").unwrap();
     };
 
-    let [[hours_singular, hours_plural], [minutes_singular, minutes_plural], [seconds_singular, seconds_plural]] =
-        units;
+    let [
+        [hours_singular, hours_plural],
+        [minutes_singular, minutes_plural],
+        [seconds_singular, seconds_plural],
+    ] = units;
     if hrs > 0 {
         write_unit(hrs, hours_singular, hours_plural, separator);
     }

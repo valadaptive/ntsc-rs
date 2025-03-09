@@ -61,7 +61,7 @@ pub mod x86_64 {
     use std::arch::x86_64::{
         __m128, _mm_add_ps, _mm_broadcast_ss, _mm_castps_si128, _mm_castsi128_ps, _mm_div_ps,
         _mm_fmadd_ps, _mm_fmsub_ps, _mm_fnmadd_ps, _mm_fnmsub_ps, _mm_insert_epi32, _mm_loadu_ps,
-        _mm_mul_ps, _mm_permutevar_ps, _mm_set1_ps, _mm_set_epi32, _mm_set_epi8, _mm_shuffle_epi8,
+        _mm_mul_ps, _mm_permutevar_ps, _mm_set_epi8, _mm_set_epi32, _mm_set1_ps, _mm_shuffle_epi8,
         _mm_store_ss, _mm_storeu_ps, _mm_sub_ps,
     };
     use std::{

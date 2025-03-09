@@ -1,6 +1,6 @@
 use std::thread::JoinHandle;
 
-use eframe::egui::{pos2, Rect};
+use eframe::egui::{Rect, pos2};
 use serde::{Deserialize, Serialize};
 use snafu::ResultExt;
 

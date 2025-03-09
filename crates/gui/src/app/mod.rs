@@ -4,7 +4,7 @@ use app_state::GstreamerInitState;
 use eframe::egui::util::undoer::Undoer;
 use ntscrs::{
     ntsc::NtscEffectFullSettings,
-    settings::{easy::EasyModeFullSettings, SettingsList},
+    settings::{SettingsList, easy::EasyModeFullSettings},
 };
 use presets::PresetsState;
 
