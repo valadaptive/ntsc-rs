@@ -653,8 +653,8 @@ fn head_switching(
     shift: f32,
     mid_line: Option<&HeadSwitchingMidLineSettings>,
 ) {
-    let num_rows = (num_rows as f32 * info.vertical_scale as f32).round() as usize;
-    let offset = (offset as f32 * info.vertical_scale as f32).round() as usize;
+    let num_rows = (num_rows as f32 * info.vertical_scale).round() as usize;
+    let offset = (offset as f32 * info.vertical_scale).round() as usize;
     if offset > num_rows {
         return;
     }
