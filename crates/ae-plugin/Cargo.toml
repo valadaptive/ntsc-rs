@@ -17,7 +17,7 @@ pipl = {git = "https://github.com/virtualritz/after-effects", rev = "c70729a"}
 
 [dependencies]
 raw-window-handle = "0.6.2"
-rfd = "0.15.0"
+rfd = "0.15.3"
 
 [lints]
 workspace = true
