@@ -501,17 +501,20 @@ impl<'a> YiqView<'a> {
                     let src_offset = src_row_idx * row_length;
                     for idx in 0..blit_info.rect.width() {
                         let src_pixel_idx = idx + blit_info.rect.left;
-                        let yiq_pixel = rgb_to_yiq(pixel_transform([
-                            buf[((src_pixel_idx * num_components) + src_offset) + r_idx]
-                                .assume_init()
-                                .to_norm(),
-                            buf[((src_pixel_idx * num_components) + src_offset) + g_idx]
-                                .assume_init()
-                                .to_norm(),
-                            buf[((src_pixel_idx * num_components) + src_offset) + b_idx]
-                                .assume_init()
-                                .to_norm(),
-                        ]));
+                        let rgb = unsafe {
+                            [
+                                buf[((src_pixel_idx * num_components) + src_offset) + r_idx]
+                                    .assume_init()
+                                    .to_norm(),
+                                buf[((src_pixel_idx * num_components) + src_offset) + g_idx]
+                                    .assume_init()
+                                    .to_norm(),
+                                buf[((src_pixel_idx * num_components) + src_offset) + b_idx]
+                                    .assume_init()
+                                    .to_norm(),
+                            ]
+                        };
+                        let yiq_pixel = rgb_to_yiq(pixel_transform(rgb));
                         let dst_pixel_idx = idx + blit_info.destination.0;
                         y[dst_pixel_idx] = yiq_pixel[0];
                         i[dst_pixel_idx] = yiq_pixel[1];
@@ -523,7 +526,7 @@ impl<'a> YiqView<'a> {
         match self.field {
             YiqField::Upper | YiqField::Lower | YiqField::Both => {
                 let Self { y, i, q, .. } = self;
-                with_thread_pool(|| {
+                with_thread_pool(|| unsafe {
                     blit_single_field::<S, F>(
                         y,
                         i,
@@ -541,20 +544,24 @@ impl<'a> YiqView<'a> {
                 let (mut upper, mut lower) = self.split_at_row(num_upper_rows);
                 if let Some(upper) = upper.as_mut() {
                     upper.field = YiqField::Upper;
-                    upper.set_from_strided_buffer_maybe_uninit::<S, F>(
-                        buf,
-                        blit_info,
-                        pixel_transform,
-                    );
+                    unsafe {
+                        upper.set_from_strided_buffer_maybe_uninit::<S, F>(
+                            buf,
+                            blit_info,
+                            pixel_transform,
+                        )
+                    };
                 };
 
                 if let Some(lower) = lower.as_mut() {
                     lower.field = YiqField::Lower;
-                    lower.set_from_strided_buffer_maybe_uninit::<S, F>(
-                        buf,
-                        blit_info,
-                        pixel_transform,
-                    );
+                    unsafe {
+                        lower.set_from_strided_buffer_maybe_uninit::<S, F>(
+                            buf,
+                            blit_info,
+                            pixel_transform,
+                        )
+                    };
                 };
             }
             YiqField::InterleavedLower => {
@@ -562,20 +569,24 @@ impl<'a> YiqView<'a> {
                 let (mut lower, mut upper) = self.split_at_row(num_lower_rows);
                 if let Some(upper) = upper.as_mut() {
                     upper.field = YiqField::Upper;
-                    upper.set_from_strided_buffer_maybe_uninit::<S, F>(
-                        buf,
-                        blit_info,
-                        pixel_transform,
-                    );
+                    unsafe {
+                        upper.set_from_strided_buffer_maybe_uninit::<S, F>(
+                            buf,
+                            blit_info,
+                            pixel_transform,
+                        )
+                    };
                 };
 
                 if let Some(lower) = lower.as_mut() {
                     lower.field = YiqField::Lower;
-                    lower.set_from_strided_buffer_maybe_uninit::<S, F>(
-                        buf,
-                        blit_info,
-                        pixel_transform,
-                    );
+                    unsafe {
+                        lower.set_from_strided_buffer_maybe_uninit::<S, F>(
+                            buf,
+                            blit_info,
+                            pixel_transform,
+                        )
+                    };
                 };
             }
         }

@@ -234,7 +234,7 @@ impl TransferFunction {
             assert_eq!(signal[i].len(), width);
         }
 
-        let mut z = initial.map(|initial| S::load(&self.initial_condition(initial)));
+        let mut z = initial.map(|initial| unsafe { S::load(&self.initial_condition(initial)) });
 
         let mut num: [f32; 4] = [0f32; 4];
         num.copy_from_slice(&self.num);
@@ -242,9 +242,9 @@ impl TransferFunction {
         let mut den: [f32; 4] = [0f32; 4];
         den.copy_from_slice(&self.den);
 
-        let num = S::load(&num);
-        let den = S::load(&den);
-        let scale_b = S::set1(scale);
+        let num = unsafe { S::load(&num) };
+        let den = unsafe { S::load(&den) };
+        let scale_b = unsafe { S::set1(scale) };
         let width = signal[0].len();
         let is_unit_scale = scale == 1.0;
 
@@ -253,7 +253,7 @@ impl TransferFunction {
                 let mut zmm = z[j];
                 // While the compiler cannot elide this bounds check in the scalar version either, here it is probably
                 // also because it doesn't know that each row of the signal has the same length.
-                let sample = S::load1(signal[j].get_unchecked(i.min(width - 1)));
+                let sample = unsafe { S::load1(signal[j].get_unchecked(i.min(width - 1))) };
                 let filt_sample = num.mul_add(sample, zmm).swizzle(0, 0, 0, 0);
 
                 // Add the sample * the numerator, subtract the filtered sample * the denominator
@@ -277,7 +277,7 @@ impl TransferFunction {
                         let samp_diff = filt_sample - sample;
                         samp_diff.mul_add(scale_b, sample)
                     };
-                    final_samp.store1(signal[j].get_unchecked_mut(i - delay));
+                    final_samp.store1(unsafe { signal[j].get_unchecked_mut(i - delay) });
                 }
             }
         }

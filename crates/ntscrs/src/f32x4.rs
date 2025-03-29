@@ -34,7 +34,7 @@ pub trait F32x4:
     /// You must ensure that whatever flavor of SIMD vector you're creating is supported by the current CPU.
     #[inline(always)]
     unsafe fn load4(src: &[f32; 4]) -> Self {
-        Self::load(src.as_slice())
+        unsafe { Self::load(src.as_slice()) }
     }
 
     /// Safety:
