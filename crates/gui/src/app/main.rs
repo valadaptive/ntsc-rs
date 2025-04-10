@@ -53,8 +53,8 @@ use super::{
     },
     dnd_overlay::{CtxDndExt, UiDndExt},
     error::{
-        ApplicationError, CreateRenderJobSnafu, FsSnafu, JSONParseSnafu, JSONReadSnafu,
-        JSONSaveSnafu, LoadVideoSnafu,
+        ApplicationError, CreatePresetFileSnafu, CreatePresetJSONSnafu, CreateRenderJobSnafu,
+        FsSnafu, JSONParseSnafu, JSONReadSnafu, LoadVideoSnafu,
     },
     executor::AppExecutor,
     layout_helper::{LayoutHelper, TopBottomPanelExt},
@@ -858,7 +858,8 @@ impl NtscApp {
             .show_inside(ui, |ui| {
                 ui.horizontal_centered(|ui| {
                     if ui.button("Save to...").clicked() {
-                        let json = self.settings_list.to_json(&self.effect_settings);
+                        let settings_list = self.settings_list.clone();
+                        let effect_settings = self.effect_settings.clone();
                         let handle = rfd::AsyncFileDialog::new()
                             .set_parent(frame)
                             .add_filter("ntsc-rs preset", &["json"])
@@ -872,9 +873,11 @@ impl NtscApp {
                             };
 
                             Some(Box::new(move |_: &mut NtscApp| {
-                                let mut file =
-                                    File::create(handle.path()).context(JSONSaveSnafu)?;
-                                json.write_to(&mut file).context(JSONSaveSnafu)?;
+                                let file =
+                                    File::create(handle.path()).context(CreatePresetFileSnafu)?;
+                                settings_list
+                                    .write_json_to_io(&effect_settings, file)
+                                    .context(CreatePresetJSONSnafu)?;
                                 Ok(())
                             }) as _)
                         });
@@ -916,12 +919,15 @@ impl NtscApp {
                     }
 
                     if ui.button("📋 Copy").clicked() {
-                        ui.ctx().send_cmd(egui::OutputCommand::CopyText(
-                            self.settings_list
-                                .to_json(&self.effect_settings)
-                                .stringify()
-                                .unwrap(),
-                        ));
+                        let json_string = self.settings_list.to_json_string(&self.effect_settings);
+                        match json_string {
+                            Ok(json) => {
+                                ui.ctx().send_cmd(egui::OutputCommand::CopyText(json));
+                            }
+                            Err(e) => {
+                                self.handle_error(&e);
+                            }
+                        }
                     }
 
                     let btn = ui.button("📄 Paste");
@@ -2414,18 +2420,13 @@ impl eframe::App for NtscApp {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        if let Ok(settings_json) = self
-            .settings_list
-            .to_json(&self.effect_settings)
-            .stringify()
-        {
+        if let Ok(settings_json) = self.settings_list.to_json_string(&self.effect_settings) {
             storage.set_string("effect_settings", settings_json);
         }
 
         if let Ok(settings_json) = self
             .settings_list_easy
-            .to_json(&self.easy_mode_settings)
-            .stringify()
+            .to_json_string(&self.easy_mode_settings)
         {
             storage.set_string("easy_mode_settings", settings_json);
         }

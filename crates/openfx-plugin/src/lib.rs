@@ -998,10 +998,10 @@ unsafe fn action_instance_changed(
                 &mut settings,
             )?;
 
-            let json = data.settings_list.to_json(&settings);
             let mut dst_file =
                 fs::File::create(preset_path).map_err(|_| OfxStat::kOfxStatFailed)?;
-            json.write_to(&mut dst_file)
+            data.settings_list
+                .write_json_to_io(&settings, &mut dst_file)
                 .map_err(|_| OfxStat::kOfxStatFailed)?;
 
             return Ok(());

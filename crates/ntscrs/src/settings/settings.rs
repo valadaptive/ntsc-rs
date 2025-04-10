@@ -6,7 +6,9 @@
 use std::{collections::HashMap, error::Error, fmt::Display, ops::RangeInclusive};
 
 use num_traits::{FromPrimitive, ToPrimitive};
-pub use tinyjson;
+pub use sval;
+pub use sval_json;
+use sval_json::{stream_to_fmt_write, stream_to_io_write};
 use tinyjson::{InnerAsRef, JsonParseError, JsonValue};
 
 // These are the individual setting definitions. The descriptions of what they do are included below, so I mostly won't
@@ -413,6 +415,60 @@ pub struct SettingsList<T: Settings> {
     pub setting_descriptors: Box<[SettingDescriptor<T>]>,
 }
 
+struct SettingsAndList<'a, 'b, T: Settings> {
+    settings: &'a T,
+    list: &'b SettingsList<T>,
+}
+
+impl<T: Settings> sval::Value for SettingsAndList<'_, '_, T> {
+    fn stream<'sval, S: sval::Stream<'sval> + ?Sized>(&'sval self, stream: &mut S) -> sval::Result {
+        stream.map_begin(None)?;
+
+        for descriptor in self.list.all_descriptors() {
+            stream.map_key_begin()?;
+            stream.text_begin(Some(descriptor.id.name.len()))?;
+            stream.text_fragment(descriptor.id.name)?;
+            stream.text_end()?;
+            stream.map_key_end()?;
+
+            stream.map_value_begin()?;
+            match &descriptor.kind {
+                SettingKind::Enumeration { .. } => {
+                    stream.u32(
+                        self.settings
+                            .get_field::<EnumValue>(&descriptor.id)
+                            .unwrap()
+                            .0,
+                    )?;
+                }
+                SettingKind::Percentage { .. } | SettingKind::FloatRange { .. } => {
+                    stream.f32(self.settings.get_field::<f32>(&descriptor.id).unwrap())?;
+                }
+                SettingKind::IntRange { .. } => {
+                    stream.i32(self.settings.get_field::<i32>(&descriptor.id).unwrap())?;
+                }
+                SettingKind::Boolean | SettingKind::Group { .. } => {
+                    stream.bool(self.settings.get_field::<bool>(&descriptor.id).unwrap())?;
+                }
+            }
+            stream.map_value_end()?;
+        }
+
+        stream.map_key_begin()?;
+        stream.text_begin(Some("version".len()))?;
+        stream.text_fragment("version")?;
+        stream.text_end()?;
+        stream.map_key_end()?;
+        stream.map_value_begin()?;
+        stream.u32(1)?;
+        stream.map_value_end()?;
+
+        stream.map_end()?;
+
+        Ok(())
+    }
+}
+
 impl<T: Settings> SettingsList<T> {
     /// Construct a list of all the effect settings. This isn't meant to be mutated--you should just create one instance
     /// of this to use for your entire application/plugin.
@@ -422,45 +478,36 @@ impl<T: Settings> SettingsList<T> {
         }
     }
 
-    /// Recursive method for writing the settings within a given list of descriptors (either top-level or within a
-    /// group) to a given JSON map.
-    fn settings_to_json(
-        dst: &mut HashMap<String, JsonValue>,
-        descriptors: &[SettingDescriptor<T>],
-        settings: &T,
-    ) {
-        for descriptor in descriptors {
-            let value = match &descriptor.kind {
-                SettingKind::Enumeration { .. } => JsonValue::Number(
-                    settings.get_field::<EnumValue>(&descriptor.id).unwrap().0 as f64,
-                ),
-                SettingKind::Percentage { .. } | SettingKind::FloatRange { .. } => {
-                    JsonValue::Number(settings.get_field::<f32>(&descriptor.id).unwrap() as f64)
-                }
-                SettingKind::IntRange { .. } => {
-                    JsonValue::Number(settings.get_field::<i32>(&descriptor.id).unwrap() as f64)
-                }
-                SettingKind::Boolean { .. } => {
-                    JsonValue::Boolean(settings.get_field::<bool>(&descriptor.id).unwrap())
-                }
-                SettingKind::Group { children, .. } => {
-                    Self::settings_to_json(dst, children, settings);
-                    JsonValue::Boolean(settings.get_field::<bool>(&descriptor.id).unwrap())
-                }
-            };
-
-            dst.insert(descriptor.id.name.to_string(), value);
+    /// Convert the settings in the given settings struct to JSON.
+    pub fn to_json<'a>(&'a self, settings: &'a T) -> impl sval::Value + 'a {
+        SettingsAndList {
+            settings,
+            list: self,
         }
     }
 
-    /// Convert the settings in the given settings struct to JSON.
-    pub fn to_json(&self, settings: &T) -> JsonValue {
-        let mut dst_map = HashMap::<String, JsonValue>::new();
-        Self::settings_to_json(&mut dst_map, &self.setting_descriptors, settings);
+    pub fn write_json_to_fmt(
+        &self,
+        settings: &T,
+        dest: impl std::fmt::Write,
+    ) -> Result<(), sval_json::Error> {
+        let json = self.to_json(settings);
+        stream_to_fmt_write(dest, json)
+    }
 
-        dst_map.insert("version".to_string(), JsonValue::Number(1.0));
+    pub fn write_json_to_io(
+        &self,
+        settings: &T,
+        dest: impl std::io::Write,
+    ) -> Result<(), sval_json::Error> {
+        let json = self.to_json(settings);
+        stream_to_io_write(dest, json)
+    }
 
-        JsonValue::Object(dst_map)
+    pub fn to_json_string(&self, settings: &T) -> Result<String, sval_json::Error> {
+        let mut s = String::new();
+        self.write_json_to_fmt(settings, &mut s)?;
+        Ok(s)
     }
 
     /// Recursive method for reading the settings within a given list of descriptors (either top-level or within a

@@ -1,4 +1,4 @@
-use ntscrs::settings::ParseSettingsError;
+use ntscrs::settings::{ParseSettingsError, sval_json};
 use snafu::Snafu;
 
 use crate::gst_utils::{gstreamer_error::GstreamerError, ntsc_pipeline::PipelineError};
@@ -30,14 +30,14 @@ pub enum ApplicationError {
         source: Box<ParseSettingsError>,
     },
 
-    #[snafu(display("Error saving JSON: {source}"))]
-    JSONSave { source: std::io::Error },
-
     #[snafu(display("Error creating presets directory: {source}"))]
     CreatePresetsDirectory { source: std::io::Error },
 
     #[snafu(display("Error creating preset: {source}"))]
-    CreatePreset { source: std::io::Error },
+    CreatePresetFile { source: std::io::Error },
+
+    #[snafu(display("Error creating preset: {source}"))]
+    CreatePresetJSON { source: sval_json::Error },
 
     #[snafu(display("Error deleting preset: {source}"))]
     DeletePreset {

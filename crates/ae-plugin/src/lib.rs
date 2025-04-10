@@ -901,10 +901,11 @@ impl Plugin {
                 };
 
                 let effect_settings = self.apply_settings(params)?;
-                let json = self.settings.to_json(&effect_settings);
-                let res: Result<(), std::io::Error> = (|| {
-                    let mut destination = File::create(preset_path)?;
-                    json.write_to(&mut destination)?;
+                let res: Result<(), Box<dyn std::error::Error>> = (|| {
+                    let mut destination = File::create(preset_path).map_err(Box::new)?;
+                    self.settings
+                        .write_json_to_io(&effect_settings, &mut destination)
+                        .map_err(Box::new)?;
 
                     Ok(())
                 })();

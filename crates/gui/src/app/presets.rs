@@ -18,8 +18,9 @@ use snafu::prelude::*;
 use super::{
     AppFn, NtscApp,
     error::{
-        ApplicationError, CreatePresetSnafu, CreatePresetsDirectorySnafu, DeletePresetSnafu,
-        FsSnafu, InstallPresetSnafu, JSONParseSnafu, JSONReadSnafu, RenamePresetSnafu,
+        ApplicationError, CreatePresetFileSnafu, CreatePresetJSONSnafu,
+        CreatePresetsDirectorySnafu, DeletePresetSnafu, FsSnafu, InstallPresetSnafu,
+        JSONParseSnafu, JSONReadSnafu, RenamePresetSnafu,
     },
     layout_helper::LayoutHelper,
 };
@@ -323,19 +324,20 @@ impl NtscApp {
                             let preset_name = std::mem::take(&mut *self.presets_state.new_preset_name.borrow_mut()).unwrap();
                             let mut preset_path = Self::presets_dir().unwrap();
                             preset_path.push(preset_name);
-                            let preset_json = self.settings_list.to_json(&self.effect_settings);
+                            let settings_list = self.settings_list.clone();
+                            let effect_settings = self.effect_settings.clone();
                             let new_selected_preset = SelectedPreset { path: preset_path.clone(), settings: self.effect_settings.clone() };
                             self.do_fs_operation_then_refresh(async move {
-                                if preset_path.try_exists().context(CreatePresetSnafu)? {
-                                    return Err(ApplicationError::CreatePreset {
+                                if preset_path.try_exists().context(CreatePresetFileSnafu)? {
+                                    return Err(ApplicationError::CreatePresetFile {
                                         source: std::io::Error::new(
                                             std::io::ErrorKind::AlreadyExists,
                                             "A preset with that name already exists"
                                         )
                                     });
                                 }
-                                let mut destination = fs::File::create(preset_path).context(CreatePresetSnafu)?;
-                                preset_json.write_to(&mut destination).context(CreatePresetSnafu)?;
+                                let mut destination = fs::File::create(preset_path).context(CreatePresetFileSnafu)?;
+                                settings_list.write_json_to_io(&effect_settings, &mut destination).context(CreatePresetJSONSnafu)?;
                                 Ok(Some(Box::new(|app: &mut NtscApp| {
                                     app.presets_state.selected_preset = Some(new_selected_preset);
                                     Ok(())
@@ -346,12 +348,13 @@ impl NtscApp {
                         }
 
                         if let (true, Some(selected_preset)) = (overwrite_selected_preset, self.presets_state.selected_preset.as_ref()) {
-                            let preset_json = self.settings_list.to_json(&self.effect_settings);
                             let preset_path = selected_preset.path.clone();
+                            let settings_list = self.settings_list.clone();
+                            let effect_settings = self.effect_settings.clone();
                             let new_selected_preset = SelectedPreset {path: preset_path.clone(), settings: self.effect_settings.clone() };
                             self.do_fs_operation_then_refresh(async move {
-                                let mut destination = unblock(|| fs::File::create(preset_path)).await.context(CreatePresetSnafu)?;
-                                preset_json.write_to(&mut destination).context(CreatePresetSnafu)?;
+                                let mut destination = unblock(|| fs::File::create(preset_path)).await.context(CreatePresetFileSnafu)?;
+                                settings_list.write_json_to_io(&effect_settings, &mut destination).context(CreatePresetJSONSnafu)?;
                                 Ok(Some(Box::new(|app: &mut NtscApp| {
                                     app.presets_state.selected_preset = Some(new_selected_preset);
                                     Ok(())
