@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/usr/bin/env sh
+set -e
 
 if [ -d "/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore/ntsc-rs.plugin" ]; then
     echo "Signing After Effects plugin with ad-hoc signature..."
