@@ -202,7 +202,7 @@ jobs:
       run: |
         pkgbuild --install-location /Applications --component build/ntsc-rs-standalone/ntsc-rs.app --min-os-version $MACOSX_DEPLOYMENT_TARGET --compression latest build/ntsc-rs-macos-standalone.pkg
         pkgbuild --install-location /Library/OFX/Plugins --component build/ntsc-rs-openfx/NtscRs.ofx.bundle --min-os-version $MACOSX_DEPLOYMENT_TARGET --compression latest build/ntsc-rs-macos-openfx.pkg
-        pkgbuild --install-location "/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore" --component build/ntsc-rs-afterfx/ntsc-rs.plugin --min-os-version $MACOSX_DEPLOYMENT_TARGET --compression latest build/ntsc-rs-macos-afterfx.pkg
+        pkgbuild --install-location "/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore" --component build/ntsc-rs-afterfx/ntsc-rs.plugin --min-os-version $MACOSX_DEPLOYMENT_TARGET --scripts assets/install_scripts --compression latest build/ntsc-rs-macos-afterfx.pkg
 
     - name: Archive .pkg installers
       uses: actions/upload-artifact@v4
