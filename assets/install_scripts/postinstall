@@ -1,0 +1,15 @@
+#!/usr/bin/env sh
+set -e
+
+PLUGIN_BUNDLE="$DSTROOT/ntsc-rs.plugin"
+
+if [ -d "$PLUGIN_BUNDLE" ]; then
+    echo "Signing After Effects plugin with ad-hoc signature..."
+    /usr/bin/codesign --force --deep --sign - "$PLUGIN_BUNDLE"
+    echo "After Effects plugin signed successfully."
+else
+    echo "After Effects plugin not found at expected location. Skipping signing."
+    exit 1
+fi
+
+exit 0
