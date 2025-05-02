@@ -193,11 +193,22 @@ pub fn main(args: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
 
     let plugin_bundle_path = output_dir.plus_iter(["NtscRs.ofx.bundle", "Contents"]);
     let plugin_bin_path = plugin_bundle_path.plus_iter([ofx_architecture, "NtscRs.ofx"]);
+    let plugin_resources_path = plugin_bundle_path.plus_iter(["Resources"]);
 
     fs::create_dir_all(plugin_bin_path.parent().unwrap())?;
+    fs::create_dir_all(&plugin_resources_path)?;
     fs::copy(built_library_path, plugin_bin_path)?;
     if ofx_architecture == "MacOS" {
         get_info_plist().to_file_xml(plugin_bundle_path.plus("Info.plist"))?;
+        fs::copy(
+            workspace_dir().plus_iter(["assets", "macos_icon_less_detail.png"]),
+            plugin_resources_path.plus("wtf.vala.NtscRs.png"),
+        )?;
+    } else {
+        fs::copy(
+            workspace_dir().plus_iter(["assets", "icon.png"]),
+            plugin_resources_path.plus("wtf.vala.NtscRs.png"),
+        )?;
     }
 
     Ok(())
