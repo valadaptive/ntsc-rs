@@ -181,12 +181,13 @@ unsafe fn action_load() -> OfxResult<()> {
         .propGetInt
         .ok_or(OfxStat::kOfxStatFailed)?;
     let mut supports_multiple_clip_depths: c_int = 0;
-    ofx_err(propGetInt(
+    propGetInt(
         data.host_info.host as *const _ as _,
         kOfxImageEffectPropSupportsMultipleClipDepths.as_ptr(),
         0,
         &mut supports_multiple_clip_depths,
-    ))?;
+    )
+    .ofx_ok()?;
     data.supports_multiple_clip_depths
         .store(supports_multiple_clip_depths != 0, Ordering::Release);
 
@@ -196,12 +197,11 @@ unsafe fn action_load() -> OfxResult<()> {
 unsafe fn action_describe(descriptor: OfxImageEffectHandle) -> OfxResult<()> {
     let data = shared_data.get().ok_or(OfxStat::kOfxStatFailed)?;
     let mut effectProps: OfxPropertySetHandle = ptr::null_mut();
-    ofx_err((data
+    (data
         .image_effect_suite
         .getPropertySet
-        .ok_or(OfxStat::kOfxStatFailed)?)(
-        descriptor, &mut effectProps
-    ))?;
+        .ok_or(OfxStat::kOfxStatFailed)?)(descriptor, &mut effectProps)
+    .ofx_ok()?;
 
     let propSetString = data
         .property_suite
@@ -212,83 +212,74 @@ unsafe fn action_describe(descriptor: OfxImageEffectHandle) -> OfxResult<()> {
         .propSetInt
         .ok_or(OfxStat::kOfxStatFailed)?;
 
-    ofx_err(propSetString(
-        effectProps,
-        kOfxPropLabel.as_ptr(),
-        0,
-        c"NTSC-rs".as_ptr(),
-    ))?;
+    propSetString(effectProps, kOfxPropLabel.as_ptr(), 0, c"NTSC-rs".as_ptr()).ofx_ok()?;
 
-    ofx_err(propSetString(
+    propSetString(
         effectProps,
         kOfxImageEffectPluginPropGrouping.as_ptr(),
         0,
         c"Filter".as_ptr(),
-    ))?;
+    )
+    .ofx_ok()?;
 
-    ofx_err(propSetString(
+    propSetString(
         effectProps,
         kOfxImageEffectPropSupportedContexts.as_ptr(),
         0,
         kOfxImageEffectContextFilter.as_ptr(),
-    ))?;
+    )
+    .ofx_ok()?;
     // TODO needed for resolve support(?)
-    ofx_err(propSetString(
+    propSetString(
         effectProps,
         kOfxImageEffectPropSupportedContexts.as_ptr(),
         1,
         kOfxImageEffectContextGeneral.as_ptr(),
-    ))?;
+    )
+    .ofx_ok()?;
 
-    ofx_err(propSetString(
+    propSetString(
         effectProps,
         kOfxImageEffectPropSupportedPixelDepths.as_ptr(),
         0,
         kOfxBitDepthFloat.as_ptr(),
-    ))?;
-    ofx_err(propSetString(
+    )
+    .ofx_ok()?;
+    propSetString(
         effectProps,
         kOfxImageEffectPropSupportedPixelDepths.as_ptr(),
         1,
         kOfxBitDepthShort.as_ptr(),
-    ))?;
-    ofx_err(propSetString(
+    )
+    .ofx_ok()?;
+    propSetString(
         effectProps,
         kOfxImageEffectPropSupportedPixelDepths.as_ptr(),
         2,
         kOfxBitDepthByte.as_ptr(),
-    ))?;
+    )
+    .ofx_ok()?;
 
     // TODO: is this wrong?
-    ofx_err(propSetString(
+    propSetString(
         effectProps,
         kOfxImageEffectPluginRenderThreadSafety.as_ptr(),
         0,
         kOfxImageEffectRenderFullySafe.as_ptr(),
-    ))?;
+    )
+    .ofx_ok()?;
     // We'll manage threading ourselves
-    ofx_err(propSetInt(
+    propSetInt(
         effectProps,
         kOfxImageEffectPluginPropHostFrameThreading.as_ptr(),
         0,
         0,
-    ))?;
+    )
+    .ofx_ok()?;
     // We need to operate on the whole image at once
-    ofx_err(propSetInt(
-        effectProps,
-        kOfxImageEffectPropSupportsTiles.as_ptr(),
-        0,
-        0,
-    ))?;
+    propSetInt(effectProps, kOfxImageEffectPropSupportsTiles.as_ptr(), 0, 0).ofx_ok()?;
 
     Ok(())
-}
-
-fn ofx_err(code: OfxStatus) -> OfxResult<()> {
-    match code.0 {
-        0 => Ok(()),
-        _ => Err(code),
-    }
 }
 
 unsafe fn map_params(
@@ -321,12 +312,13 @@ unsafe fn map_params(
 
         match &descriptor.kind {
             SettingKind::Enumeration { options } => {
-                ofx_err(paramDefine(
+                paramDefine(
                     param_set,
                     kOfxParamTypeChoice.as_ptr(),
                     descriptor_id_cstr.as_ptr(),
                     &mut paramProps,
-                ))?;
+                )
+                .ofx_ok()?;
                 let default_value = default_settings
                     .get_field::<EnumValue>(&descriptor.id)
                     .map_err(|_| OfxStat::kOfxStatFailed)?
@@ -338,159 +330,150 @@ unsafe fn map_params(
                         .get(&(descriptor.id.clone(), menu_item.index))
                         .unwrap();
                     let item_label_cstr: &'static CStr = item_strings.0.as_c_str();
-                    ofx_err(propSetString(
+                    propSetString(
                         paramProps,
                         kOfxParamPropChoiceOption.as_ptr(),
                         i as i32,
                         item_label_cstr.as_ptr(),
-                    ))?;
+                    )
+                    .ofx_ok()?;
 
                     if menu_item.index == default_value {
                         default_idx = i;
                     }
                 }
-                ofx_err(propSetInt(
+                propSetInt(
                     paramProps,
                     kOfxParamPropDefault.as_ptr(),
                     0,
                     default_idx as i32,
-                ))?;
+                )
+                .ofx_ok()?;
             }
             SettingKind::Percentage { .. } => {
                 let default_value = default_settings
                     .get_field::<f32>(&descriptor.id)
                     .map_err(|_| OfxStat::kOfxStatFailed)?;
-                ofx_err(paramDefine(
+                paramDefine(
                     param_set,
                     kOfxParamTypeDouble.as_ptr(),
                     descriptor_id_cstr.as_ptr(),
                     &mut paramProps,
-                ))?;
-                ofx_err(propSetString(
+                )
+                .ofx_ok()?;
+                propSetString(
                     paramProps,
                     kOfxParamPropDoubleType.as_ptr(),
                     0,
                     kOfxParamDoubleTypeScale.as_ptr(),
-                ))?;
-                ofx_err(propSetDouble(
+                )
+                .ofx_ok()?;
+                propSetDouble(
                     paramProps,
                     kOfxParamPropDefault.as_ptr(),
                     0,
                     default_value as f64,
-                ))?;
-                ofx_err(propSetDouble(paramProps, kOfxParamPropMin.as_ptr(), 0, 0.0))?;
-                ofx_err(propSetDouble(
-                    paramProps,
-                    kOfxParamPropDisplayMin.as_ptr(),
-                    0,
-                    0.0,
-                ))?;
-                ofx_err(propSetDouble(paramProps, kOfxParamPropMax.as_ptr(), 0, 1.0))?;
-                ofx_err(propSetDouble(
-                    paramProps,
-                    kOfxParamPropDisplayMax.as_ptr(),
-                    0,
-                    1.0,
-                ))?;
+                )
+                .ofx_ok()?;
+                propSetDouble(paramProps, kOfxParamPropMin.as_ptr(), 0, 0.0).ofx_ok()?;
+                propSetDouble(paramProps, kOfxParamPropDisplayMin.as_ptr(), 0, 0.0).ofx_ok()?;
+                propSetDouble(paramProps, kOfxParamPropMax.as_ptr(), 0, 1.0).ofx_ok()?;
+                propSetDouble(paramProps, kOfxParamPropDisplayMax.as_ptr(), 0, 1.0).ofx_ok()?;
             }
             SettingKind::IntRange { range } => {
                 let default_value = default_settings
                     .get_field::<i32>(&descriptor.id)
                     .map_err(|_| OfxStat::kOfxStatFailed)?;
-                ofx_err(paramDefine(
+                paramDefine(
                     param_set,
                     kOfxParamTypeInteger.as_ptr(),
                     descriptor_id_cstr.as_ptr(),
                     &mut paramProps,
-                ))?;
-                ofx_err(propSetInt(
-                    paramProps,
-                    kOfxParamPropDefault.as_ptr(),
-                    0,
-                    default_value,
-                ))?;
-                ofx_err(propSetInt(
-                    paramProps,
-                    kOfxParamPropMin.as_ptr(),
-                    0,
-                    *range.start(),
-                ))?;
-                ofx_err(propSetInt(
+                )
+                .ofx_ok()?;
+                propSetInt(paramProps, kOfxParamPropDefault.as_ptr(), 0, default_value).ofx_ok()?;
+                propSetInt(paramProps, kOfxParamPropMin.as_ptr(), 0, *range.start()).ofx_ok()?;
+                propSetInt(
                     paramProps,
                     kOfxParamPropDisplayMin.as_ptr(),
                     0,
                     *range.start(),
-                ))?;
-                ofx_err(propSetInt(
-                    paramProps,
-                    kOfxParamPropMax.as_ptr(),
-                    0,
-                    *range.end(),
-                ))?;
-                ofx_err(propSetInt(
+                )
+                .ofx_ok()?;
+                propSetInt(paramProps, kOfxParamPropMax.as_ptr(), 0, *range.end()).ofx_ok()?;
+                propSetInt(
                     paramProps,
                     kOfxParamPropDisplayMax.as_ptr(),
                     0,
                     *range.end(),
-                ))?;
+                )
+                .ofx_ok()?;
             }
             SettingKind::FloatRange { range, .. } => {
                 let default_value = default_settings
                     .get_field::<f32>(&descriptor.id)
                     .map_err(|_| OfxStat::kOfxStatFailed)?;
-                ofx_err(paramDefine(
+                paramDefine(
                     param_set,
                     kOfxParamTypeDouble.as_ptr(),
                     descriptor_id_cstr.as_ptr(),
                     &mut paramProps,
-                ))?;
-                ofx_err(propSetDouble(
+                )
+                .ofx_ok()?;
+                propSetDouble(
                     paramProps,
                     kOfxParamPropDefault.as_ptr(),
                     0,
                     default_value as f64,
-                ))?;
-                ofx_err(propSetDouble(
+                )
+                .ofx_ok()?;
+                propSetDouble(
                     paramProps,
                     kOfxParamPropMin.as_ptr(),
                     0,
                     *range.start() as f64,
-                ))?;
-                ofx_err(propSetDouble(
+                )
+                .ofx_ok()?;
+                propSetDouble(
                     paramProps,
                     kOfxParamPropDisplayMin.as_ptr(),
                     0,
                     *range.start() as f64,
-                ))?;
-                ofx_err(propSetDouble(
+                )
+                .ofx_ok()?;
+                propSetDouble(
                     paramProps,
                     kOfxParamPropMax.as_ptr(),
                     0,
                     *range.end() as f64,
-                ))?;
-                ofx_err(propSetDouble(
+                )
+                .ofx_ok()?;
+                propSetDouble(
                     paramProps,
                     kOfxParamPropDisplayMax.as_ptr(),
                     0,
                     *range.end() as f64,
-                ))?;
+                )
+                .ofx_ok()?;
             }
             SettingKind::Boolean => {
                 let default_value = default_settings
                     .get_field::<bool>(&descriptor.id)
                     .map_err(|_| OfxStat::kOfxStatFailed)?;
-                ofx_err(paramDefine(
+                paramDefine(
                     param_set,
                     kOfxParamTypeBoolean.as_ptr(),
                     descriptor_id_cstr.as_ptr(),
                     &mut paramProps,
-                ))?;
-                ofx_err(propSetInt(
+                )
+                .ofx_ok()?;
+                propSetInt(
                     paramProps,
                     kOfxParamPropDefault.as_ptr(),
                     0,
                     default_value as i32,
-                ))?;
+                )
+                .ofx_ok()?;
             }
             SettingKind::Group { children } => {
                 let default_value = default_settings
@@ -501,45 +484,45 @@ unsafe fn map_params(
                     .as_ref()
                     .expect("Group name is None")
                     .as_c_str();
-                ofx_err(paramDefine(
+                paramDefine(
                     param_set,
                     kOfxParamTypeGroup.as_ptr(),
                     group_name_cstr.as_ptr(),
                     &mut paramProps,
-                ))?;
+                )
+                .ofx_ok()?;
 
                 let mut checkboxProps: OfxPropertySetHandle = ptr::null_mut();
-                ofx_err(paramDefine(
+                paramDefine(
                     param_set,
                     kOfxParamTypeBoolean.as_ptr(),
                     descriptor_id_cstr.as_ptr(),
                     &mut checkboxProps,
-                ))?;
-                ofx_err(propSetString(
+                )
+                .ofx_ok()?;
+                propSetString(
                     checkboxProps,
                     kOfxPropLabel.as_ptr(),
                     0,
                     c"Enabled".as_ptr(),
-                ))?;
-                ofx_err(propSetInt(
+                )
+                .ofx_ok()?;
+                propSetInt(
                     checkboxProps,
                     kOfxParamPropDefault.as_ptr(),
                     0,
                     default_value as i32,
-                ))?;
-                ofx_err(propSetString(
+                )
+                .ofx_ok()?;
+                propSetString(
                     checkboxProps,
                     kOfxParamPropParent.as_ptr(),
                     0,
                     group_name_cstr.as_ptr(),
-                ))?;
+                )
+                .ofx_ok()?;
 
-                ofx_err(propSetInt(
-                    checkboxProps,
-                    kOfxParamPropAnimates.as_ptr(),
-                    0,
-                    0,
-                ))?;
+                propSetInt(checkboxProps, kOfxParamPropAnimates.as_ptr(), 0, 0).ofx_ok()?;
 
                 map_params(
                     data,
@@ -553,26 +536,23 @@ unsafe fn map_params(
         if !paramProps.is_null() {
             let descriptor_strings = data.strings.get(&descriptor.id).unwrap();
             let descriptor_label_cstr: &'static CStr = descriptor_strings.1.as_c_str();
-            ofx_err(propSetString(
+            propSetString(
                 paramProps,
                 kOfxPropLabel.as_ptr(),
                 0,
                 descriptor_label_cstr.as_ptr(),
-            ))?;
+            )
+            .ofx_ok()?;
             if let Some(description) = descriptor_strings.2.as_ref().map(CString::as_c_str) {
-                ofx_err(propSetString(
+                propSetString(
                     paramProps,
                     kOfxParamPropHint.as_ptr(),
                     0,
                     description.as_ptr(),
-                ))?;
+                )
+                .ofx_ok()?;
             }
-            ofx_err(propSetString(
-                paramProps,
-                kOfxParamPropParent.as_ptr(),
-                0,
-                parent.as_ptr(),
-            ))?;
+            propSetString(paramProps, kOfxParamPropParent.as_ptr(), 0, parent.as_ptr()).ofx_ok()?;
         }
     }
 
@@ -600,17 +580,18 @@ unsafe fn apply_params(
             data.strings.get(&descriptor.id).unwrap().0.as_c_str();
 
         let mut param: OfxParamHandle = ptr::null_mut();
-        ofx_err(paramGetHandle(
+        paramGetHandle(
             param_set,
             descriptor_id_cstr.as_ptr(),
             &mut param,
             ptr::null_mut(),
-        ))?;
+        )
+        .ofx_ok()?;
 
         match &descriptor.kind {
             SettingKind::Enumeration { options, .. } => {
                 let mut selected_idx = 0;
-                ofx_err(paramGetValueAtTime(param, time, &mut selected_idx))?;
+                paramGetValueAtTime(param, time, &mut selected_idx).ofx_ok()?;
                 dst.set_field::<EnumValue>(
                     &descriptor.id,
                     EnumValue(options[selected_idx as usize].index),
@@ -619,25 +600,25 @@ unsafe fn apply_params(
             }
             SettingKind::IntRange { .. } => {
                 let mut int_value: i32 = 0;
-                ofx_err(paramGetValueAtTime(param, time, &mut int_value))?;
+                paramGetValueAtTime(param, time, &mut int_value).ofx_ok()?;
                 dst.set_field::<i32>(&descriptor.id, int_value).unwrap();
             }
             SettingKind::FloatRange { .. } | SettingKind::Percentage { .. } => {
                 let mut float_value: f64 = 0.0;
-                ofx_err(paramGetValueAtTime(param, time, &mut float_value))?;
+                paramGetValueAtTime(param, time, &mut float_value).ofx_ok()?;
                 dst.set_field::<f32>(&descriptor.id, float_value as f32)
                     .unwrap();
             }
             SettingKind::Boolean { .. } => {
                 let mut bool_value: i32 = 0;
-                ofx_err(paramGetValueAtTime(param, time, &mut bool_value))?;
+                paramGetValueAtTime(param, time, &mut bool_value).ofx_ok()?;
                 dst.set_field::<bool>(&descriptor.id, bool_value != 0)
                     .unwrap();
             }
             SettingKind::Group { children, .. } => {
                 // The fetched handle refers to the group's checkbox
                 let mut bool_value: i32 = 0;
-                ofx_err(paramGetValueAtTime(param, time, &mut bool_value))?;
+                paramGetValueAtTime(param, time, &mut bool_value).ofx_ok()?;
                 dst.set_field::<bool>(&descriptor.id, bool_value != 0)
                     .unwrap();
 
@@ -674,69 +655,77 @@ unsafe fn action_describe_in_context(descriptor: OfxImageEffectHandle) -> OfxRes
 
     let mut props: OfxPropertySetHandle = ptr::null_mut();
     // TODO: all these functions return errors
-    ofx_err(clipDefine(descriptor, c"Output".as_ptr(), &mut props))?;
+    clipDefine(descriptor, c"Output".as_ptr(), &mut props).ofx_ok()?;
     if props.is_null() {
         return Err(OfxStat::kOfxStatFailed);
     }
-    ofx_err(propSetString(
+    propSetString(
         props,
         kOfxImageEffectPropSupportedComponents.as_ptr(),
         0,
         kOfxImageComponentRGBA.as_ptr(),
-    ))?;
-    ofx_err(propSetString(
+    )
+    .ofx_ok()?;
+    propSetString(
         props,
         kOfxImageEffectPropSupportedComponents.as_ptr(),
         1,
         kOfxImageComponentRGB.as_ptr(),
-    ))?;
+    )
+    .ofx_ok()?;
 
-    ofx_err(clipDefine(descriptor, c"Source".as_ptr(), &mut props))?;
+    clipDefine(descriptor, c"Source".as_ptr(), &mut props).ofx_ok()?;
     if props.is_null() {
         return Err(OfxStat::kOfxStatFailed);
     }
-    ofx_err(propSetString(
+    propSetString(
         props,
         kOfxImageEffectPropSupportedComponents.as_ptr(),
         0,
         kOfxImageComponentRGBA.as_ptr(),
-    ))?;
-    ofx_err(propSetString(
+    )
+    .ofx_ok()?;
+    propSetString(
         props,
         kOfxImageEffectPropSupportedComponents.as_ptr(),
         1,
         kOfxImageComponentRGB.as_ptr(),
-    ))?;
+    )
+    .ofx_ok()?;
 
     let mut param_set: OfxParamSetHandle = ptr::null_mut();
-    ofx_err(getParamSet(descriptor, &mut param_set))?;
+    getParamSet(descriptor, &mut param_set).ofx_ok()?;
 
     let mut loadPresetProps: OfxPropertySetHandle = ptr::null_mut();
-    ofx_err(paramDefine(
+    paramDefine(
         param_set,
         kOfxParamTypePushButton.as_ptr(),
         LOAD_PRESET_ID.as_ptr(),
         &mut loadPresetProps,
-    ))?;
-    ofx_err(propSetString(
+    )
+    .ofx_ok()?;
+    propSetString(
         loadPresetProps,
         kOfxPropLabel.as_ptr(),
         0,
         c"Load Preset...".as_ptr(),
-    ))?;
+    )
+    .ofx_ok()?;
     let mut savePresetProps: OfxPropertySetHandle = ptr::null_mut();
-    ofx_err(paramDefine(
+    paramDefine(
         param_set,
         kOfxParamTypePushButton.as_ptr(),
         SAVE_PRESET_ID.as_ptr(),
         &mut savePresetProps,
-    ))?;
-    ofx_err(propSetString(
+    )
+    .ofx_ok()?;
+    propSetString(
         savePresetProps,
         kOfxPropLabel.as_ptr(),
         0,
         c"Save Preset...".as_ptr(),
-    ))?;
+    )
+    .ofx_ok()?;
 
     map_params(
         data,
@@ -747,18 +736,20 @@ unsafe fn action_describe_in_context(descriptor: OfxImageEffectHandle) -> OfxRes
     )?;
 
     let mut checkboxProps: OfxPropertySetHandle = ptr::null_mut();
-    ofx_err(paramDefine(
+    paramDefine(
         param_set,
         kOfxParamTypeBoolean.as_ptr(),
         SRGB_GAMMA_NAME.as_ptr(),
         &mut checkboxProps,
-    ))?;
-    ofx_err(propSetString(
+    )
+    .ofx_ok()?;
+    propSetString(
         checkboxProps,
         kOfxPropLabel.as_ptr(),
         0,
         c"Apply sRGB gamma".as_ptr(),
-    ))?;
+    )
+    .ofx_ok()?;
 
     Ok(())
 }
@@ -787,12 +778,13 @@ unsafe fn action_get_regions_of_interest(
         .ok_or(OfxStat::kOfxStatFailed)?;
 
     let mut sourceClip: OfxImageClipHandle = ptr::null_mut();
-    ofx_err(clipGetHandle(
+    clipGetHandle(
         descriptor,
         c"Source".as_ptr(),
         &mut sourceClip,
         ptr::null_mut(),
-    ))?;
+    )
+    .ofx_ok()?;
     let mut sourceRoD = OfxRectD {
         x1: 0.0,
         x2: 0.0,
@@ -800,15 +792,16 @@ unsafe fn action_get_regions_of_interest(
         y2: 0.0,
     };
     let mut time: OfxTime = 0.0;
-    ofx_err(propGetDouble(inArgs, kOfxPropTime.as_ptr(), 0, &mut time))?;
-    ofx_err(clipGetRegionOfDefinition(sourceClip, time, &mut sourceRoD))?;
+    propGetDouble(inArgs, kOfxPropTime.as_ptr(), 0, &mut time).ofx_ok()?;
+    clipGetRegionOfDefinition(sourceClip, time, &mut sourceRoD).ofx_ok()?;
 
-    ofx_err(propSetDoubleN(
+    propSetDoubleN(
         outArgs,
         c"OfxImageClipPropRoI_Source".as_ptr(),
         4,
         ptr::addr_of_mut!(sourceRoD) as *mut _,
-    ))?;
+    )
+    .ofx_ok()?;
 
     Ok(())
 }
@@ -824,18 +817,14 @@ unsafe fn action_get_clip_preferences(outArgs: OfxPropertySetHandle) -> OfxResul
         .propSetString
         .ok_or(OfxStat::kOfxStatFailed)?;
 
-    ofx_err(propSetInt(
-        outArgs,
-        kOfxImageEffectFrameVarying.as_ptr(),
-        0,
-        1,
-    ))?;
-    ofx_err(propSetString(
+    propSetInt(outArgs, kOfxImageEffectFrameVarying.as_ptr(), 0, 1).ofx_ok()?;
+    propSetString(
         outArgs,
         kOfxImageEffectPropPreMultiplication.as_ptr(),
         0,
         kOfxImageOpaque.as_ptr(),
-    ))?;
+    )
+    .ofx_ok()?;
 
     Ok(())
 }
@@ -869,29 +858,25 @@ unsafe fn update_controls_disabled(
             data.strings.get(&descriptor.id).unwrap().0.as_c_str();
 
         let mut param: OfxParamHandle = ptr::null_mut();
-        ofx_err(paramGetHandle(
+        paramGetHandle(
             param_set,
             descriptor_id_cstr.as_ptr(),
             &mut param,
             ptr::null_mut(),
-        ))?;
+        )
+        .ofx_ok()?;
 
         if let SettingKind::Group { children, .. } = &descriptor.kind {
             // The fetched handle refers to the group's checkbox
             let mut bool_value: i32 = 0;
-            ofx_err(paramGetValueAtTime(param, time, &mut bool_value))?;
+            paramGetValueAtTime(param, time, &mut bool_value).ofx_ok()?;
             let group_enabled = bool_value != 0;
 
             update_controls_disabled(data, param_set, children, time, group_enabled && enabled)?;
         }
         let mut prop_set: OfxPropertySetHandle = ptr::null_mut();
-        ofx_err(paramGetPropertySet(param, &mut prop_set))?;
-        ofx_err(propSetInt(
-            prop_set,
-            kOfxParamPropEnabled.as_ptr(),
-            0,
-            enabled as i32,
-        ))?;
+        paramGetPropertySet(param, &mut prop_set).ofx_ok()?;
+        propSetInt(prop_set, kOfxParamPropEnabled.as_ptr(), 0, enabled as i32).ofx_ok()?;
     }
 
     Ok(())
@@ -917,12 +902,13 @@ unsafe fn set_controls_from_settings(
             data.strings.get(&descriptor.id).unwrap().0.as_c_str();
 
         let mut param: OfxParamHandle = ptr::null_mut();
-        ofx_err(paramGetHandle(
+        paramGetHandle(
             param_set,
             descriptor_id_cstr.as_ptr(),
             &mut param,
             ptr::null_mut(),
-        ))?;
+        )
+        .ofx_ok()?;
 
         match &descriptor.kind {
             SettingKind::Enumeration { options, .. } => {
@@ -934,39 +920,43 @@ unsafe fn set_controls_from_settings(
                     .iter()
                     .position(|item| item.index == enum_value)
                     .ok_or(OfxStat::kOfxStatErrBadIndex)?;
-                ofx_err(paramSetValue(param, item_index as i32))?;
+                paramSetValue(param, item_index as i32).ofx_ok()?;
             }
             SettingKind::Percentage { .. } | SettingKind::FloatRange { .. } => {
-                ofx_err(paramSetValue(
+                paramSetValue(
                     param,
                     settings
                         .get_field::<f32>(&descriptor.id)
                         .map_err(|_| OfxStat::kOfxStatErrBadIndex)? as f64,
-                ))?;
+                )
+                .ofx_ok()?;
             }
             SettingKind::IntRange { .. } => {
-                ofx_err(paramSetValue(
+                paramSetValue(
                     param,
                     settings
                         .get_field::<i32>(&descriptor.id)
                         .map_err(|_| OfxStat::kOfxStatErrBadIndex)?,
-                ))?;
+                )
+                .ofx_ok()?;
             }
             SettingKind::Boolean { .. } => {
-                ofx_err(paramSetValue(
+                paramSetValue(
                     param,
                     settings
                         .get_field::<bool>(&descriptor.id)
                         .map_err(|_| OfxStat::kOfxStatErrBadIndex)? as i32,
-                ))?;
+                )
+                .ofx_ok()?;
             }
             SettingKind::Group { children, .. } => {
-                ofx_err(paramSetValue(
+                paramSetValue(
                     param,
                     settings
                         .get_field::<bool>(&descriptor.id)
                         .map_err(|_| OfxStat::kOfxStatErrBadIndex)? as i32,
-                ))?;
+                )
+                .ofx_ok()?;
                 set_controls_from_settings(data, param_set, children, settings)?;
             }
         };
@@ -994,27 +984,17 @@ unsafe fn action_instance_changed(
         .ok_or(OfxStat::kOfxStatFailed)?;
 
     let mut target_type: *mut c_char = ptr::null_mut();
-    ofx_err(propGetString(
-        inArgs,
-        kOfxPropType.as_ptr(),
-        0,
-        &mut target_type,
-    ))?;
+    propGetString(inArgs, kOfxPropType.as_ptr(), 0, &mut target_type).ofx_ok()?;
 
     let mut param_set: OfxParamSetHandle = ptr::null_mut();
-    ofx_err(getParamSet(descriptor, &mut param_set))?;
+    getParamSet(descriptor, &mut param_set).ofx_ok()?;
 
     let mut time: f64 = 0.0;
-    ofx_err(propGetDouble(inArgs, kOfxPropTime.as_ptr(), 0, &mut time))?;
+    propGetDouble(inArgs, kOfxPropTime.as_ptr(), 0, &mut time).ofx_ok()?;
 
     if CStr::from_ptr(target_type) == kOfxTypeParameter {
         let mut target_name: *mut c_char = ptr::null_mut();
-        ofx_err(propGetString(
-            inArgs,
-            kOfxPropName.as_ptr(),
-            0,
-            &mut target_name,
-        ))?;
+        propGetString(inArgs, kOfxPropName.as_ptr(), 0, &mut target_name).ofx_ok()?;
 
         if LOAD_PRESET_ID == CStr::from_ptr(target_name) {
             let Some(preset_path) = rfd::FileDialog::new()
@@ -1139,11 +1119,12 @@ unsafe impl Allocator for OfxAllocator {
 
         let mut buf = ptr::null_mut();
         unsafe {
-            ofx_err(memoryAlloc(
+            memoryAlloc(
                 ptr::null_mut(), // effect instance handle (we don't care)
                 layout.size(),
                 &mut buf,
-            ))
+            )
+            .ofx_ok()
             .map_err(|_| AllocError)?
         };
 
@@ -1418,89 +1399,86 @@ unsafe fn action_render(
         y2: 0,
     };
 
-    ofx_err(propGetDouble(inArgs, kOfxPropTime.as_ptr(), 0, &mut time))?;
+    propGetDouble(inArgs, kOfxPropTime.as_ptr(), 0, &mut time).ofx_ok()?;
     // I'm sure nothing bad will happen here as a result of propGetIntN writing past the pointer it was given
-    ofx_err(propGetIntN(
+    propGetIntN(
         inArgs,
         kOfxImageEffectPropRenderWindow.as_ptr(),
         4,
         ptr::addr_of_mut!(renderWindow) as *mut _,
-    ))?;
+    )
+    .ofx_ok()?;
 
     let mut outputClip: OfxImageClipHandle = ptr::null_mut();
-    ofx_err(clipGetHandle(
+    clipGetHandle(
         descriptor,
         c"Output".as_ptr(),
         &mut outputClip,
         ptr::null_mut(),
-    ))?;
+    )
+    .ofx_ok()?;
     let mut sourceClip: OfxImageClipHandle = ptr::null_mut();
-    ofx_err(clipGetHandle(
+    clipGetHandle(
         descriptor,
         c"Source".as_ptr(),
         &mut sourceClip,
         ptr::null_mut(),
-    ))?;
+    )
+    .ofx_ok()?;
 
     let mut outputImg: OfxPropertySetHandle = ptr::null_mut();
-    ofx_err(clipGetImage(
-        outputClip,
-        time,
-        ptr::null_mut(),
-        &mut outputImg,
-    ))?;
+    clipGetImage(outputClip, time, ptr::null_mut(), &mut outputImg).ofx_ok()?;
     let mut sourceImg: OfxPropertySetHandle = ptr::null_mut();
-    ofx_err(clipGetImage(
-        sourceClip,
-        time,
-        ptr::null_mut(),
-        &mut sourceImg,
-    ))?;
+    clipGetImage(sourceClip, time, ptr::null_mut(), &mut sourceImg).ofx_ok()?;
 
     let outputImg = OfxClipImage(outputImg);
     let sourceImg = OfxClipImage(sourceImg);
 
     let num_source_components = {
         let mut cstr: *mut c_char = ptr::null_mut();
-        ofx_err(propGetString(
+        propGetString(
             sourceImg.0,
             kOfxImageEffectPropComponents.as_ptr(),
             0,
             &mut cstr,
-        ))?;
+        )
+        .ofx_ok()?;
         SupportedImageComponents::try_from(CStr::from_ptr(cstr))
     }?;
 
     let num_output_components = {
         let mut cstr: *mut c_char = ptr::null_mut();
-        ofx_err(propGetString(
+        propGetString(
             outputImg.0,
             kOfxImageEffectPropComponents.as_ptr(),
             0,
             &mut cstr,
-        ))?;
+        )
+        .ofx_ok()?;
         SupportedImageComponents::try_from(CStr::from_ptr(cstr))
     }?;
 
     let source_pixel_depth = {
         let mut cstr: *mut c_char = ptr::null_mut();
-        ofx_err(propGetString(
+        propGetString(
             sourceImg.0,
             kOfxImageEffectPropPixelDepth.as_ptr(),
             0,
             &mut cstr,
-        ))?;
+        )
+        .ofx_ok()?;
         SupportedPixelDepth::try_from(CStr::from_ptr(cstr))
     }?;
 
     let output_pixel_depth = {
         let mut cstr: *mut c_char = ptr::null_mut();
-        ofx_err(propGetString(
+        propGetString(
             outputImg.0,
             kOfxImageEffectPropPixelDepth.as_ptr(),
             0,
             &mut cstr,
-        ))?;
+        )
+        .ofx_ok()?;
         SupportedPixelDepth::try_from(CStr::from_ptr(cstr))
     }?;
 
@@ -1512,24 +1490,21 @@ unsafe fn action_render(
         y2: 0,
     };
     let mut dstPtr: *mut c_void = ptr::null_mut();
-    ofx_err(propGetInt(
+    propGetInt(
         outputImg.0,
         kOfxImagePropRowBytes.as_ptr(),
         0,
         &mut dstRowBytes,
-    ))?;
-    ofx_err(propGetIntN(
+    )
+    .ofx_ok()?;
+    propGetIntN(
         outputImg.0,
         kOfxImagePropBounds.as_ptr(),
         4,
         ptr::addr_of_mut!(dstBounds) as *mut _,
-    ))?;
-    ofx_err(propGetPointer(
-        outputImg.0,
-        kOfxImagePropData.as_ptr(),
-        0,
-        &mut dstPtr,
-    ))?;
+    )
+    .ofx_ok()?;
+    propGetPointer(outputImg.0, kOfxImagePropData.as_ptr(), 0, &mut dstPtr).ofx_ok()?;
 
     let mut srcRowBytes: c_int = 0;
     let mut srcBounds = OfxRectI {
@@ -1539,27 +1514,24 @@ unsafe fn action_render(
         y2: 0,
     };
     let mut srcPtr: *mut c_void = ptr::null_mut();
-    ofx_err(propGetInt(
+    propGetInt(
         sourceImg.0,
         kOfxImagePropRowBytes.as_ptr(),
         0,
         &mut srcRowBytes,
-    ))?;
-    ofx_err(propGetIntN(
+    )
+    .ofx_ok()?;
+    propGetIntN(
         sourceImg.0,
         kOfxImagePropBounds.as_ptr(),
         4,
         ptr::addr_of_mut!(srcBounds) as *mut _,
-    ))?;
-    ofx_err(propGetPointer(
-        sourceImg.0,
-        kOfxImagePropData.as_ptr(),
-        0,
-        &mut srcPtr,
-    ))?;
+    )
+    .ofx_ok()?;
+    propGetPointer(sourceImg.0, kOfxImagePropData.as_ptr(), 0, &mut srcPtr).ofx_ok()?;
 
     let mut param_set: OfxParamSetHandle = ptr::null_mut();
-    ofx_err(getParamSet(descriptor, &mut param_set))?;
+    getParamSet(descriptor, &mut param_set).ofx_ok()?;
     let mut out_settings: NtscEffectFullSettings = NtscEffectFullSettings::default();
     apply_params(
         data,
@@ -1570,14 +1542,15 @@ unsafe fn action_render(
     )?;
 
     let mut srgb_param: OfxParamHandle = ptr::null_mut();
-    ofx_err(paramGetHandle(
+    paramGetHandle(
         param_set,
         SRGB_GAMMA_NAME.as_ptr(),
         &mut srgb_param,
         ptr::null_mut(),
-    ))?;
+    )
+    .ofx_ok()?;
     let mut srgb_bool_value: i32 = 0;
-    ofx_err(paramGetValueAtTime(srgb_param, time, &mut srgb_bool_value))?;
+    paramGetValueAtTime(srgb_param, time, &mut srgb_bool_value).ofx_ok()?;
     let apply_srgb_gamma = srgb_bool_value != 0;
 
     let effect: NtscEffect = out_settings.into();
@@ -1590,18 +1563,20 @@ unsafe fn action_render(
         .as_ref()
         .is_some_and(|scale| scale.scale_with_video_size)
     {
-        ofx_err(propGetDouble(
+        propGetDouble(
             sourceImg.0,
             kOfxImageEffectPropRenderScale.as_ptr(),
             0,
             &mut proxy_scale_x,
-        ))?;
-        ofx_err(propGetDouble(
+        )
+        .ofx_ok()?;
+        propGetDouble(
             sourceImg.0,
             kOfxImageEffectPropRenderScale.as_ptr(),
             1,
             &mut proxy_scale_y,
-        ))?;
+        )
+        .ofx_ok()?;
         proxy_scale_x = proxy_scale_x.recip();
         proxy_scale_y = proxy_scale_y.recip();
     }

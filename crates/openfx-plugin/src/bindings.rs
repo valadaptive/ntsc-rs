@@ -9,6 +9,12 @@
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct OfxStatus(pub std::ffi::c_int);
 
+impl OfxStatus {
+    pub fn ofx_ok(self) -> OfxResult<()> {
+        if self.0 == 0 { Ok(()) } else { Err(self) }
+    }
+}
+
 impl std::fmt::Debug for OfxStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.0 {
@@ -37,6 +43,8 @@ impl From<std::ffi::c_int> for OfxStatus {
         Self(value)
     }
 }
+
+pub type OfxResult<T> = Result<T, OfxStatus>;
 
 // bindgen can't import these
 #[allow(dead_code)]
