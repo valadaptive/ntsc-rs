@@ -1,6 +1,6 @@
 ---
-name: Bug report (After Effects/Premiere plugin)
-about: Report a bug in the After Effects/Premiere plugin
+name: Feature request
+about: Suggest an idea for this project
 title: ''
 labels: enhancement
 assignees: ''
