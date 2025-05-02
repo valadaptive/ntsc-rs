@@ -89,7 +89,7 @@ fn get_info_plist() -> plist::Value {
     );
     info_plist_contents.insert(
         "NSHumanReadableCopyright".to_string(),
-        plist::Value::from("© 2023-2024 valadaptive"),
+        plist::Value::from("© 2023-2025 valadaptive"),
     );
     info_plist_contents.insert("CFBundleSignature".to_string(), plist::Value::from("????"));
 
