@@ -6,12 +6,16 @@ mod bindings;
 
 use core::slice;
 use std::{
+    collections::HashMap,
     convert::identity,
     ffi::{CStr, CString, c_char, c_int, c_void},
     fs,
     mem::{self, MaybeUninit},
     ptr::{self, NonNull},
-    sync::{OnceLock, RwLock},
+    sync::{
+        OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use allocator_api2::{
@@ -21,6 +25,7 @@ use allocator_api2::{
 
 use ntscrs::{
     ntsc::NtscEffect,
+    settings::SettingID,
     yiq_fielding::{DeinterlaceMode, YiqView},
 };
 use ntscrs::{
@@ -41,7 +46,7 @@ unsafe impl Send for OfxPlugin {}
 unsafe impl Sync for OfxPlugin {}
 
 static PLUGIN_INFO: OnceLock<OfxPlugin> = OnceLock::new();
-static shared_data: RwLock<Option<SharedData>> = RwLock::new(None);
+static shared_data: OnceLock<SharedData> = OnceLock::new();
 
 struct HostInfo {
     // From the OpenFX api docs:
@@ -62,7 +67,17 @@ struct SharedData {
     memory_suite: &'static OfxMemorySuiteV1,
     parameter_suite: &'static OfxParameterSuiteV1,
     settings_list: SettingsList<NtscEffectFullSettings>,
-    supports_multiple_clip_depths: bool,
+    supports_multiple_clip_depths: AtomicBool,
+    /// Map of setting IDs to C-string-ified IDs, names, descriptions, and ID for the settings group, if the setting is
+    /// a group. OpenFX says these need to have a static lifetime.
+    strings: HashMap<
+        SettingID<NtscEffectFullSettings>,
+        (CString, CString, Option<CString>, Option<CString>),
+    >,
+    /// Map of setting IDs and their index in the menu to C-string-ified names and descriptions. OpenFX says these need
+    /// to have a static lifetime.
+    menu_item_strings:
+        HashMap<(SettingID<NtscEffectFullSettings>, u32), (CString, Option<CString>)>,
 }
 
 type OfxResult<T> = Result<T, OfxStatus>;
@@ -109,6 +124,39 @@ impl SharedData {
             1,
         ) as *const OfxParameterSuiteV1;
 
+        let settings_list = SettingsList::<NtscEffectFullSettings>::new();
+        let mut strings = HashMap::new();
+        let mut menu_item_strings = HashMap::new();
+        for descriptor in settings_list.all_descriptors() {
+            let id = &descriptor.id;
+            let id_str = CString::new(descriptor.id.id.to_string()).unwrap();
+            let label = CString::new(descriptor.label).unwrap();
+            let description = descriptor
+                .description
+                .map(|desc| CString::new(desc).unwrap());
+            let group_name = if let SettingKind::Group { .. } = descriptor.kind {
+                Some(CString::new(format!("{}_group", descriptor.id.id)).unwrap())
+            } else {
+                None
+            };
+            strings.insert(id.clone(), (id_str, label, description, group_name));
+
+            if let SettingKind::Enumeration { options } = &descriptor.kind {
+                for menu_item in options {
+                    let item_label = CString::new(menu_item.label).unwrap();
+                    menu_item_strings.insert(
+                        (id.clone(), menu_item.index),
+                        (
+                            item_label,
+                            menu_item
+                                .description
+                                .map(|desc| CString::new(desc).unwrap()),
+                        ),
+                    );
+                }
+            }
+        }
+
         Ok(SharedData {
             host_info,
             property_suite: property_suite
@@ -123,19 +171,20 @@ impl SharedData {
             parameter_suite: parameter_suite
                 .as_ref()
                 .ok_or(OfxStat::kOfxStatErrMissingHostFeature)?,
-            settings_list: SettingsList::<NtscEffectFullSettings>::new(),
-            supports_multiple_clip_depths: false,
+            settings_list,
+            supports_multiple_clip_depths: AtomicBool::new(false),
+            strings,
+            menu_item_strings,
         })
     }
 }
 
 unsafe fn set_host_info_inner(host: *mut OfxHost) -> OfxResult<()> {
     if let Some(host_struct) = host.as_ref() {
-        let mut data = shared_data.write().map_err(|_| OfxStat::kOfxStatFailed)?;
-        data.get_or_insert(SharedData::new(HostInfo {
-            host: host_struct.host.as_ref().ok_or(OfxStat::kOfxStatFailed)?,
-            fetchSuite: host_struct.fetchSuite.ok_or(OfxStat::kOfxStatFailed)?,
-        })?);
+        let host = host_struct.host.as_ref().ok_or(OfxStat::kOfxStatFailed)?;
+        let fetchSuite = host_struct.fetchSuite.ok_or(OfxStat::kOfxStatFailed)?;
+        let new_shared_data = SharedData::new(HostInfo { host, fetchSuite })?;
+        shared_data.get_or_init(|| new_shared_data);
         Ok(())
     } else {
         Err(OfxStat::kOfxStatFailed)
@@ -147,8 +196,7 @@ unsafe extern "C" fn set_host_info(host: *mut OfxHost) {
 }
 
 unsafe fn action_load() -> OfxResult<()> {
-    let mut data = shared_data.write().map_err(|_| OfxStat::kOfxStatFailed)?;
-    let data = data.as_mut().ok_or(OfxStat::kOfxStatFailed)?;
+    let data = shared_data.get().ok_or(OfxStat::kOfxStatFailed)?;
     let propGetInt = data
         .property_suite
         .propGetInt
@@ -160,14 +208,14 @@ unsafe fn action_load() -> OfxResult<()> {
         0,
         &mut supports_multiple_clip_depths,
     );
-    data.supports_multiple_clip_depths = supports_multiple_clip_depths != 0;
+    data.supports_multiple_clip_depths
+        .store(supports_multiple_clip_depths != 0, Ordering::Release);
 
     Ok(())
 }
 
 unsafe fn action_describe(descriptor: OfxImageEffectHandle) -> OfxResult<()> {
-    let data = shared_data.read().map_err(|_| OfxStat::kOfxStatFailed)?;
-    let data = data.as_ref().ok_or(OfxStat::kOfxStatFailed)?;
+    let data = shared_data.get().ok_or(OfxStat::kOfxStatFailed)?;
     let mut effectProps: OfxPropertySetHandle = ptr::null_mut();
     (data
         .image_effect_suite
@@ -253,28 +301,32 @@ fn ofx_err(code: c_int) -> OfxResult<()> {
 }
 
 unsafe fn map_params(
-    property_suite: &OfxPropertySuiteV1,
-    param_suite: &OfxParameterSuiteV1,
+    data: &'static SharedData,
     param_set: OfxParamSetHandle,
     setting_descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
     default_settings: &NtscEffectFullSettings,
     parent: &CStr,
 ) -> OfxResult<()> {
-    let paramDefine = param_suite.paramDefine.ok_or(OfxStat::kOfxStatFailed)?;
-    let propSetDouble = property_suite
+    let paramDefine = data
+        .parameter_suite
+        .paramDefine
+        .ok_or(OfxStat::kOfxStatFailed)?;
+    let propSetDouble = data
+        .property_suite
         .propSetDouble
         .ok_or(OfxStat::kOfxStatFailed)?;
-    let propSetInt = property_suite.propSetInt.ok_or(OfxStat::kOfxStatFailed)?;
-    let propSetString = property_suite
+    let propSetInt = data
+        .property_suite
+        .propSetInt
+        .ok_or(OfxStat::kOfxStatFailed)?;
+    let propSetString = data
+        .property_suite
         .propSetString
         .ok_or(OfxStat::kOfxStatFailed)?;
     for descriptor in setting_descriptors {
         let mut paramProps: OfxPropertySetHandle = ptr::null_mut();
-        // the official OFX host support library clones this string (via the std::string constructor) and I really hope
-        // all other OFX hosts do too, because the documentation is silent on wtf the lifetime of these strings is
-        // supposed to be
-        let descriptor_id_str = descriptor.id.id.to_string();
-        let descriptor_id_cstr = CString::new(descriptor_id_str.clone()).unwrap();
+        let descriptor_strings: &'static _ = data.strings.get(&descriptor.id).unwrap();
+        let descriptor_id_cstr = descriptor_strings.0.as_c_str();
 
         match &descriptor.kind {
             SettingKind::Enumeration { options } => {
@@ -290,7 +342,11 @@ unsafe fn map_params(
                     .0;
                 let mut default_idx: usize = 0;
                 for (i, menu_item) in options.iter().enumerate() {
-                    let item_label_cstr = CString::new(menu_item.label).unwrap();
+                    let item_strings = data
+                        .menu_item_strings
+                        .get(&(descriptor.id.clone(), menu_item.index))
+                        .unwrap();
+                    let item_label_cstr: &'static CStr = item_strings.0.as_c_str();
                     ofx_err(propSetString(
                         paramProps,
                         kOfxParamPropChoiceOption.as_ptr(),
@@ -449,8 +505,11 @@ unsafe fn map_params(
                 let default_value = default_settings
                     .get_field::<bool>(&descriptor.id)
                     .map_err(|_| OfxStat::kOfxStatFailed)?;
-                let group_name = descriptor_id_str.clone() + "_group";
-                let group_name_cstr = CString::new(group_name).unwrap();
+                let group_name_cstr: &'static CStr = descriptor_strings
+                    .3
+                    .as_ref()
+                    .expect("Group name is None")
+                    .as_c_str();
                 ofx_err(paramDefine(
                     param_set,
                     kOfxParamTypeGroup.as_ptr(),
@@ -492,8 +551,7 @@ unsafe fn map_params(
                 ))?;
 
                 map_params(
-                    property_suite,
-                    param_suite,
+                    data,
                     param_set,
                     children,
                     default_settings,
@@ -502,20 +560,20 @@ unsafe fn map_params(
             }
         }
         if !paramProps.is_null() {
-            let descriptor_label_cstr = CString::new(descriptor.label).unwrap();
+            let descriptor_strings = data.strings.get(&descriptor.id).unwrap();
+            let descriptor_label_cstr: &'static CStr = descriptor_strings.1.as_c_str();
             ofx_err(propSetString(
                 paramProps,
                 kOfxPropLabel.as_ptr(),
                 0,
                 descriptor_label_cstr.as_ptr(),
             ))?;
-            if let Some(description) = descriptor.description {
-                let descriptor_desc_cstr = CString::new(description).unwrap();
+            if let Some(description) = descriptor_strings.2.as_ref().map(CString::as_c_str) {
                 ofx_err(propSetString(
                     paramProps,
                     kOfxParamPropHint.as_ptr(),
                     0,
-                    descriptor_desc_cstr.as_ptr(),
+                    description.as_ptr(),
                 ))?;
             }
             ofx_err(propSetString(
@@ -531,20 +589,24 @@ unsafe fn map_params(
 }
 
 unsafe fn apply_params(
-    param_suite: &OfxParameterSuiteV1,
+    data: &'static SharedData,
     param_set: OfxParamSetHandle,
     time: f64,
     setting_descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
     dst: &mut NtscEffectFullSettings,
 ) -> OfxResult<()> {
-    let paramGetHandle = param_suite.paramGetHandle.ok_or(OfxStat::kOfxStatFailed)?;
-    let paramGetValueAtTime = param_suite
+    let paramGetHandle = data
+        .parameter_suite
+        .paramGetHandle
+        .ok_or(OfxStat::kOfxStatFailed)?;
+    let paramGetValueAtTime = data
+        .parameter_suite
         .paramGetValueAtTime
         .ok_or(OfxStat::kOfxStatFailed)?;
 
     for descriptor in setting_descriptors {
-        let descriptor_id_str = descriptor.id.id.to_string();
-        let descriptor_id_cstr = CString::new(descriptor_id_str.clone()).unwrap();
+        let descriptor_id_cstr: &'static CStr =
+            data.strings.get(&descriptor.id).unwrap().0.as_c_str();
 
         let mut param: OfxParamHandle = ptr::null_mut();
         ofx_err(paramGetHandle(
@@ -588,7 +650,7 @@ unsafe fn apply_params(
                 dst.set_field::<bool>(&descriptor.id, bool_value != 0)
                     .unwrap();
 
-                apply_params(param_suite, param_set, time, children, dst)?;
+                apply_params(data, param_set, time, children, dst)?;
             }
         }
     }
@@ -602,8 +664,7 @@ const SAVE_PRESET_ID: &CStr = c"save_preset";
 const SRGB_GAMMA_NAME: &CStr = c"SrgbGammaCorrect";
 
 unsafe fn action_describe_in_context(descriptor: OfxImageEffectHandle) -> OfxResult<()> {
-    let data = shared_data.read().map_err(|_| OfxStat::kOfxStatFailed)?;
-    let data = data.as_ref().ok_or(OfxStat::kOfxStatFailed)?;
+    let data = shared_data.get().ok_or(OfxStat::kOfxStatFailed)?;
     let clipDefine = data
         .image_effect_suite
         .clipDefine
@@ -687,8 +748,7 @@ unsafe fn action_describe_in_context(descriptor: OfxImageEffectHandle) -> OfxRes
     ))?;
 
     map_params(
-        property_suite,
-        param_suite,
+        data,
         param_set,
         &data.settings_list.setting_descriptors,
         &NtscEffectFullSettings::default(),
@@ -717,8 +777,7 @@ unsafe fn action_get_regions_of_interest(
     inArgs: OfxPropertySetHandle,
     outArgs: OfxPropertySetHandle,
 ) -> OfxResult<()> {
-    let data = shared_data.read().map_err(|_| OfxStat::kOfxStatFailed)?;
-    let data = data.as_ref().ok_or(OfxStat::kOfxStatFailed)?;
+    let data = shared_data.get().ok_or(OfxStat::kOfxStatFailed)?;
     let propGetDouble = data
         .property_suite
         .propGetDouble
@@ -764,8 +823,7 @@ unsafe fn action_get_regions_of_interest(
 }
 
 unsafe fn action_get_clip_preferences(outArgs: OfxPropertySetHandle) -> OfxResult<()> {
-    let data = shared_data.read().map_err(|_| OfxStat::kOfxStatFailed)?;
-    let data = data.as_ref().ok_or(OfxStat::kOfxStatFailed)?;
+    let data = shared_data.get().ok_or(OfxStat::kOfxStatFailed)?;
     let propSetInt = data
         .property_suite
         .propSetInt
@@ -787,7 +845,7 @@ unsafe fn action_get_clip_preferences(outArgs: OfxPropertySetHandle) -> OfxResul
 }
 
 unsafe fn update_controls_disabled(
-    data: &SharedData,
+    data: &'static SharedData,
     param_set: OfxParamSetHandle,
     setting_descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
     time: f64,
@@ -811,8 +869,8 @@ unsafe fn update_controls_disabled(
         .ok_or(OfxStat::kOfxStatFailed)?;
 
     for descriptor in setting_descriptors {
-        let descriptor_id_str = descriptor.id.id.to_string();
-        let descriptor_id_cstr = CString::new(descriptor_id_str.clone()).unwrap();
+        let descriptor_id_cstr: &'static CStr =
+            data.strings.get(&descriptor.id).unwrap().0.as_c_str();
 
         let mut param: OfxParamHandle = ptr::null_mut();
         ofx_err(paramGetHandle(
@@ -839,7 +897,7 @@ unsafe fn update_controls_disabled(
 }
 
 unsafe fn set_controls_from_settings(
-    data: &SharedData,
+    data: &'static SharedData,
     param_set: OfxParamSetHandle,
     setting_descriptors: &[SettingDescriptor<NtscEffectFullSettings>],
     settings: &NtscEffectFullSettings,
@@ -854,8 +912,8 @@ unsafe fn set_controls_from_settings(
         .ok_or(OfxStat::kOfxStatFailed)?;
 
     for descriptor in setting_descriptors {
-        let descriptor_id_str = descriptor.id.id.to_string();
-        let descriptor_id_cstr = CString::new(descriptor_id_str.clone()).unwrap();
+        let descriptor_id_cstr: &'static CStr =
+            data.strings.get(&descriptor.id).unwrap().0.as_c_str();
 
         let mut param: OfxParamHandle = ptr::null_mut();
         ofx_err(paramGetHandle(
@@ -920,8 +978,7 @@ unsafe fn action_instance_changed(
     descriptor: OfxImageEffectHandle,
     inArgs: OfxPropertySetHandle,
 ) -> OfxResult<()> {
-    let data = shared_data.read().map_err(|_| OfxStat::kOfxStatFailed)?;
-    let data = data.as_ref().ok_or(OfxStat::kOfxStatFailed)?;
+    let data = shared_data.get().ok_or(OfxStat::kOfxStatFailed)?;
     let getParamSet = data
         .image_effect_suite
         .getParamSet
@@ -991,7 +1048,7 @@ unsafe fn action_instance_changed(
 
             let mut settings = NtscEffectFullSettings::default();
             apply_params(
-                data.parameter_suite,
+                data,
                 param_set,
                 time,
                 &data.settings_list.setting_descriptors,
@@ -1059,8 +1116,7 @@ struct OfxClipImage(OfxPropertySetHandle);
 
 impl Drop for OfxClipImage {
     fn drop(&mut self) {
-        let data = shared_data.read().unwrap();
-        let data = data.as_ref().unwrap();
+        let data = shared_data.get().unwrap();
         let clipReleaseImage = data.image_effect_suite.clipReleaseImage.unwrap();
 
         unsafe { clipReleaseImage(self.0) };
@@ -1071,8 +1127,7 @@ struct OfxAllocator;
 
 unsafe impl Allocator for OfxAllocator {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
-        let data = shared_data.read().map_err(|_| AllocError)?;
-        let data = data.as_ref().ok_or(AllocError)?;
+        let data = shared_data.get().ok_or(AllocError)?;
         let memoryAlloc = data.memory_suite.memoryAlloc.ok_or(AllocError)?;
 
         if layout.size() == 0 {
@@ -1094,8 +1149,7 @@ unsafe impl Allocator for OfxAllocator {
     }
 
     unsafe fn deallocate(&self, ptr: NonNull<u8>, _layout: Layout) {
-        let data = shared_data.read().unwrap();
-        let data = data.as_ref().unwrap();
+        let data = shared_data.get().unwrap();
         let memoryFree = data.memory_suite.memoryFree.unwrap();
         memoryFree(ptr.as_ptr() as *mut _);
     }
@@ -1311,8 +1365,7 @@ unsafe fn action_render(
     descriptor: OfxImageEffectHandle,
     inArgs: OfxPropertySetHandle,
 ) -> OfxResult<()> {
-    let data = shared_data.read().map_err(|_| OfxStat::kOfxStatFailed)?;
-    let data = data.as_ref().ok_or(OfxStat::kOfxStatFailed)?;
+    let data = shared_data.get().ok_or(OfxStat::kOfxStatFailed)?;
     let propGetString = data
         .property_suite
         .propGetString
@@ -1485,7 +1538,7 @@ unsafe fn action_render(
     ofx_err(getParamSet(descriptor, &mut param_set))?;
     let mut out_settings: NtscEffectFullSettings = NtscEffectFullSettings::default();
     apply_params(
-        data.parameter_suite,
+        data,
         param_set,
         time,
         &data.settings_list.setting_descriptors,

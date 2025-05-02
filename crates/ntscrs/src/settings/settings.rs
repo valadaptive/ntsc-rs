@@ -191,7 +191,7 @@ impl From<bool> for AnySetting {
 pub trait SettingsEnum: FromPrimitive + ToPrimitive {}
 
 /// A fixed identifier that points to a given setting. The id and name cannot be changed or reused once created.
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone)]
 pub struct SettingID<T: Settings> {
     pub id: u32,
     pub name: &'static str,
@@ -209,6 +209,14 @@ impl<T: Settings> std::hash::Hash for SettingID<T> {
         self.set.hash(state);
     }
 }
+
+impl<T: Settings> PartialEq for SettingID<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && self.name == other.name
+    }
+}
+
+impl<T: Settings> Eq for SettingID<T> {}
 
 impl<T: Settings> SettingID<T> {
     pub const fn new(
