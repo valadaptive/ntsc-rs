@@ -910,7 +910,7 @@ impl Plugin {
                     Ok(())
                 })();
                 if let Err(e) = res {
-                    out_data.set_error_msg(&format!("Error saving preset: {}", e.kind()));
+                    out_data.set_error_msg(&format!("Error saving preset: {e}"));
                     return Ok(());
                 }
             }
