@@ -19,7 +19,9 @@ fn main() {
         .header("wrapper.h")
         .blocklist_function("OfxGetNumberOfPlugins")
         .blocklist_function("OfxGetPlugin")
-        .must_use_type("OfxStatus")
+        // We wrap the OfxStatus enum in a newtype struct so we can annotate it with #[must_use].
+        .blocklist_type("OfxStatus")
+        .blocklist_var("kOfxStat.+")
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))

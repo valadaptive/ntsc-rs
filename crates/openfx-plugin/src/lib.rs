@@ -82,27 +82,6 @@ struct SharedData {
 
 type OfxResult<T> = Result<T, OfxStatus>;
 
-// bindgen can't import these
-#[allow(dead_code)]
-mod OfxStat {
-    use std::ffi::c_int;
-
-    pub const kOfxStatFailed: c_int = 1;
-    pub const kOfxStatErrFatal: c_int = 2;
-    pub const kOfxStatErrUnknown: c_int = 3;
-    pub const kOfxStatErrMissingHostFeature: c_int = 4;
-    pub const kOfxStatErrUnsupported: c_int = 5;
-    pub const kOfxStatErrExists: c_int = 6;
-    pub const kOfxStatErrFormat: c_int = 7;
-    pub const kOfxStatErrMemory: c_int = 8;
-    pub const kOfxStatErrBadHandle: c_int = 9;
-    pub const kOfxStatErrBadIndex: c_int = 10;
-    pub const kOfxStatErrValue: c_int = 11;
-    pub const kOfxStatReplyYes: c_int = 12;
-    pub const kOfxStatReplyNo: c_int = 13;
-    pub const kOfxStatReplyDefault: c_int = 14;
-}
-
 impl SharedData {
     pub unsafe fn new(host_info: HostInfo) -> OfxResult<Self> {
         let property_suite = (host_info.fetchSuite)(
@@ -202,12 +181,12 @@ unsafe fn action_load() -> OfxResult<()> {
         .propGetInt
         .ok_or(OfxStat::kOfxStatFailed)?;
     let mut supports_multiple_clip_depths: c_int = 0;
-    propGetInt(
+    ofx_err(propGetInt(
         data.host_info.host as *const _ as _,
         kOfxImageEffectPropSupportsMultipleClipDepths.as_ptr(),
         0,
         &mut supports_multiple_clip_depths,
-    );
+    ))?;
     data.supports_multiple_clip_depths
         .store(supports_multiple_clip_depths != 0, Ordering::Release);
 
@@ -217,10 +196,12 @@ unsafe fn action_load() -> OfxResult<()> {
 unsafe fn action_describe(descriptor: OfxImageEffectHandle) -> OfxResult<()> {
     let data = shared_data.get().ok_or(OfxStat::kOfxStatFailed)?;
     let mut effectProps: OfxPropertySetHandle = ptr::null_mut();
-    (data
+    ofx_err((data
         .image_effect_suite
         .getPropertySet
-        .ok_or(OfxStat::kOfxStatFailed)?)(descriptor, &mut effectProps);
+        .ok_or(OfxStat::kOfxStatFailed)?)(
+        descriptor, &mut effectProps
+    ))?;
 
     let propSetString = data
         .property_suite
@@ -231,70 +212,80 @@ unsafe fn action_describe(descriptor: OfxImageEffectHandle) -> OfxResult<()> {
         .propSetInt
         .ok_or(OfxStat::kOfxStatFailed)?;
 
-    propSetString(effectProps, kOfxPropLabel.as_ptr(), 0, c"NTSC-rs".as_ptr());
+    ofx_err(propSetString(
+        effectProps,
+        kOfxPropLabel.as_ptr(),
+        0,
+        c"NTSC-rs".as_ptr(),
+    ))?;
 
-    propSetString(
+    ofx_err(propSetString(
         effectProps,
         kOfxImageEffectPluginPropGrouping.as_ptr(),
         0,
         c"Filter".as_ptr(),
-    );
+    ))?;
 
-    propSetString(
+    ofx_err(propSetString(
         effectProps,
         kOfxImageEffectPropSupportedContexts.as_ptr(),
         0,
         kOfxImageEffectContextFilter.as_ptr(),
-    );
+    ))?;
     // TODO needed for resolve support(?)
-    propSetString(
+    ofx_err(propSetString(
         effectProps,
         kOfxImageEffectPropSupportedContexts.as_ptr(),
         1,
         kOfxImageEffectContextGeneral.as_ptr(),
-    );
+    ))?;
 
-    propSetString(
+    ofx_err(propSetString(
         effectProps,
         kOfxImageEffectPropSupportedPixelDepths.as_ptr(),
         0,
         kOfxBitDepthFloat.as_ptr(),
-    );
-    propSetString(
+    ))?;
+    ofx_err(propSetString(
         effectProps,
         kOfxImageEffectPropSupportedPixelDepths.as_ptr(),
         1,
         kOfxBitDepthShort.as_ptr(),
-    );
-    propSetString(
+    ))?;
+    ofx_err(propSetString(
         effectProps,
         kOfxImageEffectPropSupportedPixelDepths.as_ptr(),
         2,
         kOfxBitDepthByte.as_ptr(),
-    );
+    ))?;
 
     // TODO: is this wrong?
-    propSetString(
+    ofx_err(propSetString(
         effectProps,
         kOfxImageEffectPluginRenderThreadSafety.as_ptr(),
         0,
         kOfxImageEffectRenderFullySafe.as_ptr(),
-    );
+    ))?;
     // We'll manage threading ourselves
-    propSetInt(
+    ofx_err(propSetInt(
         effectProps,
         kOfxImageEffectPluginPropHostFrameThreading.as_ptr(),
         0,
         0,
-    );
+    ))?;
     // We need to operate on the whole image at once
-    propSetInt(effectProps, kOfxImageEffectPropSupportsTiles.as_ptr(), 0, 0);
+    ofx_err(propSetInt(
+        effectProps,
+        kOfxImageEffectPropSupportsTiles.as_ptr(),
+        0,
+        0,
+    ))?;
 
     Ok(())
 }
 
-fn ofx_err(code: c_int) -> OfxResult<()> {
-    match code {
+fn ofx_err(code: OfxStatus) -> OfxResult<()> {
+    match code.0 {
         0 => Ok(()),
         _ => Err(code),
     }
@@ -700,7 +691,7 @@ unsafe fn action_describe_in_context(descriptor: OfxImageEffectHandle) -> OfxRes
         kOfxImageComponentRGB.as_ptr(),
     ))?;
 
-    clipDefine(descriptor, c"Source".as_ptr(), &mut props);
+    ofx_err(clipDefine(descriptor, c"Source".as_ptr(), &mut props))?;
     if props.is_null() {
         return Err(OfxStat::kOfxStatFailed);
     }
@@ -796,12 +787,12 @@ unsafe fn action_get_regions_of_interest(
         .ok_or(OfxStat::kOfxStatFailed)?;
 
     let mut sourceClip: OfxImageClipHandle = ptr::null_mut();
-    clipGetHandle(
+    ofx_err(clipGetHandle(
         descriptor,
         c"Source".as_ptr(),
         &mut sourceClip,
         ptr::null_mut(),
-    );
+    ))?;
     let mut sourceRoD = OfxRectD {
         x1: 0.0,
         x2: 0.0,
@@ -809,15 +800,15 @@ unsafe fn action_get_regions_of_interest(
         y2: 0.0,
     };
     let mut time: OfxTime = 0.0;
-    propGetDouble(inArgs, kOfxPropTime.as_ptr(), 0, &mut time);
-    clipGetRegionOfDefinition(sourceClip, time, &mut sourceRoD);
+    ofx_err(propGetDouble(inArgs, kOfxPropTime.as_ptr(), 0, &mut time))?;
+    ofx_err(clipGetRegionOfDefinition(sourceClip, time, &mut sourceRoD))?;
 
-    propSetDoubleN(
+    ofx_err(propSetDoubleN(
         outArgs,
         c"OfxImageClipPropRoI_Source".as_ptr(),
         4,
         ptr::addr_of_mut!(sourceRoD) as *mut _,
-    );
+    ))?;
 
     Ok(())
 }
@@ -833,13 +824,18 @@ unsafe fn action_get_clip_preferences(outArgs: OfxPropertySetHandle) -> OfxResul
         .propSetString
         .ok_or(OfxStat::kOfxStatFailed)?;
 
-    propSetInt(outArgs, kOfxImageEffectFrameVarying.as_ptr(), 0, 1);
-    propSetString(
+    ofx_err(propSetInt(
+        outArgs,
+        kOfxImageEffectFrameVarying.as_ptr(),
+        0,
+        1,
+    ))?;
+    ofx_err(propSetString(
         outArgs,
         kOfxImageEffectPropPreMultiplication.as_ptr(),
         0,
         kOfxImageOpaque.as_ptr(),
-    );
+    ))?;
 
     Ok(())
 }
@@ -890,7 +886,12 @@ unsafe fn update_controls_disabled(
         }
         let mut prop_set: OfxPropertySetHandle = ptr::null_mut();
         ofx_err(paramGetPropertySet(param, &mut prop_set))?;
-        propSetInt(prop_set, kOfxParamPropEnabled.as_ptr(), 0, enabled as i32);
+        ofx_err(propSetInt(
+            prop_set,
+            kOfxParamPropEnabled.as_ptr(),
+            0,
+            enabled as i32,
+        ))?;
     }
 
     Ok(())
@@ -1004,7 +1005,7 @@ unsafe fn action_instance_changed(
     ofx_err(getParamSet(descriptor, &mut param_set))?;
 
     let mut time: f64 = 0.0;
-    propGetDouble(inArgs, kOfxPropTime.as_ptr(), 0, &mut time);
+    ofx_err(propGetDouble(inArgs, kOfxPropTime.as_ptr(), 0, &mut time))?;
 
     if CStr::from_ptr(target_type) == kOfxTypeParameter {
         let mut target_name: *mut c_char = ptr::null_mut();
@@ -1119,7 +1120,9 @@ impl Drop for OfxClipImage {
         let data = shared_data.get().unwrap();
         let clipReleaseImage = data.image_effect_suite.clipReleaseImage.unwrap();
 
-        unsafe { clipReleaseImage(self.0) };
+        unsafe {
+            let _ = clipReleaseImage(self.0);
+        };
     }
 }
 
@@ -1151,7 +1154,7 @@ unsafe impl Allocator for OfxAllocator {
     unsafe fn deallocate(&self, ptr: NonNull<u8>, _layout: Layout) {
         let data = shared_data.get().unwrap();
         let memoryFree = data.memory_suite.memoryFree.unwrap();
-        memoryFree(ptr.as_ptr() as *mut _);
+        let _ = memoryFree(ptr.as_ptr() as *mut _);
     }
 }
 
@@ -1415,78 +1418,89 @@ unsafe fn action_render(
         y2: 0,
     };
 
-    propGetDouble(inArgs, kOfxPropTime.as_ptr(), 0, &mut time);
+    ofx_err(propGetDouble(inArgs, kOfxPropTime.as_ptr(), 0, &mut time))?;
     // I'm sure nothing bad will happen here as a result of propGetIntN writing past the pointer it was given
-    propGetIntN(
+    ofx_err(propGetIntN(
         inArgs,
         kOfxImageEffectPropRenderWindow.as_ptr(),
         4,
         ptr::addr_of_mut!(renderWindow) as *mut _,
-    );
+    ))?;
 
     let mut outputClip: OfxImageClipHandle = ptr::null_mut();
-    clipGetHandle(
+    ofx_err(clipGetHandle(
         descriptor,
         c"Output".as_ptr(),
         &mut outputClip,
         ptr::null_mut(),
-    );
+    ))?;
     let mut sourceClip: OfxImageClipHandle = ptr::null_mut();
-    clipGetHandle(
+    ofx_err(clipGetHandle(
         descriptor,
         c"Source".as_ptr(),
         &mut sourceClip,
         ptr::null_mut(),
-    );
+    ))?;
 
     let mut outputImg: OfxPropertySetHandle = ptr::null_mut();
-    clipGetImage(outputClip, time, ptr::null_mut(), &mut outputImg);
+    ofx_err(clipGetImage(
+        outputClip,
+        time,
+        ptr::null_mut(),
+        &mut outputImg,
+    ))?;
     let mut sourceImg: OfxPropertySetHandle = ptr::null_mut();
-    clipGetImage(sourceClip, time, ptr::null_mut(), &mut sourceImg);
+    ofx_err(clipGetImage(
+        sourceClip,
+        time,
+        ptr::null_mut(),
+        &mut sourceImg,
+    ))?;
+
     let outputImg = OfxClipImage(outputImg);
     let sourceImg = OfxClipImage(sourceImg);
 
     let num_source_components = {
         let mut cstr: *mut c_char = ptr::null_mut();
-        propGetString(
+        ofx_err(propGetString(
             sourceImg.0,
             kOfxImageEffectPropComponents.as_ptr(),
             0,
             &mut cstr,
-        );
+        ))?;
         SupportedImageComponents::try_from(CStr::from_ptr(cstr))
     }?;
 
     let num_output_components = {
         let mut cstr: *mut c_char = ptr::null_mut();
-        propGetString(
+        ofx_err(propGetString(
             outputImg.0,
             kOfxImageEffectPropComponents.as_ptr(),
             0,
             &mut cstr,
-        );
+        ))?;
         SupportedImageComponents::try_from(CStr::from_ptr(cstr))
     }?;
 
     let source_pixel_depth = {
         let mut cstr: *mut c_char = ptr::null_mut();
-        propGetString(
+        ofx_err(propGetString(
             sourceImg.0,
             kOfxImageEffectPropPixelDepth.as_ptr(),
             0,
             &mut cstr,
-        );
+        ))?;
         SupportedPixelDepth::try_from(CStr::from_ptr(cstr))
     }?;
 
     let output_pixel_depth = {
         let mut cstr: *mut c_char = ptr::null_mut();
-        propGetString(
+        ofx_err(propGetString(
             outputImg.0,
             kOfxImageEffectPropPixelDepth.as_ptr(),
             0,
             &mut cstr,
-        );
+        ))?;
         SupportedPixelDepth::try_from(CStr::from_ptr(cstr))
     }?;
 
@@ -1498,19 +1512,24 @@ unsafe fn action_render(
         y2: 0,
     };
     let mut dstPtr: *mut c_void = ptr::null_mut();
-    propGetInt(
+    ofx_err(propGetInt(
         outputImg.0,
         kOfxImagePropRowBytes.as_ptr(),
         0,
         &mut dstRowBytes,
-    );
-    propGetIntN(
+    ))?;
+    ofx_err(propGetIntN(
         outputImg.0,
         kOfxImagePropBounds.as_ptr(),
         4,
         ptr::addr_of_mut!(dstBounds) as *mut _,
-    );
-    propGetPointer(outputImg.0, kOfxImagePropData.as_ptr(), 0, &mut dstPtr);
+    ))?;
+    ofx_err(propGetPointer(
+        outputImg.0,
+        kOfxImagePropData.as_ptr(),
+        0,
+        &mut dstPtr,
+    ))?;
 
     let mut srcRowBytes: c_int = 0;
     let mut srcBounds = OfxRectI {
@@ -1520,19 +1539,24 @@ unsafe fn action_render(
         y2: 0,
     };
     let mut srcPtr: *mut c_void = ptr::null_mut();
-    propGetInt(
+    ofx_err(propGetInt(
         sourceImg.0,
         kOfxImagePropRowBytes.as_ptr(),
         0,
         &mut srcRowBytes,
-    );
-    propGetIntN(
+    ))?;
+    ofx_err(propGetIntN(
         sourceImg.0,
         kOfxImagePropBounds.as_ptr(),
         4,
         ptr::addr_of_mut!(srcBounds) as *mut _,
-    );
-    propGetPointer(sourceImg.0, kOfxImagePropData.as_ptr(), 0, &mut srcPtr);
+    ))?;
+    ofx_err(propGetPointer(
+        sourceImg.0,
+        kOfxImagePropData.as_ptr(),
+        0,
+        &mut srcPtr,
+    ))?;
 
     let mut param_set: OfxParamSetHandle = ptr::null_mut();
     ofx_err(getParamSet(descriptor, &mut param_set))?;
@@ -1566,18 +1590,18 @@ unsafe fn action_render(
         .as_ref()
         .is_some_and(|scale| scale.scale_with_video_size)
     {
-        propGetDouble(
+        ofx_err(propGetDouble(
             sourceImg.0,
             kOfxImageEffectPropRenderScale.as_ptr(),
             0,
             &mut proxy_scale_x,
-        );
-        propGetDouble(
+        ))?;
+        ofx_err(propGetDouble(
             sourceImg.0,
             kOfxImageEffectPropRenderScale.as_ptr(),
             1,
             &mut proxy_scale_y,
-        );
+        ))?;
         proxy_scale_x = proxy_scale_x.recip();
         proxy_scale_y = proxy_scale_y.recip();
     }
@@ -1657,7 +1681,7 @@ unsafe extern "C" fn main_entry(
     };
 
     match return_status {
-        Ok(_) => kOfxStatOK as i32,
+        Ok(_) => OfxStat::kOfxStatOK,
         Err(e) => e,
     }
 }
