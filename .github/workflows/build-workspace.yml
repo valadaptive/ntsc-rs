@@ -30,7 +30,7 @@ jobs:
       uses: awalsh128/cache-apt-pkgs-action@v1
       with:
         packages: libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libatk1.0-dev libgtk-3-dev pkg-config
-        version: 3.0
+        version: 4.0
 
     - uses: Swatinem/rust-cache@v2
 
