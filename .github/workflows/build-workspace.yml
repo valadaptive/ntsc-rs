@@ -63,7 +63,7 @@ jobs:
         path: ntsc-rs-linux-standalone
 
   build-windows:
-    runs-on: windows-2025
+    runs-on: windows-2022
 
     steps:
     - name: Checkout
