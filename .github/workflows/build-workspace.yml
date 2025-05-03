@@ -61,32 +61,36 @@ jobs:
         path: ntsc-rs-linux-standalone
 
   build-windows:
-    runs-on: windows-2019
+    runs-on: windows-2022
 
     steps:
-      # This is an attempt to make the Windows CI image faster. Not sure if it works.
-    - name: Disable Defender
-      run: Set-MpPreference -DisableRealtimeMonitoring $true
-
     - name: Checkout
       uses: actions/checkout@v4
       with:
         submodules: recursive
 
-      # Put the Chocolatey temp directory in a place where we can use the cache action to save and restore it.
-    - name: Set chocolatey temp directory
+    - name: Set up workspace path
+      run: echo "FAST_WORKSPACE=D:\workspace" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+    - name: Copy Git repo to D drive
       run: |
-        choco config set cacheLocation --value "$Env:GITHUB_WORKSPACE\chocolatey_cache"
-        echo "CHOCO_TEMP=$Env:GITHUB_WORKSPACE\chocolatey_cache" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+        Copy-Item -Path "${{ github.workspace }}" -Destination "${{ env.FAST_WORKSPACE }}" -Recurse
+
+      # Put the Chocolatey temp directory in a place where we can use the cache action to save and restore it.
+    - name: Set Chocolatey temp directory
+      run: |
+        choco config set cacheLocation --value "D:\chocolatey_cache"
+        echo "CHOCO_TEMP=D:\chocolatey_cache" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+
+    - name: Get current GStreamer package version
+      run: echo "GST_PACKAGE_VERSION=$(choco info -y --limit-output gstreamer)" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
 
     - name: Restore Chocolatey cache
       id: choco-cache-restore
       uses: actions/cache/restore@v4
       with:
         path: ${{ env.CHOCO_TEMP }}
-        # TODO: Why did I set up the cache key like this?
-        key: 'this should never hit'
-        restore-keys: choco-${{ github.job }}-
+        key: choco-${{ github.job }}-${{ env.GST_PACKAGE_VERSION }}
 
     - name: Install gstreamer
       # Some things to note:
@@ -95,7 +99,7 @@ jobs:
       #   seemingly chosen at random.
       # - We need to export said path to the environment variables so that later steps can use it.
       run: |
-        choco install gstreamer gstreamer-devel
+        choco install -y gstreamer gstreamer-devel
         Import-Module $env:ChocolateyInstall\helpers\chocolateyProfile.psm1
         refreshenv
         echo "$($Env:GSTREAMER_1_0_ROOT_MSVC_X86_64)bin"
@@ -107,28 +111,36 @@ jobs:
       uses: actions/cache/save@v4
       with:
         path: ${{ env.CHOCO_TEMP }}
-        # TODO: Pretty sure I'm misunderstanding the point of hashFiles here.
-        key: choco-${{ github.job }}-${{ hashFiles(format('{0}\**\*', env.CHOCO_TEMP)) }}
+        key: choco-${{ github.job }}-${{ env.GST_PACKAGE_VERSION }}
 
     - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: ${{ env.FAST_WORKSPACE }}
 
     - name: Build GUI
       run: cargo build --release -p gui
+      working-directory: ${{ env.FAST_WORKSPACE }}
 
     - name: Build OpenFX plugin
       run: cargo xtask build-ofx-plugin --release
+      working-directory: ${{ env.FAST_WORKSPACE }}
 
     - name: Build After Effects plugin
       run: |
         cargo build --release -p ae-plugin
         cp target\release\ae_plugin.dll .\ntsc-rs-ae.aex
+      working-directory: ${{ env.FAST_WORKSPACE }}
+
+    - name: Package OpenFX plugin
+      run: cargo xtask build-ofx-plugin --release
+      working-directory: ${{ env.FAST_WORKSPACE }}
 
     - name: Archive Windows OpenFX plugin
       uses: actions/upload-artifact@v4
       if: ${{ github.ref_type == 'tag' }}
       with:
         name: ntsc-rs-windows-openfx
-        path: crates/openfx-plugin/build/
+        path: ${{ env.FAST_WORKSPACE }}/crates/openfx-plugin/build/
 
     - name: Package Windows binary
       if: ${{ github.ref_type == 'tag' }}
@@ -143,20 +155,21 @@ jobs:
         cp ..\target\release\ntsc-rs-standalone.exe .\bin\
         cp ..\target\release\ntsc-rs-cli.exe .\bin\
         cp ..\target\release\ntsc-rs-launcher.exe .\
+      working-directory: ${{ env.FAST_WORKSPACE }}
 
     - name: Archive Windows binary
       uses: actions/upload-artifact@v4
       if: ${{ github.ref_type == 'tag' }}
       with:
         name: ntsc-rs-windows-standalone
-        path: ntsc-rs-windows-standalone
+        path: ${{ env.FAST_WORKSPACE }}/ntsc-rs-windows-standalone
 
     - name: Archive Windows After Effects plugin
       uses: actions/upload-artifact@v4
       if: ${{ github.ref_type == 'tag' }}
       with:
         name: ntsc-rs-windows-afterfx
-        path: .\ntsc-rs-ae.aex
+        path: ${{ env.FAST_WORKSPACE }}/ntsc-rs-ae.aex
 
   build-macos:
     runs-on: macos-14
