@@ -119,9 +119,17 @@ jobs:
       with:
         workspaces: ${{ env.FAST_WORKSPACE }}
 
-    - name: Build packages
+    - name: Build GUI
+      run: cargo build --release -p gui
+      working-directory: ${{ env.FAST_WORKSPACE }}
+
+    - name: Build OpenFX plugin
+      run: cargo xtask build-ofx-plugin --release
+      working-directory: ${{ env.FAST_WORKSPACE }}
+
+    - name: Build After Effects plugin
       run: |
-        cargo build --release -p gui -p openfx-plugin -p ae-plugin
+        cargo build --release -p ae-plugin
         cp target\release\ae_plugin.dll .\ntsc-rs-ae.aex
       working-directory: ${{ env.FAST_WORKSPACE }}
 
