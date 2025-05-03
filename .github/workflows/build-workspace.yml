@@ -79,19 +79,20 @@ jobs:
         Copy-Item -Path "${{ github.workspace }}" -Destination "${{ env.FAST_WORKSPACE }}" -Recurse
 
       # Put the Chocolatey temp directory in a place where we can use the cache action to save and restore it.
-    - name: Set chocolatey temp directory
+    - name: Set Chocolatey temp directory
       run: |
         choco config set cacheLocation --value "D:\chocolatey_cache"
         echo "CHOCO_TEMP=D:\chocolatey_cache" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+
+    - name: Get current GStreamer package version
+      run: echo "GST_PACKAGE_VERSION=$(choco info -y --limit-output gstreamer)" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
 
     - name: Restore Chocolatey cache
       id: choco-cache-restore
       uses: actions/cache/restore@v4
       with:
         path: ${{ env.CHOCO_TEMP }}
-        # TODO: Why did I set up the cache key like this?
-        key: 'this should never hit'
-        restore-keys: choco-${{ github.job }}-
+        key: choco-${{ github.job }}-${{ env.GST_PACKAGE_VERSION }}
 
     - name: Install gstreamer
       # Some things to note:
@@ -100,7 +101,7 @@ jobs:
       #   seemingly chosen at random.
       # - We need to export said path to the environment variables so that later steps can use it.
       run: |
-        choco install gstreamer gstreamer-devel
+        choco install -y gstreamer gstreamer-devel
         Import-Module $env:ChocolateyInstall\helpers\chocolateyProfile.psm1
         refreshenv
         echo "$($Env:GSTREAMER_1_0_ROOT_MSVC_X86_64)bin"
@@ -112,8 +113,7 @@ jobs:
       uses: actions/cache/save@v4
       with:
         path: ${{ env.CHOCO_TEMP }}
-        # TODO: Pretty sure I'm misunderstanding the point of hashFiles here.
-        key: choco-${{ github.job }}-${{ hashFiles(format('{0}\**\*', env.CHOCO_TEMP)) }}
+        key: choco-${{ github.job }}-${{ env.GST_PACKAGE_VERSION }}
 
     - uses: Swatinem/rust-cache@v2
       with:
