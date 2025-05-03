@@ -260,3 +260,4 @@ jobs:
       with:
         artifacts: "./artifacts/ntsc-rs-*.zip,./artifacts/ntsc-rs-macos/ntsc-rs-*.pkg"
         draft: true
+        bodyFile: ./.github/RELEASE_TEMPLATE.md
