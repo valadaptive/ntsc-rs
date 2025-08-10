@@ -1627,11 +1627,6 @@ unsafe extern "C" fn main_entry(
     let effect = handle as OfxImageEffectHandle;
     let action = CStr::from_ptr(action);
 
-    // Needed so Resolve doesn't swallow the panic info
-    std::panic::set_hook(Box::new(|info| {
-        println!("{:?}", info);
-    }));
-
     let return_status = if action == kOfxActionLoad {
         action_load()
     } else if action == kOfxActionDescribe {
@@ -1671,6 +1666,11 @@ pub extern "C" fn OfxGetPlugin(nth: c_int) -> *const OfxPlugin {
     if nth != 0 {
         return ptr::null();
     }
+
+    // Needed so Resolve doesn't swallow the panic info
+    std::panic::set_hook(Box::new(|info| {
+        println!("{:?}", info);
+    }));
 
     // Use the minor and patch versions for the OFX major and minor versions respectively so this can still be a
     // 0.x crate (may contain breaking changes)
