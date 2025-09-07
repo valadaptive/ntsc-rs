@@ -602,7 +602,7 @@ impl<T: Settings> SettingsList<T> {
         Ok(dst_settings)
     }
 
-    pub fn all_descriptors(&self) -> SettingDescriptors<T> {
+    pub fn all_descriptors(&self) -> SettingDescriptors<'_, T> {
         SettingDescriptors::new(self)
     }
 }

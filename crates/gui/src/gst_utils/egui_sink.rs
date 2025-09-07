@@ -105,7 +105,7 @@ impl EguiSink {
 
         let width = vframe.width() as usize;
         let height = vframe.height() as usize;
-        let mut image = ColorImage::new([width, height], Color32::BLACK);
+        let mut image = ColorImage::filled([width, height], Color32::BLACK);
         self.apply_effect(vframe, &mut image, None)?;
         Ok(image)
     }
@@ -118,7 +118,7 @@ impl EguiSink {
 
         let width = vframe.width() as usize;
         let height = vframe.height() as usize;
-        let mut image = ColorImage::new([width, height], Color32::BLACK);
+        let mut image = ColorImage::filled([width, height], Color32::BLACK);
 
         match *self.preview_mode.lock().unwrap() {
             EffectPreviewSetting::Enabled => {

@@ -1980,7 +1980,7 @@ impl NtscApp {
                                     let use_nearest = pixel_size.min_elem() >= 2.0;
                                     preview.set_partial(
                                         [0, 0],
-                                        ColorImage::new([0, 0], Color32::RED),
+                                        ColorImage::filled([0, 0], Color32::RED),
                                         TextureOptions {
                                             magnification: if use_nearest {
                                                 egui::TextureFilter::Nearest
@@ -2149,11 +2149,11 @@ impl NtscApp {
                                 }) as _)
                             });
 
-                            ui.close_menu();
+                            ui.close();
                         }
                         if ui.button("Quit").clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                            ui.close_menu();
+                            ui.close();
                         }
                     });
 
@@ -2166,7 +2166,7 @@ impl NtscApp {
                             .clicked()
                         {
                             self.undo();
-                            ui.close_menu();
+                            ui.close();
                         }
                         if ui
                             .add_enabled(
@@ -2176,7 +2176,7 @@ impl NtscApp {
                             .clicked()
                         {
                             self.redo();
-                            ui.close_menu();
+                            ui.close();
                         }
                     });
 
@@ -2213,7 +2213,7 @@ impl NtscApp {
                                 // Results in a bit of "theme tearing" since every widget rendered after this will use a
                                 // different color scheme than those rendered before it. Not really noticeable in practice.
                                 ui.ctx().set_theme(theme_preference);
-                                ui.close_menu();
+                                ui.close();
                             }
                         });
 
@@ -2232,7 +2232,7 @@ impl NtscApp {
                             }
                             if changed {
                                 ui.ctx().set_zoom_factor(zoom);
-                                ui.close_menu()
+                                ui.close()
                             }
                         });
                     });
@@ -2242,22 +2242,22 @@ impl NtscApp {
                             ui.ctx().open_url(egui::OpenUrl::new_tab(
                                 "https://ntsc.rs/docs/standalone-application/",
                             ));
-                            ui.close_menu();
+                            ui.close();
                         }
 
                         if ui.button("License").clicked() {
                             self.license_dialog_open = true;
-                            ui.close_menu();
+                            ui.close();
                         }
 
                         if ui.button("Third-Party Licenses").clicked() {
                             self.third_party_licenses_dialog_open = true;
-                            ui.close_menu();
+                            ui.close();
                         }
 
                         if ui.button("About + Credits").clicked() {
                             self.credits_dialog_open = true;
-                            ui.close_menu();
+                            ui.close();
                         }
                     });
 

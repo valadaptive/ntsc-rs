@@ -212,7 +212,7 @@ impl PresetsState {
                                     }
                                     name_edit.request_focus();
                                 } else {
-                                    let preset_label = ui.add(egui::SelectableLabel::new(
+                                    let preset_label = ui.add(egui::Button::selectable(
                                         selected,
                                         file_name.as_str(),
                                     ));
@@ -222,12 +222,12 @@ impl PresetsState {
                                             action = Some(Action::DeletePreset {
                                                 path: preset_path.to_owned(),
                                             });
-                                            ui.close_menu();
+                                            ui.close();
                                         }
 
                                         if ui.button("Rename").clicked() {
                                             *renamed_preset = Some((index, file_name.to_string()));
-                                            ui.close_menu();
+                                            ui.close();
                                         }
                                     });
 
