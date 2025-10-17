@@ -7,7 +7,6 @@ use std::{
 use async_executor::{Executor, Task};
 use eframe::egui;
 use futures_lite::{Future, FutureExt};
-use gstreamer::glib::clone::Downgrade;
 use log::trace;
 
 use super::{AppFn, ApplessFn, NtscApp};
@@ -96,7 +95,7 @@ impl AppExecutor {
     }
 
     pub fn make_spawner(&self) -> AppTaskSpawner {
-        AppTaskSpawner(self.0.downgrade())
+        AppTaskSpawner(Arc::downgrade(&self.0))
     }
 }
 
