@@ -2095,7 +2095,7 @@ impl NtscApp {
 
         if self.image_sequence_dialog_queued_render_job.is_some() {
             let modal = egui::Modal::new(egui::Id::new("directory_not_empty")).show(ctx, |ui| {
-                ui.set_max_width(ctx.input(|i| i.screen_rect().width() - 24.0).min(400.0));
+                ui.set_max_width(ctx.input(|i| i.content_rect().width() - 24.0).min(400.0));
                 ui.set_min_width(200.0);
                 ui.heading("Output directory is not empty");
                 ui.label(
