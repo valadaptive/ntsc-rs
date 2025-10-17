@@ -16,11 +16,11 @@ pub mod elements {
     }
 
     glib::wrapper! {
-        pub struct NtscFilter(ObjectSubclass<ntscrs_filter::NtscFilter>) @extends gstreamer_base::BaseTransform, gstreamer::Element, gstreamer::Object;
+        pub struct NtscFilter(ObjectSubclass<ntscrs_filter::NtscFilter>) @extends gstreamer_video::VideoFilter, gstreamer_base::BaseTransform, gstreamer::Element, gstreamer::Object;
     }
 
     glib::wrapper! {
-        pub struct VideoPadFilter(ObjectSubclass<video_pad_filter::VideoPadFilter>) @extends gstreamer_base::BaseTransform, gstreamer::Element, gstreamer::Object;
+        pub struct VideoPadFilter(ObjectSubclass<video_pad_filter::VideoPadFilter>) @extends gstreamer_video::VideoFilter, gstreamer_base::BaseTransform, gstreamer::Element, gstreamer::Object;
     }
 }
 

@@ -13,11 +13,11 @@ env_logger = "0.11.3"
 fontique = { git = "https://github.com/valadaptive/parley", rev = "a3b6cee" }
 snafu = "0.8.3"
 logos = "0.15"
-gstreamer = {version = "0.23", features = ["serde"]}
-gstreamer-base = "0.23"
-gstreamer-video = "0.23"
-gstreamer-pbutils = "0.23"
-gst-plugin-webp = { version = "0.13.4", features = ["static"] }
+gstreamer = {version = "0.24", features = ["serde"]}
+gstreamer-base = "0.24"
+gstreamer-video = "0.24"
+gstreamer-pbutils = "0.24"
+gst-plugin-webp = { version = "0.14.1", features = ["static"] }
 futures-lite = "2.3.0"
 async-executor = "1.12.0"
 log = "0.4.20"
