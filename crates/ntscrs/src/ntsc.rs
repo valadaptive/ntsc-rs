@@ -5,14 +5,13 @@ use std::{
 use core::f32::consts::PI;
 use rand::{Rng, RngCore, SeedableRng};
 use rand_xoshiro::Xoshiro256PlusPlus;
-use rayon::prelude::*;
 use simdnoise::{NoiseBuilder, Settings as NoiseSettings, SimplexSettings};
 
 use crate::{
     filter::TransferFunction,
     random::{Geometric, Seeder},
     shift::{BoundaryHandling, shift_row, shift_row_to},
-    thread_pool::with_thread_pool,
+    thread_pool::{ZipChunks, with_thread_pool},
     yiq_fielding::{BlitInfo, PixelFormat, YiqField, YiqOwned, YiqView},
 };
 
@@ -132,26 +131,24 @@ fn filter_plane_with_rows<const ROWS: usize>(
     scale: f32,
     delay: usize,
 ) {
-    let mut row_chunks = plane.par_chunks_exact_mut(width * ROWS);
-
-    // Process the remainder of the rows. `for_each` consumes the iterator, so we have to at least call `take_remainder`
-    // before that. We might as well do the processing while we're at it.
-    row_chunks
-        .take_remainder()
-        .par_chunks_exact_mut(width)
-        .for_each(|row| {
-            let initial = match initial {
-                InitialCondition::Zero => 0.0,
-                InitialCondition::Constant(c) => c,
-                InitialCondition::FirstSample => row[0],
-            };
-            filter.filter_signal_in_place::<1>(&mut [row], [initial], scale, delay)
-        });
+    let row_chunks = ZipChunks::new([plane], width * ROWS);
 
     // Process the row in chunks, each `ROWS` rows tall.
-    row_chunks.for_each(|rows| {
+    row_chunks.par_for_each(|_, [rows]| {
         let mut row_chunks: Vec<&mut [f32]> = rows.chunks_exact_mut(width).collect();
-        let rows: &mut [&mut [f32]; ROWS] = row_chunks.as_mut_slice().try_into().unwrap();
+        let Ok(rows): Result<&mut [&mut [f32]; ROWS], _> = row_chunks.as_mut_slice().try_into()
+        else {
+            // Handling the remainder
+            row_chunks.iter_mut().for_each(|row| {
+                let initial = match initial {
+                    InitialCondition::Zero => 0.0,
+                    InitialCondition::Constant(c) => c,
+                    InitialCondition::FirstSample => row[0],
+                };
+                filter.filter_signal_in_place::<1>(&mut [row], [initial], scale, delay)
+            });
+            return;
+        };
 
         let mut initial_rows: [f32; ROWS] = [0f32; ROWS];
         for i in 0..ROWS {
@@ -185,27 +182,24 @@ fn luma_filter(frame: &mut YiqView, filter_mode: LumaLowpass) {
     match filter_mode {
         LumaLowpass::None => {}
         LumaLowpass::Box => {
-            frame
-                .y
-                .par_chunks_exact_mut(frame.dimensions.0)
-                .for_each(|y| {
-                    let mut delay = VecDeque::<f32>::with_capacity(4);
-                    delay.push_back(16.0 / 255.0);
-                    delay.push_back(16.0 / 255.0);
-                    delay.push_back(y[0]);
-                    delay.push_back(y[1]);
-                    let mut sum: f32 = delay.iter().sum();
-                    let width = y.len();
+            ZipChunks::new([frame.y], frame.dimensions.0).par_for_each(|_, [y]| {
+                let mut delay = VecDeque::<f32>::with_capacity(4);
+                delay.push_back(16.0 / 255.0);
+                delay.push_back(16.0 / 255.0);
+                delay.push_back(y[0]);
+                delay.push_back(y[1]);
+                let mut sum: f32 = delay.iter().sum();
+                let width = y.len();
 
-                    for index in 0..width {
-                        // Box-blur the signal.
-                        let c = y[usize::min(index + 2, width - 1)];
-                        sum -= delay.pop_front().unwrap();
-                        delay.push_back(c);
-                        sum += c;
-                        y[index] = sum * 0.25;
-                    }
-                });
+                for index in 0..width {
+                    // Box-blur the signal.
+                    let c = y[usize::min(index + 2, width - 1)];
+                    sum -= delay.pop_front().unwrap();
+                    delay.push_back(c);
+                    sum += c;
+                    y[index] = sum * 0.25;
+                }
+            });
         }
         LumaLowpass::Notch => filter_plane(
             frame.y,
@@ -283,18 +277,13 @@ fn chroma_into_luma(
 ) {
     let width = yiq.dimensions.0;
 
-    let y_lines = yiq.y.par_chunks_exact_mut(width);
-    let i_lines = yiq.i.par_chunks_exact_mut(width);
-    let q_lines = yiq.q.par_chunks_exact_mut(width);
+    let yiq_lines = ZipChunks::new([yiq.y, yiq.i, yiq.q], width);
 
-    y_lines
-        .zip(i_lines.zip(q_lines))
-        .enumerate()
-        .for_each(|(index, (y, (i, q)))| {
-            let xi = chroma_phase_shift(phase_shift, phase_offset, info.frame_num, index * 2);
+    yiq_lines.par_for_each(|index, [y, i, q]| {
+        let xi = chroma_phase_shift(phase_shift, phase_offset, info.frame_num, index * 2);
 
-            chroma_into_luma_line(y, i, q, xi);
-        });
+        chroma_into_luma_line(y, i, q, xi);
+    });
 }
 
 /// Demodulate the chrominance (I and Q) signals from a combined NTSC signal, looking at a single source pixel at the
@@ -363,20 +352,12 @@ fn luma_into_chroma(
 
     match filter_mode {
         ChromaDemodulationFilter::Box => {
-            let y_lines = yiq.y.par_chunks_exact_mut(width);
-            let i_lines = yiq.i.par_chunks_exact_mut(width);
-            let q_lines = yiq.q.par_chunks_exact_mut(width);
-            let scratch_lines = yiq.scratch.par_chunks_exact_mut(width);
+            let lines = ZipChunks::new([yiq.y, yiq.i, yiq.q, yiq.scratch], width);
+            lines.par_for_each(|index, [y, i, q, scratch]| {
+                let xi = chroma_phase_shift(phase_shift, phase_offset, info.frame_num, index * 2);
 
-            y_lines
-                .zip(i_lines.zip(q_lines.zip(scratch_lines)))
-                .enumerate()
-                .for_each(|(index, (y, (i, (q, scratch))))| {
-                    let xi =
-                        chroma_phase_shift(phase_shift, phase_offset, info.frame_num, index * 2);
-
-                    luma_into_chroma_line_box(y, i, q, scratch, xi);
-                });
+                luma_into_chroma_line_box(y, i, q, scratch, xi);
+            });
         }
         ChromaDemodulationFilter::Notch => {
             // Apply a notch filter to the signal to remove the high-frequency chroma carrier, and store it in the
@@ -386,23 +367,15 @@ fn luma_into_chroma(
             scratch.copy_from_slice(yiq.y);
             filter_plane(yiq.y, width, &filter, InitialCondition::Zero, 1.0, 0);
 
-            let y_lines = yiq.y.par_chunks_exact_mut(width);
-            let i_lines = yiq.i.par_chunks_exact_mut(width);
-            let q_lines = yiq.q.par_chunks_exact_mut(width);
-            let scratch_lines = scratch.par_chunks_exact_mut(width);
+            let lines = ZipChunks::new([yiq.y, yiq.i, yiq.q, yiq.scratch], width);
+            lines.par_for_each(|index, [y, i, q, scratch]| {
+                let xi = chroma_phase_shift(phase_shift, phase_offset, info.frame_num, index * 2);
 
-            y_lines
-                .zip(i_lines.zip(q_lines.zip(scratch_lines)))
-                .enumerate()
-                .for_each(|(index, (y, (i, (q, scratch))))| {
-                    let xi =
-                        chroma_phase_shift(phase_shift, phase_offset, info.frame_num, index * 2);
-
-                    for index in 0..width {
-                        let chroma = y[index] - scratch[index];
-                        demodulate_chroma(chroma, index, xi, i, q);
-                    }
-                });
+                for index in 0..width {
+                    let chroma = y[index] - scratch[index];
+                    demodulate_chroma(chroma, index, xi, i, q);
+                }
+            });
         }
         ChromaDemodulationFilter::OneLineComb => {
             let delay = &mut yiq.scratch;
@@ -412,73 +385,62 @@ fn luma_into_chroma(
             delay[0..width].copy_from_slice(&yiq.y[width..width * 2]);
             delay[width..].copy_from_slice(&yiq.y[0..yiq.y.len() - width]);
 
-            let y_lines = yiq.y.par_chunks_exact_mut(width);
-            let i_lines = yiq.i.par_chunks_exact_mut(width);
-            let q_lines = yiq.q.par_chunks_exact_mut(width);
-            let delay_lines = delay.par_chunks_exact_mut(width);
-            y_lines
-                .zip(i_lines.zip(q_lines.zip(delay_lines)))
-                .enumerate()
-                .for_each(|(line_index, (y, (i, (q, delay))))| {
-                    for index in 0..width {
-                        let blended = (y[index] + delay[index]) * 0.5;
-                        let chroma = blended - y[index];
-                        y[index] = blended;
-                        let xi = chroma_phase_shift(
-                            phase_shift,
-                            phase_offset,
-                            info.frame_num,
-                            line_index * 2,
-                        );
-                        demodulate_chroma(chroma, index, xi, i, q);
-                    }
-                });
+            let lines = ZipChunks::new([yiq.y, yiq.i, yiq.q, delay], width);
+            lines.par_for_each(|line_index, [y, i, q, delay]| {
+                for index in 0..width {
+                    let blended = (y[index] + delay[index]) * 0.5;
+                    let chroma = blended - y[index];
+                    y[index] = blended;
+                    let xi = chroma_phase_shift(
+                        phase_shift,
+                        phase_offset,
+                        info.frame_num,
+                        line_index * 2,
+                    );
+                    demodulate_chroma(chroma, index, xi, i, q);
+                }
+            });
         }
         ChromaDemodulationFilter::TwoLineComb => {
             let height = yiq.num_rows();
             let modulated = &mut yiq.scratch;
             modulated.copy_from_slice(yiq.y);
 
-            let y_lines = yiq.y.par_chunks_exact_mut(width);
-            let i_lines = yiq.i.par_chunks_exact_mut(width);
-            let q_lines = yiq.q.par_chunks_exact_mut(width);
-            y_lines
-                .zip(i_lines.zip(q_lines))
-                .enumerate()
-                .for_each(|(line_index, (y, (i, q)))| {
-                    // For the first line, both prev_line and next_line point to the second line. This effecively makes
-                    // it a one-line comb filter for that line. See the comment above in the one-line comb filter for
-                    // why we do this.
-                    let prev_index = if line_index == 0 { 1 } else { line_index - 1 };
+            let lines = ZipChunks::new([yiq.y, yiq.i, yiq.q], width);
+            lines.par_for_each(|line_index, [y, i, q]| {
+                // For the first line, both prev_line and next_line point to the second line. This effecively makes
+                // it a one-line comb filter for that line. See the comment above in the one-line comb filter for
+                // why we do this.
+                let prev_index = if line_index == 0 { 1 } else { line_index - 1 };
 
-                    // Similar for the last line.
-                    let next_index = if line_index == height - 1 {
-                        height - 2
-                    } else {
-                        line_index + 1
-                    };
+                // Similar for the last line.
+                let next_index = if line_index == height - 1 {
+                    height - 2
+                } else {
+                    line_index + 1
+                };
 
-                    let prev_line = &modulated[prev_index * width..(prev_index + 1) * width];
-                    let cur_line = &modulated[line_index * width..(line_index + 1) * width];
-                    let next_line = &modulated[next_index * width..(next_index + 1) * width];
+                let prev_line = &modulated[prev_index * width..(prev_index + 1) * width];
+                let cur_line = &modulated[line_index * width..(line_index + 1) * width];
+                let next_line = &modulated[next_index * width..(next_index + 1) * width];
 
-                    for sample_index in 0..width {
-                        let cur_sample = cur_line[sample_index];
-                        let blended = (cur_sample * 0.5)
-                            + (prev_line[sample_index] * 0.25)
-                            + (next_line[sample_index] * 0.25);
-                        let chroma = blended - cur_sample;
-                        y[sample_index] = blended;
+                for sample_index in 0..width {
+                    let cur_sample = cur_line[sample_index];
+                    let blended = (cur_sample * 0.5)
+                        + (prev_line[sample_index] * 0.25)
+                        + (next_line[sample_index] * 0.25);
+                    let chroma = blended - cur_sample;
+                    y[sample_index] = blended;
 
-                        let xi = chroma_phase_shift(
-                            phase_shift,
-                            phase_offset,
-                            info.frame_num,
-                            line_index * 2,
-                        );
-                        demodulate_chroma(chroma, sample_index, xi, i, q);
-                    }
-                });
+                    let xi = chroma_phase_shift(
+                        phase_shift,
+                        phase_offset,
+                        info.frame_num,
+                        line_index * 2,
+                    );
+                    demodulate_chroma(chroma, sample_index, xi, i, q);
+                }
+            });
         }
     };
 }
@@ -550,21 +512,17 @@ fn composite_noise(yiq: &mut YiqView, info: &CommonInfo, noise_settings: &FbmNoi
         .mix(noise_seeds::VIDEO_COMPOSITE)
         .mix(info.frame_num);
 
-    yiq.y
-        .par_chunks_exact_mut(width)
-        .zip(yiq.scratch.par_chunks_exact_mut(width))
-        .enumerate()
-        .for_each(|(index, (row, scratch))| {
-            video_noise_line(
-                row,
-                scratch,
-                &seeder,
-                index,
-                noise_settings.frequency / info.horizontal_scale,
-                noise_settings.intensity,
-                noise_settings.detail,
-            );
-        });
+    ZipChunks::new([yiq.y, yiq.scratch], width).par_for_each(|index, [row, scratch]| {
+        video_noise_line(
+            row,
+            scratch,
+            &seeder,
+            index,
+            noise_settings.frequency / info.horizontal_scale,
+            noise_settings.intensity,
+            noise_settings.detail,
+        );
+    });
 }
 
 /// Add gradient noise to a single plane of a de-modulated signal.
@@ -578,21 +536,17 @@ fn plane_noise(
 ) {
     let seeder = Seeder::new(info.seed).mix(noise_seed).mix(info.frame_num);
 
-    plane
-        .par_chunks_exact_mut(width)
-        .zip(scratch.par_chunks_exact_mut(width))
-        .enumerate()
-        .for_each(|(index, (row, scratch))| {
-            video_noise_line(
-                row,
-                scratch,
-                &seeder,
-                index,
-                settings.frequency / info.horizontal_scale,
-                settings.intensity,
-                settings.detail,
-            );
-        });
+    ZipChunks::new([plane, scratch], width).par_for_each(|index, [row, scratch]| {
+        video_noise_line(
+            row,
+            scratch,
+            &seeder,
+            index,
+            settings.frequency / info.horizontal_scale,
+            settings.intensity,
+            settings.detail,
+        );
+    });
 }
 
 /// Emulate timing error in the chrominance carrier for a single line.
@@ -616,12 +570,9 @@ fn chroma_phase_offset_line(i: &mut [f32], q: &mut [f32], offset: f32) {
 fn chroma_phase_error(yiq: &mut YiqView, intensity: f32) {
     let width = yiq.dimensions.0;
 
-    yiq.i
-        .par_chunks_exact_mut(width)
-        .zip(yiq.q.par_chunks_exact_mut(width))
-        .for_each(|(i, q)| {
-            chroma_phase_offset_line(i, q, intensity);
-        });
+    ZipChunks::new([yiq.i, yiq.q], width).par_for_each(|_, [i, q]| {
+        chroma_phase_offset_line(i, q, intensity);
+    });
 }
 
 /// Add per-scanline chroma phase error.
@@ -631,17 +582,13 @@ fn chroma_phase_noise(yiq: &mut YiqView, info: &CommonInfo, intensity: f32) {
         .mix(noise_seeds::VIDEO_CHROMA_PHASE)
         .mix(info.frame_num);
 
-    yiq.i
-        .par_chunks_exact_mut(width)
-        .zip(yiq.q.par_chunks_exact_mut(width))
-        .enumerate()
-        .for_each(|(index, (i, q))| {
-            // Phase shift angle in radians. Mapped so that an intensity of 1.0 is a phase shift ranging from a full
-            // rotation to the left, to a full rotation to the right.
-            let phase_shift = (seeder.clone().mix(index).finalize::<f32>() - 0.5) * 2.0 * intensity;
+    ZipChunks::new([yiq.i, yiq.q], width).par_for_each(|index, [i, q]| {
+        // Phase shift angle in radians. Mapped so that an intensity of 1.0 is a phase shift ranging from a full
+        // rotation to the left, to a full rotation to the right.
+        let phase_shift = (seeder.clone().mix(index).finalize::<f32>() - 0.5) * 2.0 * intensity;
 
-            chroma_phase_offset_line(i, q, phase_shift);
-        });
+        chroma_phase_offset_line(i, q, phase_shift);
+    });
 }
 
 /// Emulate VHS head-switching at the bottom of the image.
@@ -671,55 +618,52 @@ fn head_switching(
         .mix(noise_seeds::HEAD_SWITCHING)
         .mix(info.frame_num);
 
-    affected_rows
-        .par_chunks_exact_mut(width)
-        .enumerate()
-        .for_each(|(index, row)| {
-            let index = num_affected_rows - (index + cut_off_rows);
-            let row_shift = shift * ((index + offset) as f32 / num_rows as f32).powf(1.5);
-            let noisy_shift = (row_shift + (seeder.clone().mix(index).finalize::<f32>() - 0.5))
-                * info.horizontal_scale;
+    ZipChunks::new([affected_rows], width).par_for_each(|index, [row]| {
+        let index = num_affected_rows - (index + cut_off_rows);
+        let row_shift = shift * ((index + offset) as f32 / num_rows as f32).powf(1.5);
+        let noisy_shift = (row_shift + (seeder.clone().mix(index).finalize::<f32>() - 0.5))
+            * info.horizontal_scale;
 
-            // because if-let chains are unstable :(
-            if index == num_affected_rows && mid_line.is_some() {
-                let mid_line = mid_line.unwrap();
-                // Shift the entire row, but only copy back a portion of it.
-                let mut tmp_row = vec![0.0; width];
-                shift_row_to(
-                    row,
-                    &mut tmp_row,
-                    noisy_shift,
-                    BoundaryHandling::Constant(0.0),
-                );
+        // because if-let chains are unstable :(
+        if index == num_affected_rows && mid_line.is_some() {
+            let mid_line = mid_line.unwrap();
+            // Shift the entire row, but only copy back a portion of it.
+            let mut tmp_row = vec![0.0; width];
+            shift_row_to(
+                row,
+                &mut tmp_row,
+                noisy_shift,
+                BoundaryHandling::Constant(0.0),
+            );
 
-                let seeder = Seeder::new(info.seed)
-                    .mix(noise_seeds::HEAD_SWITCHING_MID_LINE_JITTER)
-                    .mix(info.frame_num);
+            let seeder = Seeder::new(info.seed)
+                .mix(noise_seeds::HEAD_SWITCHING_MID_LINE_JITTER)
+                .mix(info.frame_num);
 
-                // Average two random numbers to bias the result towards the middle
-                let jitter_rand = (seeder.clone().mix(0).finalize::<f32>()
-                    + seeder.clone().mix(1).finalize::<f32>())
-                    * 0.5;
-                let jitter = (jitter_rand - 0.5) * mid_line.jitter;
+            // Average two random numbers to bias the result towards the middle
+            let jitter_rand = (seeder.clone().mix(0).finalize::<f32>()
+                + seeder.clone().mix(1).finalize::<f32>())
+                * 0.5;
+            let jitter = (jitter_rand - 0.5) * mid_line.jitter;
 
-                let copy_start = (width as f32 * (mid_line.position + jitter)) as usize;
-                if copy_start > width {
-                    return;
-                }
-                row[copy_start..].copy_from_slice(&tmp_row[copy_start..]);
-
-                // Add a transient where the head switch is supposed to start
-                let transient_intensity = (seeder.clone().mix(0).finalize::<f32>() + 0.5) * 0.5;
-                let transient_len = 16.0 * info.horizontal_scale;
-
-                for i in copy_start..(copy_start + transient_len.ceil() as usize).min(width) {
-                    let x = (i - copy_start) as f32;
-                    row[i] += (1.0 - (x / transient_len)).powi(3) * transient_intensity;
-                }
-            } else {
-                shift_row(row, noisy_shift, BoundaryHandling::Constant(0.0));
+            let copy_start = (width as f32 * (mid_line.position + jitter)) as usize;
+            if copy_start > width {
+                return;
             }
-        });
+            row[copy_start..].copy_from_slice(&tmp_row[copy_start..]);
+
+            // Add a transient where the head switch is supposed to start
+            let transient_intensity = (seeder.clone().mix(0).finalize::<f32>() + 0.5) * 0.5;
+            let transient_len = 16.0 * info.horizontal_scale;
+
+            for i in copy_start..(copy_start + transient_len.ceil() as usize).min(width) {
+                let x = (i - copy_start) as f32;
+                row[i] += (1.0 - (x / transient_len)).powi(3) * transient_intensity;
+            }
+        } else {
+            shift_row(row, noisy_shift, BoundaryHandling::Constant(0.0));
+        }
+    });
 }
 
 /// Helper function for generating "snow"/transient speckles.
@@ -828,42 +772,34 @@ fn tracking_noise(
     let affected_rows = &mut yiq.y[start_row * width..];
     let scratch_rows = &mut yiq.scratch[start_row * width..];
 
-    affected_rows
-        .par_chunks_exact_mut(width)
-        .zip(scratch_rows.par_chunks_exact_mut(width))
-        .enumerate()
-        .for_each(|(index, (row, scratch))| {
-            let index = index + cut_off_rows;
-            // This iterates from the top down. Increase the intensity as we approach the bottom of the picture.
-            let intensity_scale = index as f32 / num_rows as f32;
-            shift_row(
-                row,
-                shift_noise[index]
-                    * intensity_scale
-                    * wave_intensity
-                    * 0.25
-                    * info.horizontal_scale,
-                BoundaryHandling::Constant(0.0),
-            );
+    ZipChunks::new([affected_rows, scratch_rows], width).par_for_each(|index, [row, scratch]| {
+        let index = index + cut_off_rows;
+        // This iterates from the top down. Increase the intensity as we approach the bottom of the picture.
+        let intensity_scale = index as f32 / num_rows as f32;
+        shift_row(
+            row,
+            shift_noise[index] * intensity_scale * wave_intensity * 0.25 * info.horizontal_scale,
+            BoundaryHandling::Constant(0.0),
+        );
 
-            video_noise_line(
-                row,
-                scratch,
-                &seeder,
-                index,
-                0.25 / info.horizontal_scale,
-                intensity_scale.powi(2) * noise_intensity * 4.0,
-                1,
-            );
+        video_noise_line(
+            row,
+            scratch,
+            &seeder,
+            index,
+            0.25 / info.horizontal_scale,
+            intensity_scale.powi(2) * noise_intensity * 4.0,
+            1,
+        );
 
-            row_speckles(
-                row,
-                &mut Xoshiro256PlusPlus::seed_from_u64(seeder.clone().mix(index).finalize()),
-                snow_intensity * intensity_scale.powi(2),
-                snow_anisotropy,
-                info.horizontal_scale,
-            );
-        });
+        row_speckles(
+            row,
+            &mut Xoshiro256PlusPlus::seed_from_u64(seeder.clone().mix(index).finalize()),
+            snow_intensity * intensity_scale.powi(2),
+            snow_anisotropy,
+            info.horizontal_scale,
+        );
+    });
 }
 
 /// Add random bits of "snow" to an NTSC-encoded signal.
@@ -872,20 +808,17 @@ fn snow(yiq: &mut YiqView, info: &CommonInfo, intensity: f32, anisotropy: f32) {
         .mix(noise_seeds::SNOW)
         .mix(info.frame_num);
 
-    yiq.y
-        .par_chunks_exact_mut(yiq.dimensions.0)
-        .enumerate()
-        .for_each(|(index, row)| {
-            let line_seed = seeder.clone().mix(index);
+    ZipChunks::new([yiq.y], yiq.dimensions.0).par_for_each(|index, [row]| {
+        let line_seed = seeder.clone().mix(index);
 
-            row_speckles(
-                row,
-                &mut Xoshiro256PlusPlus::seed_from_u64(line_seed.finalize()),
-                intensity,
-                anisotropy,
-                info.horizontal_scale,
-            );
-        });
+        row_speckles(
+            row,
+            &mut Xoshiro256PlusPlus::seed_from_u64(line_seed.finalize()),
+            intensity,
+            anisotropy,
+            info.horizontal_scale,
+        );
+    });
 }
 
 /// Offset the chrominance (I and Q) planes horizontally and/or vertically.
@@ -935,13 +868,10 @@ fn chroma_delay(yiq: &mut YiqView, info: &CommonInfo, offset: (f32, isize)) {
         }
         std::cmp::Ordering::Equal => {
             // Only a horizontal shift is necessary. We can do this in-place easily.
-            yiq.i
-                .par_chunks_exact_mut(width)
-                .zip(yiq.q.par_chunks_exact_mut(width))
-                .for_each(|(i, q)| {
-                    shift_row(i, horiz_shift, BoundaryHandling::Constant(0.0));
-                    shift_row(q, horiz_shift, BoundaryHandling::Constant(0.0));
-                });
+            ZipChunks::new([yiq.i, yiq.q], width).par_for_each(|_, [i, q]| {
+                shift_row(i, horiz_shift, BoundaryHandling::Constant(0.0));
+                shift_row(q, horiz_shift, BoundaryHandling::Constant(0.0));
+            });
         }
         std::cmp::Ordering::Greater => {
             // Some finagling is required to shift vertically. This branch shifts the chroma planes downwards.
@@ -992,14 +922,10 @@ fn vhs_edge_wave(yiq: &mut YiqView, info: &CommonInfo, settings: &VHSEdgeWaveSet
         .generate_into(noise);
 
     for plane in [&mut yiq.y, &mut yiq.i, &mut yiq.q] {
-        plane
-            .par_chunks_exact_mut(width)
-            .enumerate()
-            .for_each(|(index, row)| {
-                let shift =
-                    (noise[index] / 0.022) * settings.intensity * 0.5 * info.horizontal_scale;
-                shift_row(row, shift, BoundaryHandling::Extend);
-            })
+        ZipChunks::new([plane], width).par_for_each(|index, [row]| {
+            let shift = (noise[index] / 0.022) * settings.intensity * 0.5 * info.horizontal_scale;
+            shift_row(row, shift, BoundaryHandling::Extend);
+        })
     }
 }
 

@@ -3132,7 +3132,7 @@ dependencies = [
  "pprof",
  "rand",
  "rand_xoshiro",
- "rayon",
+ "rayon-core",
  "simdnoise",
  "siphasher",
  "sval",

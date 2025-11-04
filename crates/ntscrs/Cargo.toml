@@ -15,7 +15,7 @@ macros = {path = "../macros"}
 siphasher = "1.0.0"
 num-derive = "0.4.1"
 tinyjson = "2.5.1"
-rayon = "1.8.0"
+rayon-core = "1.13.0"
 num_cpus = "1.16.0"
 sval = { version = "2.14.1", features = ["std"] }
 sval_json = { version = "2.14.1", features = ["std"] }

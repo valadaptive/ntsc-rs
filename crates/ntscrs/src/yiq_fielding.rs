@@ -4,9 +4,8 @@ use std::{
 };
 
 use glam::{Mat3A, Vec3A};
-use rayon::prelude::*;
 
-use crate::thread_pool::with_thread_pool;
+use crate::thread_pool::{ZipChunks, with_thread_pool};
 
 #[inline(always)]
 pub fn rgb_to_yiq([r, g, b]: [f32; 3]) -> [f32; 3] {
@@ -472,55 +471,50 @@ impl<'a> YiqView<'a> {
 
             let num_rect_rows = field.num_image_rows(blit_info.rect.height());
 
-            y.par_chunks_exact_mut(width)
-                .zip(
-                    i.par_chunks_exact_mut(width)
-                        .zip(q.par_chunks_exact_mut(width)),
-                )
-                .skip(num_skipped_rows)
-                .take(num_rect_rows)
-                .enumerate()
-                .for_each(|(row_idx, (y, (i, q)))| {
-                    // For interleaved fields, we write the first field into the first half of the buffer,
-                    // and the second field into the second half.
-                    let mut src_row_idx = match field {
-                        YiqField::Upper => row_idx * 2,
-                        YiqField::Lower => (row_idx * 2) + 1,
-                        YiqField::Both => row_idx,
-                        YiqField::InterleavedUpper | YiqField::InterleavedLower => {
-                            panic!("blit_single_field doesn't operate on interleaved stuff")
-                        }
+            let lines = [y, i, q].map(|plane| {
+                &mut plane[num_skipped_rows * width..(num_skipped_rows + num_rect_rows) * width]
+            });
+            ZipChunks::new(lines, width).par_for_each(|row_idx, [y, i, q]| {
+                // For interleaved fields, we write the first field into the first half of the buffer,
+                // and the second field into the second half.
+                let mut src_row_idx = match field {
+                    YiqField::Upper => row_idx * 2,
+                    YiqField::Lower => (row_idx * 2) + 1,
+                    YiqField::Both => row_idx,
+                    YiqField::InterleavedUpper | YiqField::InterleavedLower => {
+                        panic!("blit_single_field doesn't operate on interleaved stuff")
+                    }
+                };
+                src_row_idx += blit_info.rect.top;
+                if blit_info.flip_y {
+                    src_row_idx = blit_info.other_buffer_height - src_row_idx - 1;
+                }
+                if blit_info.rect.height() == 1 {
+                    src_row_idx = 0;
+                }
+                let src_offset = src_row_idx * row_length;
+                for idx in 0..blit_info.rect.width() {
+                    let src_pixel_idx = idx + blit_info.rect.left;
+                    let rgb = unsafe {
+                        [
+                            buf[((src_pixel_idx * num_components) + src_offset) + r_idx]
+                                .assume_init()
+                                .to_norm(),
+                            buf[((src_pixel_idx * num_components) + src_offset) + g_idx]
+                                .assume_init()
+                                .to_norm(),
+                            buf[((src_pixel_idx * num_components) + src_offset) + b_idx]
+                                .assume_init()
+                                .to_norm(),
+                        ]
                     };
-                    src_row_idx += blit_info.rect.top;
-                    if blit_info.flip_y {
-                        src_row_idx = blit_info.other_buffer_height - src_row_idx - 1;
-                    }
-                    if blit_info.rect.height() == 1 {
-                        src_row_idx = 0;
-                    }
-                    let src_offset = src_row_idx * row_length;
-                    for idx in 0..blit_info.rect.width() {
-                        let src_pixel_idx = idx + blit_info.rect.left;
-                        let rgb = unsafe {
-                            [
-                                buf[((src_pixel_idx * num_components) + src_offset) + r_idx]
-                                    .assume_init()
-                                    .to_norm(),
-                                buf[((src_pixel_idx * num_components) + src_offset) + g_idx]
-                                    .assume_init()
-                                    .to_norm(),
-                                buf[((src_pixel_idx * num_components) + src_offset) + b_idx]
-                                    .assume_init()
-                                    .to_norm(),
-                            ]
-                        };
-                        let yiq_pixel = rgb_to_yiq(pixel_transform(rgb));
-                        let dst_pixel_idx = idx + blit_info.destination.0;
-                        y[dst_pixel_idx] = yiq_pixel[0];
-                        i[dst_pixel_idx] = yiq_pixel[1];
-                        q[dst_pixel_idx] = yiq_pixel[2];
-                    }
-                });
+                    let yiq_pixel = rgb_to_yiq(pixel_transform(rgb));
+                    let dst_pixel_idx = idx + blit_info.destination.0;
+                    y[dst_pixel_idx] = yiq_pixel[0];
+                    i[dst_pixel_idx] = yiq_pixel[1];
+                    q[dst_pixel_idx] = yiq_pixel[2];
+                }
+            });
         }
 
         match self.field {
@@ -669,14 +663,15 @@ impl<'a> YiqView<'a> {
         let num_rows = self.num_rows();
 
         with_thread_pool(|| {
-            let chunks = dst
-                .par_chunks_exact_mut(row_length)
-                .skip(blit_info.destination.1)
-                .take(blit_info.rect.height())
-                .enumerate();
+            let skip_rows = blit_info.destination.1;
+            let take_rows = blit_info.rect.height();
+            let chunks = ZipChunks::new(
+                [&mut dst[skip_rows * row_length..(skip_rows + take_rows) * row_length]],
+                row_length,
+            );
             match (deinterlace_mode, self.field) {
                 (DeinterlaceMode::Bob, YiqField::Upper | YiqField::Lower) => {
-                    chunks.for_each(|(mut dst_row_idx, dst_row)| {
+                    chunks.par_for_each(|mut dst_row_idx, [dst_row]| {
                         dst_row_idx += blit_info.rect.top;
                         // Limit to the actual width of the output (rowbytes may include trailing padding)
                         let dst_row = &mut dst_row[blit_info.destination.0 * num_components
@@ -737,7 +732,7 @@ impl<'a> YiqView<'a> {
                     });
                 }
                 (DeinterlaceMode::Skip, YiqField::Upper | YiqField::Lower) => {
-                    chunks.for_each(|(mut row_idx, dst_row)| {
+                    chunks.par_for_each(|mut row_idx, [dst_row]| {
                         row_idx += blit_info.rect.top;
                         // Limit to the actual width of the output (rowbytes may include trailing padding)
                         let dst_row = &mut dst_row[blit_info.destination.0 * num_components
@@ -768,7 +763,7 @@ impl<'a> YiqView<'a> {
                     });
                 }
                 (_, YiqField::InterleavedUpper | YiqField::InterleavedLower) => {
-                    chunks.for_each(|(mut row_idx, dst_row)| {
+                    chunks.par_for_each(|mut row_idx, [dst_row]| {
                         row_idx += blit_info.rect.top;
                         // Limit to the actual width of the output (rowbytes may include trailing padding)
                         let dst_row = &mut dst_row[blit_info.destination.0 * num_components
@@ -807,7 +802,7 @@ impl<'a> YiqView<'a> {
                     });
                 }
                 _ => {
-                    chunks.for_each(|(mut row_idx, dst_row)| {
+                    chunks.par_for_each(|mut row_idx, [dst_row]| {
                         row_idx += blit_info.rect.top;
                         // Limit to the actual width of the output (rowbytes may include trailing padding)
                         let dst_row = &mut dst_row[blit_info.destination.0 * num_components
@@ -901,10 +896,7 @@ impl YiqOwned {
         height: usize,
         field: YiqField,
     ) -> Self {
-        let num_rows = field.num_image_rows(height);
-        let num_pixels = width * num_rows;
-
-        let mut data = vec![0f32; num_pixels * 4];
+        let mut data = vec![0f32; YiqView::buf_length_for((width, height), field)];
         let mut view = YiqView::from_parts(&mut data, (width, height), field);
 
         view.set_from_strided_buffer::<S, _>(
