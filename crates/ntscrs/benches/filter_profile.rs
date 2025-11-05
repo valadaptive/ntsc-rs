@@ -2,7 +2,6 @@ extern crate criterion;
 use std::convert::identity;
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use image::ImageReader;
 use ntscrs::{
     ntsc::NtscEffect,
     yiq_fielding::{BlitInfo, PixelFormat as _, Rgb8, YiqView},
@@ -10,11 +9,10 @@ use ntscrs::{
 #[cfg(not(target_os = "windows"))]
 use pprof::criterion::{Output, PProfProfiler};
 
+const BENCH_IMAGE: &'static [u8] = include_bytes!("./balloons.png");
+
 fn criterion_benchmark(c: &mut Criterion) {
-    let img = ImageReader::open("./benches/balloons.png")
-        .unwrap()
-        .decode()
-        .unwrap();
+    let img = image::load_from_memory_with_format(BENCH_IMAGE, image::ImageFormat::Png).unwrap();
     let img = img.to_rgb8();
     c.bench_function("full effect", |b| {
         b.iter_batched_ref(
