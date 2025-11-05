@@ -161,8 +161,12 @@ impl<'a, const N: usize, T> ZipChunks<'a, N, T> {
         T: Send,
     {
         let num_threads = rayon_core::current_num_threads();
-        rayon_core::scope(|scope| {
-            self.par_for_each_inner(num_threads, scope, &cb);
-        });
+        if num_threads == 1 {
+            self.seq_for_each(cb);
+        } else {
+            rayon_core::scope(|scope| {
+                self.par_for_each_inner(num_threads, scope, &cb);
+            });
+        }
     }
 }
