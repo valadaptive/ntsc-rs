@@ -321,7 +321,7 @@ unsafe fn demodulate_chroma_simd_inner<S: F32x4>(
             _ => unreachable!(),
         })
     };
-    let one_half = unsafe { S::load1(&0.5) };
+    let one_half = unsafe { S::set1(0.5) };
 
     let mut index = 1;
     while index < width.saturating_sub(4) {
