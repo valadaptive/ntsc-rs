@@ -560,7 +560,6 @@ impl<'a> YiqView<'a> {
         dst: &mut [MaybeUninit<T>],
         mut blit_info: BlitInfo,
         deinterlace_mode: DeinterlaceMode,
-        fill_alpha: bool,
         pixel_transform: F,
     ) {
         // If we flip the Y coordinate, we need to flip the blit rectangle and destination coords as well. If we were
@@ -593,7 +592,6 @@ impl<'a> YiqView<'a> {
 
         with_thread_pool(|| {
             let (r_idx, g_idx, b_idx, a_idx) = S::RGBA_INDICES;
-            let a_idx = a_idx.unwrap_or(0);
 
             let row_length = blit_info.row_bytes / std::mem::size_of::<T>();
             let width = self.dimensions.0;
@@ -653,7 +651,7 @@ impl<'a> YiqView<'a> {
                                 pixel[r_idx] = MaybeUninit::new(T::from_norm(rgb[0]));
                                 pixel[g_idx] = MaybeUninit::new(T::from_norm(rgb[1]));
                                 pixel[b_idx] = MaybeUninit::new(T::from_norm(rgb[2]));
-                                if fill_alpha {
+                                if let Some(a_idx) = a_idx {
                                     pixel[a_idx] = MaybeUninit::new(T::from_norm(1.0));
                                 }
                             }
@@ -673,7 +671,7 @@ impl<'a> YiqView<'a> {
                                 pixel[r_idx] = MaybeUninit::new(T::from_norm(rgb[0]));
                                 pixel[g_idx] = MaybeUninit::new(T::from_norm(rgb[1]));
                                 pixel[b_idx] = MaybeUninit::new(T::from_norm(rgb[2]));
-                                if fill_alpha {
+                                if let Some(a_idx) = a_idx {
                                     pixel[a_idx] = MaybeUninit::new(T::from_norm(1.0));
                                 }
                             }
@@ -707,7 +705,7 @@ impl<'a> YiqView<'a> {
                             pixel[r_idx] = MaybeUninit::new(T::from_norm(rgb[0]));
                             pixel[g_idx] = MaybeUninit::new(T::from_norm(rgb[1]));
                             pixel[b_idx] = MaybeUninit::new(T::from_norm(rgb[2]));
-                            if fill_alpha {
+                            if let Some(a_idx) = a_idx {
                                 pixel[a_idx] = MaybeUninit::new(T::from_norm(1.0));
                             }
                         }
@@ -749,7 +747,7 @@ impl<'a> YiqView<'a> {
                             pixel[r_idx] = MaybeUninit::new(T::from_norm(rgb[0]));
                             pixel[g_idx] = MaybeUninit::new(T::from_norm(rgb[1]));
                             pixel[b_idx] = MaybeUninit::new(T::from_norm(rgb[2]));
-                            if fill_alpha {
+                            if let Some(a_idx) = a_idx {
                                 pixel[a_idx] = MaybeUninit::new(T::from_norm(1.0));
                             }
                         }
@@ -779,7 +777,7 @@ impl<'a> YiqView<'a> {
                             pixel[r_idx] = MaybeUninit::new(T::from_norm(rgb[0]));
                             pixel[g_idx] = MaybeUninit::new(T::from_norm(rgb[1]));
                             pixel[b_idx] = MaybeUninit::new(T::from_norm(rgb[2]));
-                            if fill_alpha {
+                            if let Some(a_idx) = a_idx {
                                 pixel[a_idx] = MaybeUninit::new(T::from_norm(1.0));
                             }
                         }
@@ -800,7 +798,6 @@ impl<'a> YiqView<'a> {
             unsafe { slice_to_maybe_uninit_mut(dst) },
             blit_info,
             deinterlace_mode,
-            false,
             pixel_transform,
         )
     }

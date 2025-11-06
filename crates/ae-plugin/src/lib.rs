@@ -513,7 +513,6 @@ impl Plugin {
                     data,
                     dst_blit_info,
                     DeinterlaceMode::Bob,
-                    true,
                     identity,
                 );
             }
@@ -525,7 +524,6 @@ impl Plugin {
                     data,
                     dst_blit_info,
                     DeinterlaceMode::Bob,
-                    true,
                     identity,
                 );
             }
@@ -536,7 +534,6 @@ impl Plugin {
                     data,
                     dst_blit_info,
                     DeinterlaceMode::Bob,
-                    true,
                     identity,
                 );
             }
@@ -547,7 +544,6 @@ impl Plugin {
                     data,
                     dst_blit_info,
                     DeinterlaceMode::Bob,
-                    true,
                     identity,
                 );
             }
@@ -558,7 +554,6 @@ impl Plugin {
                     data,
                     dst_blit_info,
                     DeinterlaceMode::Bob,
-                    true,
                     identity,
                 );
             }
@@ -569,7 +564,6 @@ impl Plugin {
                     data,
                     dst_blit_info,
                     DeinterlaceMode::Bob,
-                    true,
                     identity,
                 );
             }

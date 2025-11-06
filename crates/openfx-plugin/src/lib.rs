@@ -1256,7 +1256,6 @@ impl EffectStorageParams<'_> {
                 dstData,
                 blit_info,
                 DeinterlaceMode::Bob,
-                true,
                 srgb_gamma_inv,
             )
         } else {
@@ -1264,7 +1263,6 @@ impl EffectStorageParams<'_> {
                 dstData,
                 blit_info,
                 DeinterlaceMode::Bob,
-                true,
                 identity,
             )
         }
