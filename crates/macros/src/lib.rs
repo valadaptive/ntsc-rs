@@ -150,6 +150,27 @@ pub fn simd_dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
         quote! { < #params > }
     };
 
+    // Build generic arguments for calling the specialized functions (turbofish)
+    let generic_args = if generics.params.is_empty() {
+        quote! {}
+    } else {
+        let args = generics.params.iter().map(|param| match param {
+            syn::GenericParam::Type(type_param) => {
+                let ident = &type_param.ident;
+                quote! { #ident }
+            }
+            syn::GenericParam::Const(const_param) => {
+                let ident = &const_param.ident;
+                quote! { #ident }
+            }
+            syn::GenericParam::Lifetime(lifetime_param) => {
+                let lifetime = &lifetime_param.lifetime;
+                quote! { #lifetime }
+            }
+        });
+        quote! { ::<  #(#args),* > }
+    };
+
     // Build the where clause if it exists
     let where_clause = &generics.where_clause;
 
@@ -252,19 +273,19 @@ pub fn simd_dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
             match get_supported_simd_type() {
                 #[cfg(target_arch = "x86_64")]
                 SupportedSimdType::Sse41 => unsafe {
-                    Some(#sse41_fn_name( #(#param_names),* ))
+                    Some(#sse41_fn_name #generic_args ( #(#param_names),* ))
                 },
                 #[cfg(target_arch = "x86_64")]
                 SupportedSimdType::Avx2 => unsafe {
-                    Some(#avx2_fn_name( #(#param_names),* ))
+                    Some(#avx2_fn_name #generic_args ( #(#param_names),* ))
                 },
                 #[cfg(target_arch = "aarch64")]
                 SupportedSimdType::Neon => unsafe {
-                    Some(#neon_fn_name( #(#param_names),* ))
+                    Some(#neon_fn_name #generic_args ( #(#param_names),* ))
                 },
                 #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
                 SupportedSimdType::Wasm => unsafe {
-                    Some(#wasm_fn_name( #(#param_names),* ))
+                    Some(#wasm_fn_name #generic_args ( #(#param_names),* ))
                 },
                 _ => None
             }
