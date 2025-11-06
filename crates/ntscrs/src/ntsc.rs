@@ -286,30 +286,39 @@ fn chroma_into_luma(
     });
 }
 
+const I_MULT_INV: [f32; 4] = [-1.0, 0.0, 1.0, 0.0];
+const Q_MULT_INV: [f32; 4] = [0.0, -1.0, 0.0, 1.0];
+
 /// Demodulate the chrominance (I and Q) signals from a combined NTSC signal, looking at a single source pixel at the
 /// given index and writing into the destination I and Q plane pixels as well as their immediate neighbors.
 /// TODO: Accumulating the signal this way seems to add a data dependency. However, I believe doing this in a
 /// parallelizable way would require *two* scratch buffers.
-#[inline(always)]
-fn demodulate_chroma(chroma: f32, index: usize, xi: usize, i: &mut [f32], q: &mut [f32]) {
-    let width = i.len();
+fn demodulate_chroma_line(y: &[f32], i: &mut [f32], q: &mut [f32], modulated: &[f32], xi: usize) {
+    assert_eq!(y.len(), modulated.len());
+    assert_eq!(y.len(), i.len());
+    assert_eq!(y.len(), q.len());
+    let width = y.len();
 
-    let offset = (index + (xi & 3)) & 3;
+    for index in 0..width {
+        let chroma = y[index] - modulated[index];
 
-    let i_modulated = -(chroma * I_MULT[offset]);
-    let q_modulated = -(chroma * Q_MULT[offset]);
+        let offset = (index + (xi & 3)) & 3;
 
-    // TODO: ntscQT seems to mess this up, giving chroma a "jagged" look reminiscent of the "dot crawl" artifact.
-    // Is that worth trying to replicate, or should it just be left like this?
-    if index < width - 1 {
-        i[index + 1] = i_modulated * 0.5;
-        q[index + 1] = q_modulated * 0.5;
-    }
-    i[index] += i_modulated;
-    q[index] += q_modulated;
-    if index > 0 {
-        i[index - 1] += i_modulated * 0.5;
-        q[index - 1] += q_modulated * 0.5;
+        let i_modulated = chroma * I_MULT_INV[offset];
+        let q_modulated = chroma * Q_MULT_INV[offset];
+
+        // TODO: ntscQT seems to mess this up, giving chroma a "jagged" look reminiscent of the "dot crawl" artifact.
+        // Is that worth trying to replicate, or should it just be left like this?
+        if index < width - 1 {
+            i[index + 1] = i_modulated * 0.5;
+            q[index + 1] = q_modulated * 0.5;
+        }
+        i[index] += i_modulated;
+        q[index] += q_modulated;
+        if index > 0 {
+            i[index - 1] += i_modulated * 0.5;
+            q[index - 1] += q_modulated * 0.5;
+        }
     }
 }
 
@@ -318,25 +327,23 @@ fn luma_into_chroma_line_box(
     y: &mut [f32],
     i: &mut [f32],
     q: &mut [f32],
-    scratch: &mut [f32],
+    modulated: &[f32],
     xi: usize,
 ) {
     let width = y.len();
     for index in 0..width {
-        let c = y[usize::min(index + 2, width - 1)];
         let area = [
-            y.get(index.wrapping_sub(1))
+            modulated
+                .get(index.wrapping_sub(1))
                 .cloned()
                 .unwrap_or(16.0 / 255.0),
-            y[index],
-            y[(index + 1).min(width - 1)],
-            y[(index + 2).min(width - 1)],
+            modulated[index],
+            modulated[(index + 1).min(width - 1)],
+            modulated[(index + 2).min(width - 1)],
         ];
-        scratch[index] = area.iter().sum::<f32>() * 0.25;
-        let chroma = c - scratch[index];
-        demodulate_chroma(chroma, index, xi, i, q);
+        y[index] = area.iter().sum::<f32>() * 0.25;
     }
-    y.copy_from_slice(scratch);
+    demodulate_chroma_line(y, i, q, modulated, xi);
 }
 
 /// Demodulate the chroma signal from the Y (luma) plane back into the I and Q planes.
@@ -349,63 +356,58 @@ fn luma_into_chroma(
     phase_offset: i32,
 ) {
     let width = yiq.dimensions.0;
+    let height = yiq.num_rows();
+
+    // For all four demodulation methods, we copy the original modulated signal to the scratch buffer, then write the
+    // demodulated Y signal back into yiq.y
+    let modulated = &mut yiq.scratch;
+    modulated.copy_from_slice(yiq.y);
 
     match filter_mode {
         ChromaDemodulationFilter::Box => {
-            let lines = ZipChunks::new([yiq.y, yiq.i, yiq.q, yiq.scratch], width);
-            lines.par_for_each(|index, [y, i, q, scratch]| {
+            let lines = ZipChunks::new([yiq.y, yiq.i, yiq.q, modulated], width);
+            lines.par_for_each(|index, [y, i, q, modulated]| {
                 let xi = chroma_phase_shift(phase_shift, phase_offset, info.frame_num, index * 2);
 
-                luma_into_chroma_line_box(y, i, q, scratch, xi);
+                luma_into_chroma_line_box(y, i, q, modulated, xi);
             });
         }
         ChromaDemodulationFilter::Notch => {
             // Apply a notch filter to the signal to remove the high-frequency chroma carrier, and store it in the
             // scratch buffer. We can then get *just* the chroma by subtracting the filtered signal from the original.
-            let scratch = &mut yiq.scratch;
             let filter: TransferFunction = make_notch_filter(0.5, 2.0);
-            scratch.copy_from_slice(yiq.y);
             filter_plane(yiq.y, width, &filter, InitialCondition::Zero, 1.0, 0);
 
-            let lines = ZipChunks::new([yiq.y, yiq.i, yiq.q, yiq.scratch], width);
-            lines.par_for_each(|index, [y, i, q, scratch]| {
+            let lines = ZipChunks::new([yiq.y, yiq.i, yiq.q, modulated], width);
+            lines.par_for_each(|index, [y, i, q, modulated]| {
                 let xi = chroma_phase_shift(phase_shift, phase_offset, info.frame_num, index * 2);
-
-                for index in 0..width {
-                    let chroma = y[index] - scratch[index];
-                    demodulate_chroma(chroma, index, xi, i, q);
-                }
+                demodulate_chroma_line(y, i, q, modulated, xi);
             });
         }
         ChromaDemodulationFilter::OneLineComb => {
-            let delay = &mut yiq.scratch;
-            // "Reflect" line 2 to line 0, so that the chroma is properly demodulated for line 0.
-            // A comb filter requires the phase of the chroma carrier to alternate per line, so simply repeating line 1
-            // wouldn't work.
-            delay[0..width].copy_from_slice(&yiq.y[width..width * 2]);
-            delay[width..].copy_from_slice(&yiq.y[0..yiq.y.len() - width]);
-
-            let lines = ZipChunks::new([yiq.y, yiq.i, yiq.q, delay], width);
-            lines.par_for_each(|line_index, [y, i, q, delay]| {
-                for index in 0..width {
-                    let blended = (y[index] + delay[index]) * 0.5;
-                    let chroma = blended - y[index];
-                    y[index] = blended;
-                    let xi = chroma_phase_shift(
-                        phase_shift,
-                        phase_offset,
-                        info.frame_num,
-                        line_index * 2,
-                    );
-                    demodulate_chroma(chroma, index, xi, i, q);
+            // Demodulate the Y (luma) by averaging successive lines of the modulated signal
+            ZipChunks::new([yiq.y, yiq.i, yiq.q], width).par_for_each(|line_index, [y, i, q]| {
+                // "Reflect" line 2 to line 0, so that the chroma is properly demodulated for line 0.
+                // A comb filter requires the phase of the chroma carrier to alternate per line, so simply repeating line 1
+                // wouldn't work.
+                let top_line = if line_index == 0 {
+                    &modulated[width..width * 2]
+                } else {
+                    &modulated[(line_index - 1) * width..line_index * width]
+                };
+                let bottom_line = &modulated[line_index * width..(line_index + 1) * width];
+                // Average the two lines
+                for (y, (&top, &bottom)) in y.iter_mut().zip(top_line.iter().zip(bottom_line)) {
+                    *y = (top + bottom) * 0.5;
                 }
+
+                // Demodulate the chroma
+                let xi =
+                    chroma_phase_shift(phase_shift, phase_offset, info.frame_num, line_index * 2);
+                demodulate_chroma_line(y, i, q, bottom_line, xi);
             });
         }
         ChromaDemodulationFilter::TwoLineComb => {
-            let height = yiq.num_rows();
-            let modulated = &mut yiq.scratch;
-            modulated.copy_from_slice(yiq.y);
-
             let lines = ZipChunks::new([yiq.y, yiq.i, yiq.q], width);
             lines.par_for_each(|line_index, [y, i, q]| {
                 // For the first line, both prev_line and next_line point to the second line. This effecively makes
@@ -429,17 +431,12 @@ fn luma_into_chroma(
                     let blended = (cur_sample * 0.5)
                         + (prev_line[sample_index] * 0.25)
                         + (next_line[sample_index] * 0.25);
-                    let chroma = blended - cur_sample;
                     y[sample_index] = blended;
-
-                    let xi = chroma_phase_shift(
-                        phase_shift,
-                        phase_offset,
-                        info.frame_num,
-                        line_index * 2,
-                    );
-                    demodulate_chroma(chroma, sample_index, xi, i, q);
                 }
+
+                let xi =
+                    chroma_phase_shift(phase_shift, phase_offset, info.frame_num, line_index * 2);
+                demodulate_chroma_line(y, i, q, cur_line, xi);
             });
         }
     };
