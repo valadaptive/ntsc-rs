@@ -1,3 +1,5 @@
+use macros::simd_dispatch;
+
 use crate::f32x4::{F32x4, SupportedSimdType, get_supported_simd_type};
 
 /// Multiplies two polynomials (lowest coefficients first).
@@ -35,6 +37,19 @@ pub struct TransferFunction {
     num: Vec<f32>,
     /// Coefficients for the denominator polynomial.
     den: Vec<f32>,
+}
+
+#[simd_dispatch(S)]
+fn filter_signal_simd<const ROWS: usize>(
+    tf: &TransferFunction,
+    signal: &mut [&mut [f32]; ROWS],
+    initial: [f32; ROWS],
+    scale: f32,
+    delay: usize,
+) {
+    TransferFunction::filter_signal_in_place_fixed_size_simdx4::<S, ROWS>(
+        tf, signal, initial, scale, delay,
+    )
 }
 
 impl TransferFunction {
@@ -283,77 +298,6 @@ impl TransferFunction {
         }
     }
 
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "sse4.1")]
-    /// Process the signal using SSE4.1 intrinsics.
-    unsafe fn filter_signal_dispatch_sse41<const ROWS: usize>(
-        &self,
-        signal: &mut [&mut [f32]; ROWS],
-        initial: [f32; ROWS],
-        scale: f32,
-        delay: usize,
-    ) {
-        use crate::f32x4::x86_64::SseF32x4;
-        unsafe {
-            self.filter_signal_in_place_fixed_size_simdx4::<SseF32x4, ROWS>(
-                signal, initial, scale, delay,
-            );
-        }
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx2", enable = "fma")]
-    /// Process the signal using AVX2 intrinsics.
-    unsafe fn filter_signal_dispatch_avx2<const ROWS: usize>(
-        &self,
-        signal: &mut [&mut [f32]; ROWS],
-        initial: [f32; ROWS],
-        scale: f32,
-        delay: usize,
-    ) {
-        use crate::f32x4::x86_64::AvxF32x4;
-        unsafe {
-            self.filter_signal_in_place_fixed_size_simdx4::<AvxF32x4, ROWS>(
-                signal, initial, scale, delay,
-            );
-        }
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    #[target_feature(enable = "neon")]
-    /// Process the signal using NEON intrinsics.
-    unsafe fn filter_signal_dispatch_neon<const ROWS: usize>(
-        &self,
-        signal: &mut [&mut [f32]; ROWS],
-        initial: [f32; ROWS],
-        scale: f32,
-        delay: usize,
-    ) {
-        use crate::f32x4::aarch64::ArmF32x4;
-        unsafe {
-            self.filter_signal_in_place_fixed_size_simdx4::<ArmF32x4, ROWS>(
-                signal, initial, scale, delay,
-            );
-        }
-    }
-
-    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
-    /// Process the signal using WASM SIMD intrinsics.
-    unsafe fn filter_signal_dispatch_wasm<const ROWS: usize>(
-        &self,
-        signal: &mut [&mut [f32]; ROWS],
-        initial: [f32; ROWS],
-        scale: f32,
-        delay: usize,
-    ) {
-        use crate::f32x4::wasm32::WasmF32x4;
-        unsafe {
-            self.filter_signal_in_place_fixed_size_simdx4::<WasmF32x4, ROWS>(
-                signal, initial, scale, delay,
-            );
-        }
-    }
-
     /// Filter a signal in-place, modifying the given slice.
     /// # Type parameters
     /// - `ROWS` - The number of rows to process at once. This makes SIMD faster by removing loop-carried dependencies:
@@ -380,27 +324,9 @@ impl TransferFunction {
             2 => self.filter_signal_in_place_fixed_size::<2, ROWS>(signal, initial, scale, delay),
             3 => self.filter_signal_in_place_fixed_size::<3, ROWS>(signal, initial, scale, delay),
             // Use SIMD implementation for filters of length 4, if possible
-            4 => match get_supported_simd_type() {
-                #[cfg(target_arch = "x86_64")]
-                SupportedSimdType::Sse41 => unsafe {
-                    self.filter_signal_dispatch_sse41::<ROWS>(signal, initial, scale, delay)
-                },
-                #[cfg(target_arch = "x86_64")]
-                SupportedSimdType::Avx2 => unsafe {
-                    self.filter_signal_dispatch_avx2::<ROWS>(signal, initial, scale, delay)
-                },
-                #[cfg(target_arch = "aarch64")]
-                SupportedSimdType::Neon => unsafe {
-                    self.filter_signal_dispatch_neon::<ROWS>(signal, initial, scale, delay)
-                },
-                #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
-                SupportedSimdType::Wasm => unsafe {
-                    self.filter_signal_dispatch_wasm::<ROWS>(signal, initial, scale, delay)
-                },
-                _ => {
-                    self.filter_signal_in_place_fixed_size::<4, ROWS>(signal, initial, scale, delay)
-                }
-            },
+            4 => filter_signal_simd(self, signal, initial, scale, delay).unwrap_or_else(|| {
+                self.filter_signal_in_place_fixed_size::<4, ROWS>(signal, initial, scale, delay)
+            }),
             5 => self.filter_signal_in_place_fixed_size::<5, ROWS>(signal, initial, scale, delay),
             6 => self.filter_signal_in_place_fixed_size::<6, ROWS>(signal, initial, scale, delay),
             7 => self.filter_signal_in_place_fixed_size::<7, ROWS>(signal, initial, scale, delay),

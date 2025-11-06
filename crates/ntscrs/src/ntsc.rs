@@ -3,11 +3,13 @@ use std::{
 };
 
 use core::f32::consts::PI;
+use macros::simd_dispatch;
 use rand::{Rng, RngCore, SeedableRng};
 use rand_xoshiro::Xoshiro256PlusPlus;
 use simdnoise::{NoiseBuilder, Settings as NoiseSettings, SimplexSettings};
 
 use crate::{
+    f32x4::F32x4,
     filter::TransferFunction,
     random::{Geometric, Seeder},
     shift::{BoundaryHandling, shift_row, shift_row_to},
@@ -289,36 +291,116 @@ fn chroma_into_luma(
 const I_MULT_INV: [f32; 4] = [-1.0, 0.0, 1.0, 0.0];
 const Q_MULT_INV: [f32; 4] = [0.0, -1.0, 0.0, 1.0];
 
+/// Demodulate the chroma back into the I and Q channels, given the Y channel and the modulated signal. This inner loop
+/// uses SIMD on 4-wide chunks at a time and doesn't handle boundary conditions. The very first column, and any
+/// remainder afterwards, is handled by the non-SIMD function.
+unsafe fn demodulate_chroma_simd_inner<S: F32x4>(
+    y: &[f32],
+    i: &mut [f32],
+    q: &mut [f32],
+    modulated: &[f32],
+    xi: usize,
+) -> usize {
+    let width = y.len();
+
+    let i_mult_inv = |offset: usize| unsafe {
+        S::load4(match offset {
+            0 => &[-1.0, 0.0, 1.0, 0.0],
+            1 => &[0.0, 1.0, 0.0, -1.0],
+            2 => &[1.0, 0.0, -1.0, 0.0],
+            3 => &[0.0, -1.0, 0.0, 1.0],
+            _ => unreachable!(),
+        })
+    };
+    let q_mult_inv = |offset: usize| unsafe {
+        S::load4(match offset {
+            0 => &[0.0, -1.0, 0.0, 1.0],
+            1 => &[-1.0, 0.0, 1.0, 0.0],
+            2 => &[0.0, 1.0, 0.0, -1.0],
+            3 => &[1.0, 0.0, -1.0, 0.0],
+            _ => unreachable!(),
+        })
+    };
+    let one_half = unsafe { S::load1(&0.5) };
+
+    let mut index = 1;
+    while index < width.saturating_sub(4) {
+        let yy_l = unsafe { S::load(&y[index - 1..=index + 2]) };
+        let yy_c = unsafe { S::load(&y[index..=index + 3]) };
+        let yy_r = unsafe { S::load(&y[index + 1..=index + 4]) };
+        let mm_l = unsafe { S::load(&modulated[index - 1..=index + 2]) };
+        let mm_c = unsafe { S::load(&modulated[index..=index + 3]) };
+        let mm_r = unsafe { S::load(&modulated[index + 1..=index + 4]) };
+        let chroma_l = yy_l - mm_l;
+        let chroma_c = yy_c - mm_c;
+        let chroma_r = yy_r - mm_r;
+
+        let offset_l = (index - 1 + xi) & 3;
+        let offset_c = (index + xi) & 3;
+        let offset_r = (index + 1 + xi) & 3;
+
+        let mut i_modulated = chroma_c * i_mult_inv(offset_c);
+        i_modulated = chroma_l.mul_add(i_mult_inv(offset_l) * one_half, i_modulated);
+        i_modulated = chroma_r.mul_add(i_mult_inv(offset_r) * one_half, i_modulated);
+        let mut q_modulated = chroma_c * q_mult_inv(offset_c);
+        q_modulated = chroma_l.mul_add(q_mult_inv(offset_l) * one_half, q_modulated);
+        q_modulated = chroma_r.mul_add(q_mult_inv(offset_r) * one_half, q_modulated);
+
+        i_modulated.store(&mut i[index..=index + 3]);
+        q_modulated.store(&mut q[index..=index + 3]);
+
+        index += 4;
+    }
+
+    index
+}
+
+#[simd_dispatch(S)]
+fn demodulate_chroma_simd(
+    y: &[f32],
+    i: &mut [f32],
+    q: &mut [f32],
+    modulated: &[f32],
+    xi: usize,
+) -> usize {
+    demodulate_chroma_simd_inner::<S>(y, i, q, modulated, xi)
+}
+
 /// Demodulate the chrominance (I and Q) signals from a combined NTSC signal, looking at a single source pixel at the
 /// given index and writing into the destination I and Q plane pixels as well as their immediate neighbors.
-/// TODO: Accumulating the signal this way seems to add a data dependency. However, I believe doing this in a
-/// parallelizable way would require *two* scratch buffers.
 fn demodulate_chroma_line(y: &[f32], i: &mut [f32], q: &mut [f32], modulated: &[f32], xi: usize) {
     assert_eq!(y.len(), modulated.len());
     assert_eq!(y.len(), i.len());
     assert_eq!(y.len(), q.len());
     let width = y.len();
 
-    for index in 0..width {
-        let chroma = y[index] - modulated[index];
+    // The SIMD loop doesn't handle boundary conditions and operates on chunks of 4 pixels at a time. We need to handle
+    // both the leftmost pixel and the rightmost few. We unconditionally handle the leftmost one, so the "rightmost"
+    // range starts at 1. If there is no SIMD, process everything using the scalar approach.
+    let remainder_start = demodulate_chroma_simd(y, i, q, modulated, xi)
+        .map(|i| i.max(1))
+        .unwrap_or(1);
 
-        let offset = (index + xi) & 3;
+    for index in std::iter::once(0).chain(remainder_start..width) {
+        let offset_c = (index + xi) & 3;
+        let chroma_c = y[index] - modulated[index];
+        let mut i_modulated = chroma_c * I_MULT_INV[offset_c];
+        let mut q_modulated = chroma_c * Q_MULT_INV[offset_c];
 
-        let i_modulated = chroma * I_MULT_INV[offset];
-        let q_modulated = chroma * Q_MULT_INV[offset];
-
-        // TODO: ntscQT seems to mess this up, giving chroma a "jagged" look reminiscent of the "dot crawl" artifact.
-        // Is that worth trying to replicate, or should it just be left like this?
         if index < width - 1 {
-            i[index + 1] = i_modulated * 0.5;
-            q[index + 1] = q_modulated * 0.5;
+            let offset_r = (index.wrapping_add(1) + xi) & 3;
+            let chroma_r = y[index + 1] - modulated[index + 1];
+            i_modulated += chroma_r * I_MULT_INV[offset_r] * 0.5;
+            q_modulated += chroma_r * Q_MULT_INV[offset_r] * 0.5;
         }
-        i[index] += i_modulated;
-        q[index] += q_modulated;
         if index > 0 {
-            i[index - 1] += i_modulated * 0.5;
-            q[index - 1] += q_modulated * 0.5;
+            let offset_l = (index.wrapping_sub(1) + xi) & 3;
+            let chroma_l = y[index - 1] - modulated[index - 1];
+            i_modulated += chroma_l * I_MULT_INV[offset_l] * 0.5;
+            q_modulated += chroma_l * Q_MULT_INV[offset_l] * 0.5;
         }
+        i[index] = i_modulated;
+        q[index] = q_modulated;
     }
 }
 
