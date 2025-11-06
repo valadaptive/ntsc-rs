@@ -242,13 +242,13 @@ fn chroma_phase_shift(
     frame_num: usize,
     line_num: usize,
 ) -> usize {
-    (match scanline_phase_shift {
+    match scanline_phase_shift {
         PhaseShift::Degrees90 | PhaseShift::Degrees270 => {
-            (frame_num as i32 + offset + ((line_num as i32) >> 1)) & 3
+            ((frame_num as i32 + offset + ((line_num as i32) >> 1)) & 3) as usize
         }
-        PhaseShift::Degrees180 => (((frame_num + line_num) & 2) as i32 + offset) & 3,
+        PhaseShift::Degrees180 => ((((frame_num + line_num) & 2) as i32 + offset) & 3) as usize,
         PhaseShift::Degrees0 => 0,
-    } & 3) as usize
+    }
 }
 
 const I_MULT: [f32; 4] = [1.0, 0.0, -1.0, 0.0];
@@ -302,7 +302,7 @@ fn demodulate_chroma_line(y: &[f32], i: &mut [f32], q: &mut [f32], modulated: &[
     for index in 0..width {
         let chroma = y[index] - modulated[index];
 
-        let offset = (index + (xi & 3)) & 3;
+        let offset = (index + xi) & 3;
 
         let i_modulated = chroma * I_MULT_INV[offset];
         let q_modulated = chroma * Q_MULT_INV[offset];
