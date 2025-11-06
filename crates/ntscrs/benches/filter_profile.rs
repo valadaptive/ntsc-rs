@@ -4,7 +4,7 @@ use std::convert::identity;
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use ntscrs::{
     ntsc::NtscEffect,
-    yiq_fielding::{BlitInfo, PixelFormat as _, Rgb8, YiqView},
+    yiq_fielding::{BlitInfo, Rgb, YiqView, pixel_bytes_for},
 };
 #[cfg(not(target_os = "windows"))]
 use pprof::criterion::{Output, PProfProfiler};
@@ -37,11 +37,11 @@ fn criterion_benchmark(c: &mut Criterion) {
                     (*width, *height),
                     effect.use_field.to_yiq_field(0),
                 );
-                let row_bytes = *width * Rgb8::pixel_bytes();
+                let row_bytes = *width * pixel_bytes_for::<Rgb, u8>();
                 let blit_info = BlitInfo::from_full_frame(*width, *height, row_bytes);
-                yiq.set_from_strided_buffer::<Rgb8, _>(buf, blit_info, identity);
+                yiq.set_from_strided_buffer::<Rgb, u8, _>(buf, blit_info, identity);
                 effect.apply_effect_to_yiq(&mut yiq, 0, [1.0, 1.0]);
-                yiq.write_to_strided_buffer::<Rgb8, _>(
+                yiq.write_to_strided_buffer::<Rgb, u8, _>(
                     dest,
                     blit_info,
                     ntscrs::yiq_fielding::DeinterlaceMode::Bob,

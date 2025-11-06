@@ -5,7 +5,7 @@ use gstreamer_video::{VideoFormat, VideoFrameExt, VideoFrameRef, VideoInterlaceM
 use ntscrs::{
     settings::standard::NtscEffect,
     yiq_fielding::{
-        Bgrx8, BlitInfo, DeinterlaceMode, PixelFormat, Rect, Rgbx8, Xbgr8, Xrgb8, Xrgb16, YiqField,
+        Bgrx, BlitInfo, DeinterlaceMode, Normalize, PixelFormat, Rect, Rgbx, Xbgr, Xrgb, YiqField,
         YiqOwned, YiqView,
     },
 };
@@ -21,29 +21,29 @@ fn frame_to_yiq(
     let in_format = in_frame.format();
     Ok(match in_format {
         VideoFormat::Rgbx | VideoFormat::Rgba => {
-            YiqOwned::from_strided_buffer::<Rgbx8>(in_data, in_stride, width, height, field)
+            YiqOwned::from_strided_buffer::<Rgbx, u8>(in_data, in_stride, width, height, field)
         }
         VideoFormat::Bgrx | VideoFormat::Bgra => {
-            YiqOwned::from_strided_buffer::<Bgrx8>(in_data, in_stride, width, height, field)
+            YiqOwned::from_strided_buffer::<Bgrx, u8>(in_data, in_stride, width, height, field)
         }
         VideoFormat::Xrgb | VideoFormat::Argb => {
-            YiqOwned::from_strided_buffer::<Xrgb8>(in_data, in_stride, width, height, field)
+            YiqOwned::from_strided_buffer::<Xrgb, u8>(in_data, in_stride, width, height, field)
         }
         VideoFormat::Xbgr | VideoFormat::Abgr => {
-            YiqOwned::from_strided_buffer::<Xbgr8>(in_data, in_stride, width, height, field)
+            YiqOwned::from_strided_buffer::<Xbgr, u8>(in_data, in_stride, width, height, field)
         }
 
         VideoFormat::Argb64 => {
             let data_16 = unsafe { in_data.align_to::<u16>() }.1;
-            YiqOwned::from_strided_buffer::<Xrgb16>(data_16, in_stride, width, height, field)
+            YiqOwned::from_strided_buffer::<Xrgb, u16>(data_16, in_stride, width, height, field)
         }
         _ => Err(FlowError::NotSupported)?,
     })
 }
 
-pub fn process_gst_frame<S: PixelFormat>(
+pub fn process_gst_frame<S: PixelFormat, T: Normalize>(
     in_frame: &VideoFrameRef<&BufferRef>,
-    out_frame: &mut [S::DataFormat],
+    out_frame: &mut [T],
     out_stride: usize,
     out_rect: Option<Rect>,
     settings: &NtscEffect,
@@ -79,7 +79,7 @@ pub fn process_gst_frame<S: PixelFormat>(
             let mut yiq = frame_to_yiq(in_frame, field)?;
             let mut view = YiqView::from(&mut yiq);
             settings.apply_effect_to_yiq(&mut view, frame as usize, [1.0, 1.0]);
-            view.write_to_strided_buffer::<S, _>(
+            view.write_to_strided_buffer::<S, T, _>(
                 out_frame,
                 blit_info,
                 DeinterlaceMode::Bob,
@@ -105,7 +105,7 @@ pub fn process_gst_frame<S: PixelFormat>(
                 },
                 [1.0, 1.0],
             );
-            view.write_to_strided_buffer::<S, _>(
+            view.write_to_strided_buffer::<S, T, _>(
                 out_frame,
                 blit_info,
                 DeinterlaceMode::Skip,

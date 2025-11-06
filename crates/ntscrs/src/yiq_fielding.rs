@@ -158,88 +158,32 @@ impl Normalize for u8 {
     }
 }
 
-/// Order in which the pixels are laid out for a given pixel buffer format.
-pub enum SwizzleOrder {
-    Rgbx,
-    Xrgb,
-    Bgrx,
-    Xbgr,
-    Rgb,
-    Bgr,
-}
-
-impl SwizzleOrder {
-    #[inline(always)]
-    pub const fn num_components(&self) -> usize {
-        match self {
-            Self::Rgbx | Self::Xrgb | Self::Bgrx | Self::Xbgr => 4,
-            Self::Rgb | Self::Bgr => 3,
-        }
-    }
-
-    #[inline(always)]
-    pub const fn rgba_indices(&self) -> (usize, usize, usize, Option<usize>) {
-        match self {
-            Self::Rgbx => (0, 1, 2, Some(3)),
-            Self::Rgb => (0, 1, 2, None),
-            Self::Xrgb => (1, 2, 3, Some(0)),
-            Self::Bgrx => (2, 1, 0, Some(3)),
-            Self::Bgr => (2, 1, 0, None),
-            Self::Xbgr => (3, 2, 1, Some(0)),
-        }
-    }
-}
-
 /// The data format of a given pixel buffer.
 pub trait PixelFormat {
-    const ORDER: SwizzleOrder;
-    type DataFormat: Normalize;
-
-    /// Number of bytes that a single pixel in this format takes up.
-    fn pixel_bytes() -> usize {
-        Self::ORDER.num_components() * std::mem::size_of::<Self::DataFormat>()
-    }
+    const NUM_COMPONENTS: usize;
+    const RGBA_INDICES: (usize, usize, usize, Option<usize>);
 }
 
 macro_rules! impl_pix_fmt {
-    ($ty: ident, $order: expr, $format: ty) => {
+    ($ty: ident, $num_components: expr, $rgba_indices: expr) => {
         pub struct $ty;
         impl PixelFormat for $ty {
-            const ORDER: SwizzleOrder = $order;
-            type DataFormat = $format;
+            const NUM_COMPONENTS: usize = $num_components;
+            const RGBA_INDICES: (usize, usize, usize, Option<usize>) = $rgba_indices;
         }
     };
 }
 
-impl_pix_fmt!(Rgbx8, SwizzleOrder::Rgbx, u8);
-impl_pix_fmt!(Xrgb8, SwizzleOrder::Xrgb, u8);
-impl_pix_fmt!(Bgrx8, SwizzleOrder::Bgrx, u8);
-impl_pix_fmt!(Xbgr8, SwizzleOrder::Xbgr, u8);
-impl_pix_fmt!(Rgb8, SwizzleOrder::Rgb, u8);
-impl_pix_fmt!(Bgr8, SwizzleOrder::Bgr, u8);
+impl_pix_fmt!(Rgbx, 4, (0, 1, 2, Some(3)));
+impl_pix_fmt!(Xrgb, 4, (1, 2, 3, Some(0)));
+impl_pix_fmt!(Bgrx, 4, (2, 1, 0, Some(3)));
+impl_pix_fmt!(Xbgr, 4, (3, 2, 1, Some(0)));
+impl_pix_fmt!(Rgb, 3, (0, 1, 2, None));
+impl_pix_fmt!(Bgr, 3, (2, 1, 0, None));
 
-impl_pix_fmt!(Rgbx16, SwizzleOrder::Rgbx, u16);
-impl_pix_fmt!(Xrgb16, SwizzleOrder::Xrgb, u16);
-impl_pix_fmt!(Bgrx16, SwizzleOrder::Bgrx, u16);
-impl_pix_fmt!(Xbgr16, SwizzleOrder::Xbgr, u16);
-impl_pix_fmt!(Rgb16, SwizzleOrder::Rgb, u16);
-impl_pix_fmt!(Bgr16, SwizzleOrder::Bgr, u16);
-
-impl_pix_fmt!(Rgbx16s, SwizzleOrder::Rgbx, i16);
-impl_pix_fmt!(Xrgb16s, SwizzleOrder::Xrgb, i16);
-impl_pix_fmt!(Bgrx16s, SwizzleOrder::Bgrx, i16);
-impl_pix_fmt!(Xbgr16s, SwizzleOrder::Xbgr, i16);
-impl_pix_fmt!(Rgb16s, SwizzleOrder::Rgb, i16);
-impl_pix_fmt!(Bgr16s, SwizzleOrder::Bgr, i16);
-
-impl_pix_fmt!(Rgbx32f, SwizzleOrder::Rgbx, f32);
-impl_pix_fmt!(Xrgb32f, SwizzleOrder::Xrgb, f32);
-impl_pix_fmt!(Bgrx32f, SwizzleOrder::Bgrx, f32);
-impl_pix_fmt!(Xbgr32f, SwizzleOrder::Xbgr, f32);
-impl_pix_fmt!(Rgb32f, SwizzleOrder::Rgb, f32);
-impl_pix_fmt!(Bgr32f, SwizzleOrder::Bgr, f32);
-
-impl_pix_fmt!(Xrgb16AE, SwizzleOrder::Xrgb, AfterEffectsU16);
+pub fn pixel_bytes_for<S: PixelFormat, T: Normalize>() -> usize {
+    S::NUM_COMPONENTS * std::mem::size_of::<T>()
+}
 
 /// How to handle writing back fields that we *didn't* process if we used YiqField::Upper or YiqField::Lower.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -422,41 +366,45 @@ impl<'a> YiqView<'a> {
     /// - `buf` must be a valid pointer to a buffer of length `len`.
     /// - All data within the portions of `buf` within each row, as specified by `row_bytes` and this view's dimensions,
     ///   must be initialized and valid. Data outside of those portions need not be valid.
-    pub unsafe fn set_from_strided_buffer_maybe_uninit<S: PixelFormat, F: PixelTransform>(
+    pub unsafe fn set_from_strided_buffer_maybe_uninit<
+        S: PixelFormat,
+        T: Normalize,
+        F: PixelTransform,
+    >(
         &mut self,
-        buf: &[MaybeUninit<S::DataFormat>],
+        buf: &[MaybeUninit<T>],
         blit_info: BlitInfo,
         pixel_transform: F,
     ) {
-        let num_components = S::ORDER.num_components();
+        let num_components = S::NUM_COMPONENTS;
         assert_eq!(
-            blit_info.row_bytes % std::mem::size_of::<S::DataFormat>(),
+            blit_info.row_bytes % std::mem::size_of::<T>(),
             0,
             "Rowbytes not aligned to datatype"
         );
-        let row_length = blit_info.row_bytes / std::mem::size_of::<S::DataFormat>();
+        let row_length = blit_info.row_bytes / std::mem::size_of::<T>();
         assert!(num_components >= 3);
         assert!(
-            row_length * S::ORDER.num_components() >= blit_info.rect.width(),
+            row_length * S::NUM_COMPONENTS >= blit_info.rect.width(),
             "Blit rectangle width exceeds rowbytes"
         );
 
         assert!(blit_info.rect.width() + blit_info.destination.0 <= self.dimensions.0);
         assert!(blit_info.rect.height() + blit_info.destination.1 <= self.dimensions.1);
 
-        unsafe fn blit_single_field<S: PixelFormat, F: PixelTransform>(
+        unsafe fn blit_single_field<S: PixelFormat, T: Normalize, F: PixelTransform>(
             y: &mut [f32],
             i: &mut [f32],
             q: &mut [f32],
             dimensions: (usize, usize),
             mut field: YiqField,
-            buf: &[MaybeUninit<S::DataFormat>],
+            buf: &[MaybeUninit<T>],
             blit_info: BlitInfo,
             pixel_transform: F,
         ) {
-            let row_length = blit_info.row_bytes / std::mem::size_of::<S::DataFormat>();
-            let num_components = S::ORDER.num_components();
-            let (r_idx, g_idx, b_idx, ..) = S::ORDER.rgba_indices();
+            let row_length = blit_info.row_bytes / std::mem::size_of::<T>();
+            let num_components = S::NUM_COMPONENTS;
+            let (r_idx, g_idx, b_idx, ..) = S::RGBA_INDICES;
             let (width, _) = dimensions;
 
             let num_skipped_rows = match field {
@@ -521,7 +469,7 @@ impl<'a> YiqView<'a> {
             YiqField::Upper | YiqField::Lower | YiqField::Both => {
                 let Self { y, i, q, .. } = self;
                 with_thread_pool(|| unsafe {
-                    blit_single_field::<S, F>(
+                    blit_single_field::<S, T, F>(
                         y,
                         i,
                         q,
@@ -539,7 +487,7 @@ impl<'a> YiqView<'a> {
                 if let Some(upper) = upper.as_mut() {
                     upper.field = YiqField::Upper;
                     unsafe {
-                        upper.set_from_strided_buffer_maybe_uninit::<S, F>(
+                        upper.set_from_strided_buffer_maybe_uninit::<S, T, F>(
                             buf,
                             blit_info,
                             pixel_transform,
@@ -550,7 +498,7 @@ impl<'a> YiqView<'a> {
                 if let Some(lower) = lower.as_mut() {
                     lower.field = YiqField::Lower;
                     unsafe {
-                        lower.set_from_strided_buffer_maybe_uninit::<S, F>(
+                        lower.set_from_strided_buffer_maybe_uninit::<S, T, F>(
                             buf,
                             blit_info,
                             pixel_transform,
@@ -564,7 +512,7 @@ impl<'a> YiqView<'a> {
                 if let Some(upper) = upper.as_mut() {
                     upper.field = YiqField::Upper;
                     unsafe {
-                        upper.set_from_strided_buffer_maybe_uninit::<S, F>(
+                        upper.set_from_strided_buffer_maybe_uninit::<S, T, F>(
                             buf,
                             blit_info,
                             pixel_transform,
@@ -575,7 +523,7 @@ impl<'a> YiqView<'a> {
                 if let Some(lower) = lower.as_mut() {
                     lower.field = YiqField::Lower;
                     unsafe {
-                        lower.set_from_strided_buffer_maybe_uninit::<S, F>(
+                        lower.set_from_strided_buffer_maybe_uninit::<S, T, F>(
                             buf,
                             blit_info,
                             pixel_transform,
@@ -588,15 +536,15 @@ impl<'a> YiqView<'a> {
 
     /// Convert (a given part of) the input pixel buffer into YIQ planar format, and optionally apply a color transform
     /// to the pixels beforehand.
-    pub fn set_from_strided_buffer<S: PixelFormat, F: PixelTransform>(
+    pub fn set_from_strided_buffer<S: PixelFormat, T: Normalize, F: PixelTransform>(
         &mut self,
-        buf: &[S::DataFormat],
+        buf: &[T],
         blit_info: BlitInfo,
         pixel_transform: F,
     ) {
         // Safety: We know this data is valid because it's a slice.
         unsafe {
-            self.set_from_strided_buffer_maybe_uninit::<S, F>(
+            self.set_from_strided_buffer_maybe_uninit::<S, T, F>(
                 slice_to_maybe_uninit(buf),
                 blit_info,
                 pixel_transform,
@@ -607,16 +555,16 @@ impl<'a> YiqView<'a> {
     /// Convert (a given part of) the YIQ planar data back into the given pixel fornat, and optionally apply a color
     /// transform to the pixels, before writing it into the destination buffer. This method allows you to write into a
     /// buffer which may not be initialized beforehand.
-    pub fn write_to_strided_buffer_maybe_uninit<S: PixelFormat, F: PixelTransform>(
+    pub fn write_to_strided_buffer_maybe_uninit<S: PixelFormat, T: Normalize, F: PixelTransform>(
         &self,
-        dst: &mut [MaybeUninit<S::DataFormat>],
+        dst: &mut [MaybeUninit<T>],
         mut blit_info: BlitInfo,
         deinterlace_mode: DeinterlaceMode,
         fill_alpha: bool,
         pixel_transform: F,
     ) {
-        let num_components = S::ORDER.num_components();
-        let (r_idx, g_idx, b_idx, a_idx) = S::ORDER.rgba_indices();
+        let num_components = S::NUM_COMPONENTS;
+        let (r_idx, g_idx, b_idx, a_idx) = S::RGBA_INDICES;
         let a_idx = a_idx.unwrap_or(0);
 
         // If we flip the Y coordinate, we need to flip the blit rectangle and destination coords as well. If we were
@@ -635,19 +583,19 @@ impl<'a> YiqView<'a> {
 
         assert!(num_components >= 3);
         assert!(
-            blit_info.row_bytes / std::mem::size_of::<S::DataFormat>() * S::ORDER.num_components()
+            blit_info.row_bytes / std::mem::size_of::<T>() * S::NUM_COMPONENTS
                 >= blit_info.rect.width(),
             "Blit rectangle width exceeds rowbytes"
         );
         assert_eq!(
-            blit_info.row_bytes % std::mem::size_of::<S::DataFormat>(),
+            blit_info.row_bytes % std::mem::size_of::<T>(),
             0,
             "Rowbytes not aligned to datatype"
         );
         assert!(blit_info.rect.width() + blit_info.destination.0 <= self.dimensions.0);
         assert!(blit_info.rect.height() + blit_info.destination.1 <= self.dimensions.1);
 
-        let row_length = blit_info.row_bytes / std::mem::size_of::<S::DataFormat>();
+        let row_length = blit_info.row_bytes / std::mem::size_of::<T>();
         let width = self.dimensions.0;
         let output_height = blit_info.other_buffer_height;
 
@@ -701,11 +649,11 @@ impl<'a> YiqView<'a> {
                                 ];
 
                                 let rgb = pixel_transform(yiq_to_rgb(interp_pixel));
-                                pixel[r_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[0]));
-                                pixel[g_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[1]));
-                                pixel[b_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[2]));
+                                pixel[r_idx] = MaybeUninit::new(T::from_norm(rgb[0]));
+                                pixel[g_idx] = MaybeUninit::new(T::from_norm(rgb[1]));
+                                pixel[b_idx] = MaybeUninit::new(T::from_norm(rgb[2]));
                                 if fill_alpha {
-                                    pixel[a_idx] = MaybeUninit::new(S::DataFormat::from_norm(1.0));
+                                    pixel[a_idx] = MaybeUninit::new(T::from_norm(1.0));
                                 }
                             }
                         } else {
@@ -721,11 +669,11 @@ impl<'a> YiqView<'a> {
                                     self.i[src_idx],
                                     self.q[src_idx],
                                 ]));
-                                pixel[r_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[0]));
-                                pixel[g_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[1]));
-                                pixel[b_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[2]));
+                                pixel[r_idx] = MaybeUninit::new(T::from_norm(rgb[0]));
+                                pixel[g_idx] = MaybeUninit::new(T::from_norm(rgb[1]));
+                                pixel[b_idx] = MaybeUninit::new(T::from_norm(rgb[2]));
                                 if fill_alpha {
-                                    pixel[a_idx] = MaybeUninit::new(S::DataFormat::from_norm(1.0));
+                                    pixel[a_idx] = MaybeUninit::new(T::from_norm(1.0));
                                 }
                             }
                         }
@@ -753,11 +701,11 @@ impl<'a> YiqView<'a> {
                                 self.i[src_idx],
                                 self.q[src_idx],
                             ]));
-                            pixel[r_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[0]));
-                            pixel[g_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[1]));
-                            pixel[b_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[2]));
+                            pixel[r_idx] = MaybeUninit::new(T::from_norm(rgb[0]));
+                            pixel[g_idx] = MaybeUninit::new(T::from_norm(rgb[1]));
+                            pixel[b_idx] = MaybeUninit::new(T::from_norm(rgb[2]));
                             if fill_alpha {
-                                pixel[a_idx] = MaybeUninit::new(S::DataFormat::from_norm(1.0));
+                                pixel[a_idx] = MaybeUninit::new(T::from_norm(1.0));
                             }
                         }
                     });
@@ -792,11 +740,11 @@ impl<'a> YiqView<'a> {
                                 self.i[src_idx + pix_idx + blit_info.rect.left],
                                 self.q[src_idx + pix_idx + blit_info.rect.left],
                             ]));
-                            pixel[r_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[0]));
-                            pixel[g_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[1]));
-                            pixel[b_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[2]));
+                            pixel[r_idx] = MaybeUninit::new(T::from_norm(rgb[0]));
+                            pixel[g_idx] = MaybeUninit::new(T::from_norm(rgb[1]));
+                            pixel[b_idx] = MaybeUninit::new(T::from_norm(rgb[2]));
                             if fill_alpha {
-                                pixel[a_idx] = MaybeUninit::new(S::DataFormat::from_norm(1.0));
+                                pixel[a_idx] = MaybeUninit::new(T::from_norm(1.0));
                             }
                         }
                     });
@@ -819,11 +767,11 @@ impl<'a> YiqView<'a> {
                                 self.i[src_idx],
                                 self.q[src_idx],
                             ]));
-                            pixel[r_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[0]));
-                            pixel[g_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[1]));
-                            pixel[b_idx] = MaybeUninit::new(S::DataFormat::from_norm(rgb[2]));
+                            pixel[r_idx] = MaybeUninit::new(T::from_norm(rgb[0]));
+                            pixel[g_idx] = MaybeUninit::new(T::from_norm(rgb[1]));
+                            pixel[b_idx] = MaybeUninit::new(T::from_norm(rgb[2]));
                             if fill_alpha {
-                                pixel[a_idx] = MaybeUninit::new(S::DataFormat::from_norm(1.0));
+                                pixel[a_idx] = MaybeUninit::new(T::from_norm(1.0));
                             }
                         }
                     });
@@ -832,14 +780,14 @@ impl<'a> YiqView<'a> {
         });
     }
 
-    pub fn write_to_strided_buffer<S: PixelFormat, F: PixelTransform>(
+    pub fn write_to_strided_buffer<S: PixelFormat, T: Normalize, F: PixelTransform>(
         &self,
-        dst: &mut [S::DataFormat],
+        dst: &mut [T],
         blit_info: BlitInfo,
         deinterlace_mode: DeinterlaceMode,
         pixel_transform: F,
     ) {
-        self.write_to_strided_buffer_maybe_uninit::<S, F>(
+        self.write_to_strided_buffer_maybe_uninit::<S, T, F>(
             unsafe { slice_to_maybe_uninit_mut(dst) },
             blit_info,
             deinterlace_mode,
@@ -889,8 +837,8 @@ pub struct YiqOwned {
 }
 
 impl YiqOwned {
-    pub fn from_strided_buffer<S: PixelFormat>(
-        buf: &[S::DataFormat],
+    pub fn from_strided_buffer<S: PixelFormat, T: Normalize>(
+        buf: &[T],
         row_bytes: usize,
         width: usize,
         height: usize,
@@ -899,7 +847,7 @@ impl YiqOwned {
         let mut data = vec![0f32; YiqView::buf_length_for((width, height), field)];
         let mut view = YiqView::from_parts(&mut data, (width, height), field);
 
-        view.set_from_strided_buffer::<S, _>(
+        view.set_from_strided_buffer::<S, T, _>(
             buf,
             BlitInfo::from_full_frame(width, height, row_bytes),
             identity,

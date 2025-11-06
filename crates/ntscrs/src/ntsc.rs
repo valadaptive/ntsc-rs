@@ -14,7 +14,9 @@ use crate::{
     random::{Geometric, Seeder},
     shift::{BoundaryHandling, shift_row, shift_row_to},
     thread_pool::{ZipChunks, with_thread_pool},
-    yiq_fielding::{BlitInfo, PixelFormat, YiqField, YiqOwned, YiqView},
+    yiq_fielding::{
+        BlitInfo, Normalize, PixelFormat, YiqField, YiqOwned, YiqView, pixel_bytes_for,
+    },
 };
 
 pub use crate::settings::standard::*;
@@ -1427,16 +1429,16 @@ impl NtscEffect {
     /// Apply the effect to a buffer which contains pixels in the given format.
     /// Convenience function meant mainly for tests--see the yiq_fielding module for doing things more efficiently, like
     /// reusing the output buffer.
-    pub fn apply_effect_to_buffer<S: PixelFormat>(
+    pub fn apply_effect_to_buffer<S: PixelFormat, T: Normalize>(
         &self,
         dimensions: (usize, usize),
-        input_frame: &mut [S::DataFormat],
+        input_frame: &mut [T],
         frame_num: usize,
         scale_factor: [f32; 2],
     ) {
         let field = self.use_field.to_yiq_field(frame_num);
-        let row_bytes = dimensions.0 * S::pixel_bytes();
-        let mut yiq = YiqOwned::from_strided_buffer::<S>(
+        let row_bytes = dimensions.0 * pixel_bytes_for::<S, T>();
+        let mut yiq = YiqOwned::from_strided_buffer::<S, T>(
             input_frame,
             row_bytes,
             dimensions.0,
@@ -1445,7 +1447,7 @@ impl NtscEffect {
         );
         let mut view = YiqView::from(&mut yiq);
         self.apply_effect_to_yiq(&mut view, frame_num, scale_factor);
-        view.write_to_strided_buffer::<S, _>(
+        view.write_to_strided_buffer::<S, T, _>(
             input_frame,
             BlitInfo::from_full_frame(dimensions.0, dimensions.1, row_bytes),
             crate::yiq_fielding::DeinterlaceMode::Bob,

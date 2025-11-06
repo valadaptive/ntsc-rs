@@ -6,7 +6,7 @@ use gstreamer_video::subclass::prelude::*;
 use gstreamer_video::{VideoFormat, VideoFrameExt};
 
 use ntscrs::ntsc::NtscEffect;
-use ntscrs::yiq_fielding::{Bgrx8, Rgbx8, Xbgr8, Xrgb8, Xrgb16};
+use ntscrs::yiq_fielding::{Bgrx, Rgbx, Xbgr, Xrgb};
 
 use super::process_gst_frame::process_gst_frame;
 
@@ -158,20 +158,20 @@ impl VideoFilterImpl for NtscFilter {
 
         match out_format {
             VideoFormat::Rgbx | VideoFormat::Rgba => {
-                process_gst_frame::<Rgbx8>(in_frame, out_data, out_stride, None, &settings)?;
+                process_gst_frame::<Rgbx, u8>(in_frame, out_data, out_stride, None, &settings)?;
             }
             VideoFormat::Bgrx | VideoFormat::Bgra => {
-                process_gst_frame::<Bgrx8>(in_frame, out_data, out_stride, None, &settings)?;
+                process_gst_frame::<Bgrx, u8>(in_frame, out_data, out_stride, None, &settings)?;
             }
             VideoFormat::Xrgb | VideoFormat::Argb => {
-                process_gst_frame::<Xrgb8>(in_frame, out_data, out_stride, None, &settings)?;
+                process_gst_frame::<Xrgb, u8>(in_frame, out_data, out_stride, None, &settings)?;
             }
             VideoFormat::Xbgr | VideoFormat::Abgr => {
-                process_gst_frame::<Xbgr8>(in_frame, out_data, out_stride, None, &settings)?;
+                process_gst_frame::<Xbgr, u8>(in_frame, out_data, out_stride, None, &settings)?;
             }
             VideoFormat::Argb64 => {
                 let data_16 = unsafe { out_data.align_to_mut::<u16>() }.1;
-                process_gst_frame::<Xrgb16>(in_frame, data_16, out_stride, None, &settings)?;
+                process_gst_frame::<Xrgb, u16>(in_frame, data_16, out_stride, None, &settings)?;
             }
             _ => Err(gstreamer::FlowError::NotSupported)?,
         };

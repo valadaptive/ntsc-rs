@@ -25,18 +25,11 @@ use allocator_api2::{
 
 use ntscrs::{
     ntsc::NtscEffect,
-    settings::SettingID,
-    yiq_fielding::{DeinterlaceMode, YiqView},
-};
-use ntscrs::{
-    settings::EnumValue,
-    yiq_fielding::{BlitInfo, Rect},
-};
-use ntscrs::{
     settings::{
-        SettingDescriptor, SettingKind, Settings, SettingsList, standard::NtscEffectFullSettings,
+        EnumValue, SettingDescriptor, SettingID, SettingKind, Settings, SettingsList,
+        standard::NtscEffectFullSettings,
     },
-    yiq_fielding::{PixelFormat, Rgb8, Rgb16, Rgb32f, Rgbx8, Rgbx16, Rgbx32f},
+    yiq_fielding::{BlitInfo, DeinterlaceMode, Normalize, PixelFormat, Rect, Rgb, Rgbx, YiqView},
 };
 
 use bindings::*;
@@ -1164,7 +1157,7 @@ struct EffectStorageParams<'a> {
 }
 
 impl<'a> EffectApplicationParams<'a> {
-    unsafe fn apply<S: PixelFormat>(self) -> OfxResult<EffectStorageParams<'a>> {
+    unsafe fn apply<S: PixelFormat, T: Normalize>(self) -> OfxResult<EffectStorageParams<'a>> {
         let srcWidth = (self.src_bounds.x2 - self.src_bounds.x1) as usize;
         let srcHeight = (self.src_bounds.y2 - self.src_bounds.y1) as usize;
 
@@ -1177,7 +1170,7 @@ impl<'a> EffectApplicationParams<'a> {
 
         let (srcFirstRowPtr, flip_y) = if self.src_row_bytes < 0 {
             // Currently untested because I can't find an OFX host that uses negative rowbytes. Fingers crossed it works!
-            let row_size = self.src_row_bytes / mem::size_of::<S::DataFormat>() as i32;
+            let row_size = self.src_row_bytes / mem::size_of::<T>() as i32;
             (
                 self.src_ptr.sub(-row_size as usize * (srcHeight - 1)),
                 false,
@@ -1190,8 +1183,8 @@ impl<'a> EffectApplicationParams<'a> {
         let mut yiq_view = YiqView::from_parts(&mut ntsc_buf, (srcWidth, srcHeight), cur_field);
 
         let srcData = slice::from_raw_parts(
-            srcFirstRowPtr as *const MaybeUninit<S::DataFormat>,
-            srcStride / std::mem::size_of::<S::DataFormat>() * srcHeight,
+            srcFirstRowPtr as *const MaybeUninit<T>,
+            srcStride / std::mem::size_of::<T>() * srcHeight,
         );
         // TODO: ported from code written under the assumption that we go from (0, 0) to (width, height).
         // I could change this now to use the actual source rect (in case we need that), but then I'd have to convert
@@ -1204,9 +1197,10 @@ impl<'a> EffectApplicationParams<'a> {
             flip_y,
         );
         if self.apply_srgb_gamma {
-            yiq_view.set_from_strided_buffer_maybe_uninit::<S, _>(srcData, blit_info, srgb_gamma);
+            yiq_view
+                .set_from_strided_buffer_maybe_uninit::<S, T, _>(srcData, blit_info, srgb_gamma);
         } else {
-            yiq_view.set_from_strided_buffer_maybe_uninit::<S, _>(srcData, blit_info, identity);
+            yiq_view.set_from_strided_buffer_maybe_uninit::<S, T, _>(srcData, blit_info, identity);
         }
 
         self.effect
@@ -1226,7 +1220,7 @@ impl<'a> EffectApplicationParams<'a> {
 }
 
 impl EffectStorageParams<'_> {
-    unsafe fn write_to_output<D: PixelFormat>(mut self) -> OfxResult<()> {
+    unsafe fn write_to_output<D: PixelFormat, T: Normalize>(mut self) -> OfxResult<()> {
         let dstHeight = (self.dst_bounds.y2 - self.dst_bounds.y1) as usize;
         let srcWidth = (self.src_bounds.x2 - self.src_bounds.x1) as usize;
         let srcHeight = (self.src_bounds.y2 - self.src_bounds.y1) as usize;
@@ -1236,7 +1230,7 @@ impl EffectStorageParams<'_> {
 
         let (dstFirstRowPtr, flip_y) = if self.dst_row_bytes < 0 {
             // Currently untested because I can't find an OFX host that uses negative rowbytes. Fingers crossed it works!
-            let row_size = self.dst_row_bytes / mem::size_of::<D::DataFormat>() as i32;
+            let row_size = self.dst_row_bytes / mem::size_of::<T>() as i32;
             (
                 self.dst_ptr.sub(-row_size as usize * (srcHeight - 1)),
                 false,
@@ -1246,8 +1240,8 @@ impl EffectStorageParams<'_> {
         };
         let dstStride = self.dst_row_bytes.unsigned_abs() as usize;
         let dstData = slice::from_raw_parts_mut(
-            dstFirstRowPtr as *mut MaybeUninit<D::DataFormat>,
-            dstStride / std::mem::size_of::<D::DataFormat>() * dstHeight,
+            dstFirstRowPtr as *mut MaybeUninit<T>,
+            dstStride / std::mem::size_of::<T>() * dstHeight,
         );
         let blit_info = BlitInfo {
             rect: Rect::from_width_height(srcWidth, srcHeight),
@@ -1258,7 +1252,7 @@ impl EffectStorageParams<'_> {
         };
 
         if self.apply_srgb_gamma {
-            yiq_view.write_to_strided_buffer_maybe_uninit::<D, _>(
+            yiq_view.write_to_strided_buffer_maybe_uninit::<D, T, _>(
                 dstData,
                 blit_info,
                 DeinterlaceMode::Bob,
@@ -1266,7 +1260,7 @@ impl EffectStorageParams<'_> {
                 srgb_gamma_inv,
             )
         } else {
-            yiq_view.write_to_strided_buffer_maybe_uninit::<D, _>(
+            yiq_view.write_to_strided_buffer_maybe_uninit::<D, T, _>(
                 dstData,
                 blit_info,
                 DeinterlaceMode::Bob,
@@ -1596,23 +1590,23 @@ unsafe fn action_render(
 
     let storage_params =
         match SupportedPixelFormat::from((num_source_components, source_pixel_depth)) {
-            SupportedPixelFormat::Rgb8 => application_params.apply::<Rgb8>()?,
-            SupportedPixelFormat::Rgb16 => application_params.apply::<Rgb16>()?,
-            SupportedPixelFormat::Rgb32f => application_params.apply::<Rgb32f>()?,
+            SupportedPixelFormat::Rgb8 => application_params.apply::<Rgb, u8>()?,
+            SupportedPixelFormat::Rgb16 => application_params.apply::<Rgb, u16>()?,
+            SupportedPixelFormat::Rgb32f => application_params.apply::<Rgb, f32>()?,
 
-            SupportedPixelFormat::Rgba8 => application_params.apply::<Rgbx8>()?,
-            SupportedPixelFormat::Rgba16 => application_params.apply::<Rgbx16>()?,
-            SupportedPixelFormat::Rgba32f => application_params.apply::<Rgbx32f>()?,
+            SupportedPixelFormat::Rgba8 => application_params.apply::<Rgbx, u8>()?,
+            SupportedPixelFormat::Rgba16 => application_params.apply::<Rgbx, u16>()?,
+            SupportedPixelFormat::Rgba32f => application_params.apply::<Rgbx, f32>()?,
         };
 
     match SupportedPixelFormat::from((num_output_components, output_pixel_depth)) {
-        SupportedPixelFormat::Rgb8 => storage_params.write_to_output::<Rgb8>()?,
-        SupportedPixelFormat::Rgb16 => storage_params.write_to_output::<Rgb16>()?,
-        SupportedPixelFormat::Rgb32f => storage_params.write_to_output::<Rgb32f>()?,
+        SupportedPixelFormat::Rgb8 => storage_params.write_to_output::<Rgb, u8>()?,
+        SupportedPixelFormat::Rgb16 => storage_params.write_to_output::<Rgb, u16>()?,
+        SupportedPixelFormat::Rgb32f => storage_params.write_to_output::<Rgb, f32>()?,
 
-        SupportedPixelFormat::Rgba8 => storage_params.write_to_output::<Rgbx8>()?,
-        SupportedPixelFormat::Rgba16 => storage_params.write_to_output::<Rgbx16>()?,
-        SupportedPixelFormat::Rgba32f => storage_params.write_to_output::<Rgbx32f>()?,
+        SupportedPixelFormat::Rgba8 => storage_params.write_to_output::<Rgbx, u8>()?,
+        SupportedPixelFormat::Rgba16 => storage_params.write_to_output::<Rgbx, u16>()?,
+        SupportedPixelFormat::Rgba32f => storage_params.write_to_output::<Rgbx, f32>()?,
     };
 
     Ok(())

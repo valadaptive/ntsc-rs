@@ -20,8 +20,7 @@ use ntscrs::{
         standard::UseField,
     },
     yiq_fielding::{
-        self, AfterEffectsU16, Bgrx8, Bgrx16, Bgrx32f, BlitInfo, DeinterlaceMode, Xrgb8, Xrgb16AE,
-        Xrgb32f, YiqField, YiqView,
+        self, AfterEffectsU16, Bgrx, BlitInfo, DeinterlaceMode, Xrgb, YiqField, YiqView,
     },
 };
 use raw_window_handle::Win32WindowHandle;
@@ -447,7 +446,7 @@ impl Plugin {
         match in_pixel_format {
             NtscrsPixelFormat::Xrgb8 => unsafe {
                 let data = transmute_slice::<u8, MaybeUninit<u8>>(in_layer.buffer());
-                view.set_from_strided_buffer_maybe_uninit::<Xrgb8, _>(
+                view.set_from_strided_buffer_maybe_uninit::<Xrgb, u8, _>(
                     data,
                     src_blit_info,
                     identity,
@@ -455,7 +454,7 @@ impl Plugin {
             },
             NtscrsPixelFormat::Xrgb16AE => unsafe {
                 let data = transmute_slice::<u8, MaybeUninit<AfterEffectsU16>>(in_layer.buffer());
-                view.set_from_strided_buffer_maybe_uninit::<Xrgb16AE, _>(
+                view.set_from_strided_buffer_maybe_uninit::<Xrgb, AfterEffectsU16, _>(
                     data,
                     src_blit_info,
                     identity,
@@ -463,7 +462,7 @@ impl Plugin {
             },
             NtscrsPixelFormat::Xrgb32f => unsafe {
                 let data = transmute_slice::<u8, MaybeUninit<f32>>(in_layer.buffer());
-                view.set_from_strided_buffer_maybe_uninit::<Xrgb32f, _>(
+                view.set_from_strided_buffer_maybe_uninit::<Xrgb, f32, _>(
                     data,
                     src_blit_info,
                     identity,
@@ -471,7 +470,7 @@ impl Plugin {
             },
             NtscrsPixelFormat::Bgrx8 => unsafe {
                 let data = transmute_slice::<u8, MaybeUninit<u8>>(in_layer.buffer());
-                view.set_from_strided_buffer_maybe_uninit::<Bgrx8, _>(
+                view.set_from_strided_buffer_maybe_uninit::<Bgrx, u8, _>(
                     data,
                     src_blit_info,
                     identity,
@@ -479,7 +478,7 @@ impl Plugin {
             },
             NtscrsPixelFormat::Bgrx16 => unsafe {
                 let data = transmute_slice::<u8, MaybeUninit<u16>>(in_layer.buffer());
-                view.set_from_strided_buffer_maybe_uninit::<Bgrx16, _>(
+                view.set_from_strided_buffer_maybe_uninit::<Bgrx, u16, _>(
                     data,
                     src_blit_info,
                     identity,
@@ -487,7 +486,7 @@ impl Plugin {
             },
             NtscrsPixelFormat::Bgrx32f => unsafe {
                 let data = transmute_slice::<u8, MaybeUninit<f32>>(in_layer.buffer());
-                view.set_from_strided_buffer_maybe_uninit::<Bgrx32f, _>(
+                view.set_from_strided_buffer_maybe_uninit::<Bgrx, f32, _>(
                     data,
                     src_blit_info,
                     identity,
@@ -510,7 +509,7 @@ impl Plugin {
             NtscrsPixelFormat::Xrgb8 => {
                 let data =
                     unsafe { transmute_slice_mut::<u8, MaybeUninit<u8>>(out_layer.buffer_mut()) };
-                view.write_to_strided_buffer_maybe_uninit::<Xrgb8, _>(
+                view.write_to_strided_buffer_maybe_uninit::<Xrgb, u8, _>(
                     data,
                     dst_blit_info,
                     DeinterlaceMode::Bob,
@@ -522,7 +521,7 @@ impl Plugin {
                 let data = unsafe {
                     transmute_slice_mut::<u8, MaybeUninit<AfterEffectsU16>>(out_layer.buffer_mut())
                 };
-                view.write_to_strided_buffer_maybe_uninit::<Xrgb16AE, _>(
+                view.write_to_strided_buffer_maybe_uninit::<Xrgb, AfterEffectsU16, _>(
                     data,
                     dst_blit_info,
                     DeinterlaceMode::Bob,
@@ -533,7 +532,7 @@ impl Plugin {
             NtscrsPixelFormat::Xrgb32f => {
                 let data =
                     unsafe { transmute_slice_mut::<u8, MaybeUninit<f32>>(out_layer.buffer_mut()) };
-                view.write_to_strided_buffer_maybe_uninit::<Xrgb32f, _>(
+                view.write_to_strided_buffer_maybe_uninit::<Xrgb, f32, _>(
                     data,
                     dst_blit_info,
                     DeinterlaceMode::Bob,
@@ -544,7 +543,7 @@ impl Plugin {
             NtscrsPixelFormat::Bgrx8 => {
                 let data =
                     unsafe { transmute_slice_mut::<u8, MaybeUninit<u8>>(out_layer.buffer_mut()) };
-                view.write_to_strided_buffer_maybe_uninit::<Bgrx8, _>(
+                view.write_to_strided_buffer_maybe_uninit::<Bgrx, u8, _>(
                     data,
                     dst_blit_info,
                     DeinterlaceMode::Bob,
@@ -555,7 +554,7 @@ impl Plugin {
             NtscrsPixelFormat::Bgrx16 => {
                 let data =
                     unsafe { transmute_slice_mut::<u8, MaybeUninit<u16>>(out_layer.buffer_mut()) };
-                view.write_to_strided_buffer_maybe_uninit::<Bgrx16, _>(
+                view.write_to_strided_buffer_maybe_uninit::<Bgrx, u16, _>(
                     data,
                     dst_blit_info,
                     DeinterlaceMode::Bob,
@@ -566,7 +565,7 @@ impl Plugin {
             NtscrsPixelFormat::Bgrx32f => {
                 let data =
                     unsafe { transmute_slice_mut::<u8, MaybeUninit<f32>>(out_layer.buffer_mut()) };
-                view.write_to_strided_buffer_maybe_uninit::<Bgrx32f, _>(
+                view.write_to_strided_buffer_maybe_uninit::<Bgrx, f32, _>(
                     data,
                     dst_blit_info,
                     DeinterlaceMode::Bob,

@@ -5,7 +5,7 @@ use gstreamer::{PadTemplate, glib};
 use gstreamer_video::subclass::prelude::*;
 use gstreamer_video::video_frame::Readable;
 use gstreamer_video::{VideoFrame, VideoFrameExt};
-use ntscrs::yiq_fielding::{self, Rgbx8};
+use ntscrs::yiq_fielding::{self, Rgbx};
 use std::fmt::Debug;
 use std::sync::{Mutex, OnceLock};
 
@@ -88,7 +88,7 @@ impl EguiSink {
         rect: Option<yiq_fielding::Rect>,
     ) -> Result<(), gstreamer::FlowError> {
         let out_stride = image.width() * 4;
-        process_gst_frame::<Rgbx8>(
+        process_gst_frame::<Rgbx, u8>(
             &vframe.as_video_frame_ref(),
             image.as_raw_mut(),
             out_stride,
