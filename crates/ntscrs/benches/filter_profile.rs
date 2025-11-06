@@ -27,23 +27,27 @@ fn criterion_benchmark(c: &mut Criterion) {
                         0f32;
                         YiqView::buf_length_for((width, height), effect.use_field.to_yiq_field(0))
                     ];
+                let dest = vec![0u8; data.len()];
 
-                (width, height, effect, data, scratch)
+                (width, height, effect, data, scratch, dest)
             },
-            |(width, height, effect, buf, scratch)| {
+            |(width, height, effect, buf, scratch, dest)| {
                 let mut yiq = YiqView::from_parts(
                     scratch,
                     (*width, *height),
                     effect.use_field.to_yiq_field(0),
                 );
                 let row_bytes = *width * Rgb8::pixel_bytes();
-                yiq.set_from_strided_buffer::<Rgb8, _>(
-                    buf,
-                    BlitInfo::from_full_frame(*width, *height, row_bytes),
+                let blit_info = BlitInfo::from_full_frame(*width, *height, row_bytes);
+                yiq.set_from_strided_buffer::<Rgb8, _>(buf, blit_info, identity);
+                effect.apply_effect_to_yiq(&mut yiq, 0, [1.0, 1.0]);
+                yiq.write_to_strided_buffer::<Rgb8, _>(
+                    dest,
+                    blit_info,
+                    ntscrs::yiq_fielding::DeinterlaceMode::Bob,
                     identity,
                 );
-                effect.apply_effect_to_yiq(&mut yiq, 0, [1.0, 1.0]);
-                black_box(buf);
+                black_box(dest);
             },
             criterion::BatchSize::LargeInput,
         );
