@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::{settings::SettingsBlock, yiq_fielding::YiqField};
 use macros::FullSettings;
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 use tinyjson::JsonValue;
 
 use super::{
@@ -9,7 +10,8 @@ use super::{
     SettingsEnum, SettingsList,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
 pub enum UseField {
     Alternating = 0,
     Upper,
@@ -18,7 +20,6 @@ pub enum UseField {
     InterleavedUpper,
     InterleavedLower,
 }
-
 impl SettingsEnum for UseField {}
 
 impl UseField {
@@ -47,14 +48,16 @@ impl UseField {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
 pub enum FilterType {
     ConstantK = 0,
     Butterworth,
 }
 impl SettingsEnum for FilterType {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
 pub enum LumaLowpass {
     None,
     Box,
@@ -62,7 +65,8 @@ pub enum LumaLowpass {
 }
 impl SettingsEnum for LumaLowpass {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
 pub enum PhaseShift {
     Degrees0,
     Degrees90,
@@ -71,7 +75,8 @@ pub enum PhaseShift {
 }
 impl SettingsEnum for PhaseShift {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
 pub enum VHSTapeSpeed {
     NONE,
     SP,
@@ -164,7 +169,8 @@ impl Default for VHSSettings {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
 pub enum ChromaLowpass {
     None,
     Light,
@@ -172,7 +178,8 @@ pub enum ChromaLowpass {
 }
 impl SettingsEnum for ChromaLowpass {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
 pub enum ChromaDemodulationFilter {
     Box,
     Notch,

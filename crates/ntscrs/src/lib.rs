@@ -6,8 +6,3 @@ pub mod settings;
 mod shift;
 pub mod thread_pool;
 pub mod yiq_fielding;
-
-#[macro_use]
-extern crate num_derive;
-
-pub use num_traits::cast::FromPrimitive;

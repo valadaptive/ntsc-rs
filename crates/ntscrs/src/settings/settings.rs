@@ -5,7 +5,7 @@
 
 use std::{collections::HashMap, error::Error, fmt::Display, ops::RangeInclusive};
 
-use num_traits::{FromPrimitive, ToPrimitive};
+use num_enum::TryFromPrimitive;
 pub use sval;
 pub use sval_json;
 use sval_json::{stream_to_fmt_write, stream_to_io_write};
@@ -98,10 +98,10 @@ pub trait Downcast: Sized {
     fn downcast(value: &AnySetting) -> Option<Self>;
 }
 
-impl<T: SettingsEnum> Downcast for T {
+impl<U: TryFrom<u32>, T: SettingsEnum + TryFromPrimitive<Primitive = U>> Downcast for T {
     fn downcast(value: &AnySetting) -> Option<Self> {
         match value {
-            AnySetting::Enum(e) => T::from_u32(e.0),
+            AnySetting::Enum(e) => T::try_from_primitive(e.0.try_into().ok()?).ok(),
             _ => None,
         }
     }
@@ -152,9 +152,9 @@ impl Downcast for bool {
     }
 }
 
-impl<T: SettingsEnum> From<T> for AnySetting {
+impl<U: Into<u32>, T: SettingsEnum + TryFromPrimitive<Primitive = U> + Into<U>> From<T> for AnySetting {
     fn from(value: T) -> Self {
-        Self::Enum(EnumValue(value.to_u32().unwrap()))
+        Self::Enum(EnumValue(<T as Into<U>>::into(value).into()))
     }
 }
 
@@ -188,7 +188,7 @@ impl From<bool> for AnySetting {
     }
 }
 
-pub trait SettingsEnum: FromPrimitive + ToPrimitive {}
+pub trait SettingsEnum {}
 
 /// A fixed identifier that points to a given setting. The id and name cannot be changed or reused once created.
 #[derive(Debug, Clone)]
