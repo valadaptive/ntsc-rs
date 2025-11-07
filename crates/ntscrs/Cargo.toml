@@ -6,7 +6,6 @@ license = "MIT OR ISC OR Apache-2.0"
 repository = "https://github.com/valadaptive/ntsc-rs/tree/main/crates/ntscrs"
 
 [dependencies]
-glam = "0.30.3"
 rand = { version = "0.9.0", default-features = false }
 rand_xoshiro = "0.7.0"
 simdnoise = { git = "https://github.com/valadaptive/rust-simd-noise", rev = "400d9ac" }
