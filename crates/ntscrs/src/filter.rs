@@ -331,10 +331,6 @@ impl TransferFunction {
             4 => filter_signal_simd(self, signal, initial, scale, delay).unwrap_or_else(|| {
                 self.filter_signal_in_place_fixed_size::<4, ROWS>(signal, initial, scale, delay)
             }),
-            5 => self.filter_signal_in_place_fixed_size::<5, ROWS>(signal, initial, scale, delay),
-            6 => self.filter_signal_in_place_fixed_size::<6, ROWS>(signal, initial, scale, delay),
-            7 => self.filter_signal_in_place_fixed_size::<7, ROWS>(signal, initial, scale, delay),
-            8 => self.filter_signal_in_place_fixed_size::<8, ROWS>(signal, initial, scale, delay),
             _ => {
                 // Fall back to the general-length implementation
                 let mut z: [Vec<f32>; ROWS] = initial
