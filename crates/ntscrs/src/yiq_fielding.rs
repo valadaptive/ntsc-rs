@@ -1,32 +1,56 @@
-use std::{
-    convert::identity,
-    mem::{self, MaybeUninit},
+use std::mem::{self, MaybeUninit};
+
+use macros::simd_dispatch;
+
+use crate::{
+    f32x4::F32x4,
+    thread_pool::{ZipChunks, with_thread_pool},
 };
 
-use glam::{Mat3A, Vec3A};
-
-use crate::thread_pool::{ZipChunks, with_thread_pool};
-
 #[inline(always)]
-pub fn rgb_to_yiq([r, g, b]: [f32; 3]) -> [f32; 3] {
-    const YIQ_MATRIX: Mat3A = Mat3A::from_cols(
-        Vec3A::new(0.299, 0.5959, 0.2115),
-        Vec3A::new(0.587, -0.2746, -0.5227),
-        Vec3A::new(0.114, -0.3213, 0.3112),
-    );
+fn rgb_to_yiq<S: F32x4>(rgb: S) -> S {
+    // This is a matrix multiply with the matrix being:
+    // [
+    //     [0.299, 0.5959, 0.2115],
+    //     [0.587, -0.2746, -0.5227],
+    //     [0.114, -0.3213, 0.3112],
+    // ]
 
-    (YIQ_MATRIX * Vec3A::new(r, g, b)).into()
+    let rr = rgb.swizzle(0, 0, 0, 0);
+    let gg = rgb.swizzle(1, 1, 1, 1);
+    let bb = rgb.swizzle(2, 2, 2, 2);
+
+    unsafe {
+        rr.mul_add(
+            S::load4(&[0.299, 0.5959, 0.2115, 0.0]),
+            gg.mul_add(
+                S::load4(&[0.587, -0.2746, -0.5227, 0.0]),
+                bb * S::load4(&[0.114, -0.3213, 0.3112, 0.0]),
+            ),
+        )
+    }
 }
 
 #[inline(always)]
-pub fn yiq_to_rgb([y, i, q]: [f32; 3]) -> [f32; 3] {
-    const RGB_MATRIX: Mat3A = Mat3A::from_cols(
-        Vec3A::new(1.0, 1.0, 1.0),
-        Vec3A::new(0.956, -0.272, -1.106),
-        Vec3A::new(0.619, -0.647, 1.703),
-    );
+fn yiq_to_rgb<S: F32x4>(yiq: S) -> S {
+    // This is a matrix multiply with the matrix being:
+    // [
+    //    [1.0, 1.0, 1.0],
+    //    [0.956, -0.272, -1.106],
+    //    [0.619, -0.647, 1.703],
+    // ]
+    // Since the top row is all ones, we can skip it.
 
-    (RGB_MATRIX * Vec3A::new(y, i, q)).into()
+    let yy = yiq.swizzle(0, 0, 0, 0);
+    let ii = yiq.swizzle(1, 1, 1, 1);
+    let qq = yiq.swizzle(2, 2, 2, 2);
+
+    unsafe {
+        qq.mul_add(
+            S::load4(&[0.619, -0.647, 1.703, 0.0]),
+            ii.mul_add(S::load4(&[0.956, -0.272, -1.106, 0.0]), yy),
+        )
+    }
 }
 
 /// How are the fields being stored? This is similar to the `UseField` enum in the settings module, but doesn't include
@@ -47,6 +71,7 @@ pub enum YiqField {
 
 impl YiqField {
     /// The number of rows needed in the YIQ buffer to store data for a given field setting.
+    #[inline(always)]
     pub fn num_image_rows(&self, image_height: usize) -> usize {
         // On an image with an odd input height, we do ceiling division if we render upper-field-first
         // (take an image 3 pixels tall. it goes render, skip, render--that's 2 renders) but floor division if we
@@ -60,6 +85,7 @@ impl YiqField {
 
     /// The number of rows that correspond to this field for a given vertical resolution. Can be 0 unlike
     /// `num_image_rows`.
+    #[inline(always)]
     pub fn num_actual_image_rows(&self, image_height: usize) -> usize {
         // On an image with an odd input height, we do ceiling division if we render upper-field-first
         // (take an image 3 pixels tall. it goes render, skip, render--that's 2 renders) but floor division if we
@@ -83,34 +109,63 @@ impl YiqField {
     }
 }
 
+mod private {
+    pub trait Sealed {}
+
+    // Implement for those same types, but no others.
+    impl Sealed for f32 {}
+    impl Sealed for u16 {}
+    impl Sealed for super::AfterEffectsU16 {}
+    impl Sealed for i16 {}
+    impl Sealed for u8 {}
+}
+
 /// Trait for converting various pixel formats to and from the f32 representation used when processing the image.
-pub trait Normalize: Sized + Copy + Send + Sync {
-    fn from_norm(value: f32) -> Self;
-    fn to_norm(self) -> f32;
+pub trait Normalize: Sized + Copy + Send + Sync + private::Sealed {
+    const ONE: Self;
+    fn from_norm<S: F32x4>(value: S) -> [Self; 4];
+    unsafe fn to_norm<S: F32x4>(value: [Self; 4]) -> S;
 }
 
 impl Normalize for f32 {
+    const ONE: Self = 1.0;
     #[inline(always)]
-    fn from_norm(value: f32) -> Self {
-        value
+    fn from_norm<S: F32x4>(value: S) -> [Self; 4] {
+        value.as_array()
     }
 
     #[inline(always)]
-    fn to_norm(self) -> f32 {
-        self
+    unsafe fn to_norm<S: F32x4>(value: [Self; 4]) -> S {
+        unsafe { S::load4(&value) }
     }
 }
 
 impl Normalize for u16 {
+    const ONE: Self = Self::MAX;
     #[inline(always)]
-    fn from_norm(value: f32) -> Self {
-        // The `as`-cast semantics will clamp any out-of-range values
-        (value * Self::MAX as f32) as Self
+    fn from_norm<S: F32x4>(value: S) -> [Self; 4] {
+        let min = unsafe { S::set1(Self::MIN as f32) };
+        let max = unsafe { S::set1(Self::MAX as f32) };
+        let multiplied = unsafe { (value * max).min(max).max(min).as_signed_ints() };
+        [
+            multiplied[0] as u16,
+            multiplied[1] as u16,
+            multiplied[2] as u16,
+            multiplied[3] as u16,
+        ]
     }
 
     #[inline(always)]
-    fn to_norm(self) -> f32 {
-        (self as f32) / Self::MAX as f32
+    unsafe fn to_norm<S: F32x4>(value: [Self; 4]) -> S {
+        let values = unsafe {
+            S::from_signed_ints(&[
+                value[0] as i32,
+                value[1] as i32,
+                value[2] as i32,
+                value[3] as i32,
+            ])
+        };
+        values / unsafe { S::set1(Self::MAX as f32) }
     }
 }
 
@@ -123,41 +178,89 @@ impl Normalize for u16 {
 pub struct AfterEffectsU16(u16);
 
 impl Normalize for AfterEffectsU16 {
+    const ONE: Self = Self(32768);
     #[inline(always)]
-    fn from_norm(value: f32) -> Self {
-        // The `as`-cast semantics will clamp between 0 and u16::MAX, but our real maximum is 32768
-        Self(((value * 32768.0) as u16).min(32768))
+    fn from_norm<S: F32x4>(value: S) -> [Self; 4] {
+        let min = unsafe { S::set1(0.0) };
+        let max = unsafe { S::set1(32768.0) };
+        let multiplied = unsafe { (value * max).min(max).max(min).as_signed_ints() };
+        [
+            Self(multiplied[0] as u16),
+            Self(multiplied[1] as u16),
+            Self(multiplied[2] as u16),
+            Self(multiplied[3] as u16),
+        ]
     }
 
     #[inline(always)]
-    fn to_norm(self) -> f32 {
-        (self.0 as f32) / 32768.0
+    unsafe fn to_norm<S: F32x4>(value: [Self; 4]) -> S {
+        let values = unsafe {
+            S::from_signed_ints(&[
+                value[0].0 as i32,
+                value[1].0 as i32,
+                value[2].0 as i32,
+                value[3].0 as i32,
+            ])
+        };
+        values / unsafe { S::set1(32768.0) }
     }
 }
 
 impl Normalize for i16 {
+    const ONE: Self = Self::MAX;
     #[inline(always)]
-    fn from_norm(value: f32) -> Self {
-        // The `as`-cast semantics will clamp any out-of-range values
-        (value * Self::MAX as f32) as Self
+    fn from_norm<S: F32x4>(value: S) -> [Self; 4] {
+        let min = unsafe { S::set1(Self::MIN as f32) };
+        let max = unsafe { S::set1(Self::MAX as f32) };
+        let multiplied = unsafe { (value * max).min(max).max(min).as_signed_ints() };
+        [
+            multiplied[0] as i16,
+            multiplied[1] as i16,
+            multiplied[2] as i16,
+            multiplied[3] as i16,
+        ]
     }
 
     #[inline(always)]
-    fn to_norm(self) -> f32 {
-        (self as f32) / Self::MAX as f32
+    unsafe fn to_norm<S: F32x4>(value: [Self; 4]) -> S {
+        let values = unsafe {
+            S::from_signed_ints(&[
+                value[0] as i32,
+                value[1] as i32,
+                value[2] as i32,
+                value[3] as i32,
+            ])
+        };
+        values / unsafe { S::set1(Self::MAX as f32) }
     }
 }
 
 impl Normalize for u8 {
+    const ONE: Self = Self::MAX;
     #[inline(always)]
-    fn from_norm(value: f32) -> Self {
-        // The `as`-cast semantics will clamp any out-of-range values
-        (value * Self::MAX as f32) as Self
+    fn from_norm<S: F32x4>(value: S) -> [Self; 4] {
+        let min = unsafe { S::set1(Self::MIN as f32) };
+        let max = unsafe { S::set1(Self::MAX as f32) };
+        let multiplied = unsafe { (value * max).min(max).max(min).as_signed_ints() };
+        [
+            multiplied[0] as u8,
+            multiplied[1] as u8,
+            multiplied[2] as u8,
+            multiplied[3] as u8,
+        ]
     }
 
     #[inline(always)]
-    fn to_norm(self) -> f32 {
-        (self as f32) / Self::MAX as f32
+    unsafe fn to_norm<S: F32x4>(value: [Self; 4]) -> S {
+        let values = unsafe {
+            S::from_signed_ints(&[
+                value[0] as i32,
+                value[1] as i32,
+                value[2] as i32,
+                value[3] as i32,
+            ])
+        };
+        values / unsafe { S::set1(Self::MAX as f32) }
     }
 }
 
@@ -317,8 +420,26 @@ unsafe fn slice_to_maybe_uninit_mut<T>(slice: &mut [T]) -> &mut [MaybeUninit<T>]
     unsafe { std::slice::from_raw_parts_mut(slice.as_mut_ptr() as _, slice.len()) }
 }
 
-pub trait PixelTransform: Fn([f32; 3]) -> [f32; 3] + Send + Sync + Copy {}
-impl<T: Fn([f32; 3]) -> [f32; 3] + Send + Sync + Copy> PixelTransform for T {}
+pub trait PixelTransform: Send + Sync + Copy {
+    fn transform_pixel<S: F32x4>(&self, pixel: S) -> S;
+}
+impl<T: Fn([f32; 3]) -> [f32; 3] + Send + Sync + Copy> PixelTransform for T {
+    #[inline(always)]
+    fn transform_pixel<S: F32x4>(&self, pixel: S) -> S {
+        let mut tmp = pixel.as_array();
+        let transformed = self([tmp[0], tmp[1], tmp[2]]);
+        tmp[0] = transformed[0];
+        tmp[1] = transformed[1];
+        tmp[2] = transformed[2];
+        unsafe { S::load4(&tmp) }
+    }
+}
+impl PixelTransform for () {
+    #[inline(always)]
+    fn transform_pixel<S: F32x4>(&self, pixel: S) -> S {
+        pixel
+    }
+}
 
 impl<'a> YiqView<'a> {
     /// Split this `YiqView` into two `YiqView`s vertically at a given row.
@@ -357,6 +478,7 @@ impl<'a> YiqView<'a> {
 
     /// Number of rows of pixels being stored in this view. This will be smaller than `dimensions.1` if some
     /// fields are being skipped.
+    #[inline(always)]
     pub fn num_rows(&self) -> usize {
         self.field.num_image_rows(self.dimensions.1)
     }
@@ -395,93 +517,118 @@ impl<'a> YiqView<'a> {
         assert!(blit_info.rect.width() + blit_info.destination.0 <= self.dimensions.0);
         assert!(blit_info.rect.height() + blit_info.destination.1 <= self.dimensions.1);
 
-        unsafe fn blit_single_field<S: PixelFormat, T: Normalize, F: PixelTransform>(
+        unsafe fn blit_row_simd_inner<
+            S: PixelFormat,
+            T: Normalize,
+            F: PixelTransform,
+            Simd: F32x4,
+        >(
             y: &mut [f32],
             i: &mut [f32],
             q: &mut [f32],
-            dimensions: (usize, usize),
-            mut field: YiqField,
             buf: &[MaybeUninit<T>],
-            blit_info: BlitInfo,
+            blit_info: &BlitInfo,
+            src_row_idx: usize,
             pixel_transform: F,
         ) {
             let row_length = blit_info.row_bytes / std::mem::size_of::<T>();
-            let num_components = S::NUM_COMPONENTS;
+            let src_offset = src_row_idx * row_length;
             let (r_idx, g_idx, b_idx, ..) = S::RGBA_INDICES;
-            let (width, _) = dimensions;
-
-            let num_skipped_rows = match field {
-                YiqField::Upper => (blit_info.destination.1 + 1) / 2,
-                YiqField::Lower => blit_info.destination.1 / 2,
-                _ => blit_info.destination.1,
-            };
-
-            if blit_info.destination.1 & 1 == 1 {
-                field = field.flip();
-            }
-
-            let num_rect_rows = field.num_image_rows(blit_info.rect.height());
-
-            let lines = [y, i, q].map(|plane| {
-                &mut plane[num_skipped_rows * width..(num_skipped_rows + num_rect_rows) * width]
-            });
-            ZipChunks::new(lines, width).par_for_each(|row_idx, [y, i, q]| {
-                // For interleaved fields, we write the first field into the first half of the buffer,
-                // and the second field into the second half.
-                let mut src_row_idx = match field {
-                    YiqField::Upper => row_idx * 2,
-                    YiqField::Lower => (row_idx * 2) + 1,
-                    YiqField::Both => row_idx,
-                    YiqField::InterleavedUpper | YiqField::InterleavedLower => {
-                        panic!("blit_single_field doesn't operate on interleaved stuff")
-                    }
+            for idx in 0..blit_info.rect.width() {
+                let src_pixel_idx = idx + blit_info.rect.left;
+                let rgba: Simd = unsafe {
+                    T::to_norm([
+                        buf[((src_pixel_idx * S::NUM_COMPONENTS) + src_offset) + r_idx]
+                            .assume_init(),
+                        buf[((src_pixel_idx * S::NUM_COMPONENTS) + src_offset) + g_idx]
+                            .assume_init(),
+                        buf[((src_pixel_idx * S::NUM_COMPONENTS) + src_offset) + b_idx]
+                            .assume_init(),
+                        T::ONE,
+                    ])
                 };
-                src_row_idx += blit_info.rect.top;
-                if blit_info.flip_y {
-                    src_row_idx = blit_info.other_buffer_height - src_row_idx - 1;
-                }
-                if blit_info.rect.height() == 1 {
-                    src_row_idx = 0;
-                }
-                let src_offset = src_row_idx * row_length;
-                for idx in 0..blit_info.rect.width() {
-                    let src_pixel_idx = idx + blit_info.rect.left;
-                    let rgb = unsafe {
-                        [
-                            buf[((src_pixel_idx * num_components) + src_offset) + r_idx]
-                                .assume_init()
-                                .to_norm(),
-                            buf[((src_pixel_idx * num_components) + src_offset) + g_idx]
-                                .assume_init()
-                                .to_norm(),
-                            buf[((src_pixel_idx * num_components) + src_offset) + b_idx]
-                                .assume_init()
-                                .to_norm(),
-                        ]
-                    };
-                    let yiq_pixel = rgb_to_yiq(pixel_transform(rgb));
-                    let dst_pixel_idx = idx + blit_info.destination.0;
-                    y[dst_pixel_idx] = yiq_pixel[0];
-                    i[dst_pixel_idx] = yiq_pixel[1];
-                    q[dst_pixel_idx] = yiq_pixel[2];
-                }
-            });
+                let transformed = pixel_transform.transform_pixel(rgba);
+                let yiq_pixel = rgb_to_yiq(transformed);
+                let dst_pixel_idx = idx + blit_info.destination.0;
+                let yiq_channels = yiq_pixel.as_array();
+                y[dst_pixel_idx] = yiq_channels[0];
+                i[dst_pixel_idx] = yiq_channels[1];
+                q[dst_pixel_idx] = yiq_channels[2];
+            }
+        }
+
+        #[simd_dispatch(Simd, scalar_fallback)]
+        unsafe fn blit_row_simd<S: PixelFormat, T: Normalize, F: PixelTransform>(
+            y: &mut [f32],
+            i: &mut [f32],
+            q: &mut [f32],
+            buf: &[MaybeUninit<T>],
+            blit_info: &BlitInfo,
+            src_row_idx: usize,
+            pixel_transform: F,
+        ) {
+            blit_row_simd_inner::<S, T, F, Simd>(
+                y,
+                i,
+                q,
+                buf,
+                blit_info,
+                src_row_idx,
+                pixel_transform,
+            )
         }
 
         match self.field {
             YiqField::Upper | YiqField::Lower | YiqField::Both => {
                 let Self { y, i, q, .. } = self;
-                with_thread_pool(|| unsafe {
-                    blit_single_field::<S, T, F>(
-                        y,
-                        i,
-                        q,
-                        self.dimensions,
-                        self.field,
-                        buf,
-                        blit_info,
-                        pixel_transform,
-                    )
+                with_thread_pool(|| {
+                    let (width, _) = self.dimensions;
+                    let mut field = self.field;
+
+                    let num_skipped_rows = match field {
+                        YiqField::Upper => (blit_info.destination.1 + 1) / 2,
+                        YiqField::Lower => blit_info.destination.1 / 2,
+                        _ => blit_info.destination.1,
+                    };
+
+                    if blit_info.destination.1 & 1 == 1 {
+                        field = field.flip();
+                    }
+
+                    let num_rect_rows = field.num_image_rows(blit_info.rect.height());
+
+                    let lines = [y, i, q].map(|plane| {
+                        &mut plane
+                            [num_skipped_rows * width..(num_skipped_rows + num_rect_rows) * width]
+                    });
+                    ZipChunks::new(lines, width).par_for_each(|row_idx, [y, i, q]| {
+                        // For interleaved fields, we write the first field into the first half of the buffer,
+                        // and the second field into the second half.
+                        let mut src_row_idx = match field {
+                            YiqField::Upper => row_idx * 2,
+                            YiqField::Lower => (row_idx * 2) + 1,
+                            YiqField::Both => row_idx,
+                            _ => unreachable!(),
+                        };
+                        src_row_idx += blit_info.rect.top;
+                        if blit_info.flip_y {
+                            src_row_idx = blit_info.other_buffer_height - src_row_idx - 1;
+                        }
+                        if blit_info.rect.height() == 1 {
+                            src_row_idx = 0;
+                        }
+                        unsafe {
+                            blit_row_simd::<S, T, F>(
+                                y,
+                                i,
+                                q,
+                                buf,
+                                &blit_info,
+                                src_row_idx,
+                                pixel_transform,
+                            );
+                        }
+                    });
                 })
             }
             YiqField::InterleavedUpper => {
@@ -593,23 +740,237 @@ impl<'a> YiqView<'a> {
         assert!(blit_info.rect.width() + blit_info.destination.0 <= self.dimensions.0);
         assert!(blit_info.rect.height() + blit_info.destination.1 <= self.dimensions.1);
 
-        with_thread_pool(|| {
+        unsafe fn write_single_row_simd_inner<
+            S: PixelFormat,
+            T: Normalize,
+            F: PixelTransform,
+            Simd: F32x4,
+        >(
+            view: &YiqView,
+            blit_info: &BlitInfo,
+            deinterlace_mode: DeinterlaceMode,
+            mut dst_row_idx: usize,
+            dst_row: &mut [MaybeUninit<T>],
+            pixel_transform: F,
+        ) {
             let (r_idx, g_idx, b_idx, a_idx) = S::RGBA_INDICES;
-
-            let row_length = blit_info.row_bytes / std::mem::size_of::<T>();
-            let width = self.dimensions.0;
+            let width = view.dimensions.0;
             let output_height = blit_info.other_buffer_height;
-
+            let num_rows = view.num_rows();
             // If the row index modulo 2 equals this number, that row was not rendered in the source data and we need to
             // interpolate between the rows above and beneath it.
-            let skip_field: usize = match self.field {
+            let skip_field: usize = match view.field {
                 YiqField::Upper => 1,
                 YiqField::Lower => 0,
                 // The row index modulo 2 never reaches 2, meaning we don't skip any rows
                 YiqField::Both | YiqField::InterleavedUpper | YiqField::InterleavedLower => 2,
             };
 
-            let num_rows = self.num_rows();
+            match (deinterlace_mode, view.field) {
+                (DeinterlaceMode::Bob, YiqField::Upper | YiqField::Lower) => {
+                    // Limit to the actual width of the output (rowbytes may include trailing padding)
+                    let dst_row = &mut dst_row[blit_info.destination.0 * S::NUM_COMPONENTS
+                        ..(blit_info.destination.0 + blit_info.rect.width()) * S::NUM_COMPONENTS];
+                    dst_row_idx += blit_info.rect.top;
+                    if blit_info.flip_y {
+                        dst_row_idx = output_height - dst_row_idx - 1;
+                    }
+                    // Inner fields with lines above and below them. Interpolate between those fields
+                    if (dst_row_idx & 1) == skip_field
+                        && dst_row_idx != 0
+                        && dst_row_idx != output_height - 1
+                    {
+                        for (pix_idx, pixel) in
+                            dst_row.chunks_exact_mut(S::NUM_COMPONENTS).enumerate()
+                        {
+                            let src_idx_lower =
+                                ((dst_row_idx - 1) >> 1) * width + pix_idx + blit_info.rect.left;
+                            let src_idx_upper =
+                                ((dst_row_idx + 1) >> 1) * width + pix_idx + blit_info.rect.left;
+
+                            let upper_pixel = unsafe {
+                                Simd::load4(&[
+                                    view.y[src_idx_upper],
+                                    view.i[src_idx_upper],
+                                    view.q[src_idx_upper],
+                                    0.0,
+                                ])
+                            };
+                            let lower_pixel = unsafe {
+                                Simd::load4(&[
+                                    view.y[src_idx_lower],
+                                    view.i[src_idx_lower],
+                                    view.q[src_idx_lower],
+                                    0.0,
+                                ])
+                            };
+
+                            let interp_pixel =
+                                (upper_pixel + lower_pixel) * unsafe { Simd::set1(0.5) };
+
+                            let rgba = T::from_norm(
+                                pixel_transform.transform_pixel(yiq_to_rgb(interp_pixel)),
+                            );
+                            pixel[r_idx] = MaybeUninit::new(rgba[0]);
+                            pixel[g_idx] = MaybeUninit::new(rgba[1]);
+                            pixel[b_idx] = MaybeUninit::new(rgba[2]);
+                            if let Some(a_idx) = a_idx {
+                                pixel[a_idx] = MaybeUninit::new(T::ONE);
+                            }
+                        }
+                    } else {
+                        // Copy the field directly
+                        for (pix_idx, pixel) in
+                            dst_row.chunks_exact_mut(S::NUM_COMPONENTS).enumerate()
+                        {
+                            let src_idx = (dst_row_idx >> 1).min(num_rows - 1) * width
+                                + pix_idx
+                                + blit_info.rect.left;
+                            let rgba =
+                                T::from_norm(pixel_transform.transform_pixel(yiq_to_rgb(unsafe {
+                                    Simd::load4(&[
+                                        view.y[src_idx],
+                                        view.i[src_idx],
+                                        view.q[src_idx],
+                                        0.0,
+                                    ])
+                                })));
+                            pixel[r_idx] = MaybeUninit::new(rgba[0]);
+                            pixel[g_idx] = MaybeUninit::new(rgba[1]);
+                            pixel[b_idx] = MaybeUninit::new(rgba[2]);
+                            if let Some(a_idx) = a_idx {
+                                pixel[a_idx] = MaybeUninit::new(T::ONE);
+                            }
+                        }
+                    }
+                }
+                (DeinterlaceMode::Skip, YiqField::Upper | YiqField::Lower) => {
+                    // Limit to the actual width of the output (rowbytes may include trailing padding)
+                    let dst_row = &mut dst_row[blit_info.destination.0 * S::NUM_COMPONENTS
+                        ..(blit_info.destination.0 + blit_info.rect.width()) * S::NUM_COMPONENTS];
+                    dst_row_idx += blit_info.rect.top;
+                    if blit_info.flip_y {
+                        dst_row_idx = output_height - dst_row_idx - 1;
+                    }
+                    if (dst_row_idx & 1) == skip_field {
+                        return;
+                    }
+                    for (pix_idx, pixel) in dst_row.chunks_exact_mut(S::NUM_COMPONENTS).enumerate()
+                    {
+                        let src_idx = (dst_row_idx >> 1).min(num_rows - 1) * width
+                            + pix_idx
+                            + blit_info.rect.left;
+                        let rgba =
+                            T::from_norm(pixel_transform.transform_pixel(yiq_to_rgb(unsafe {
+                                Simd::load4(&[
+                                    view.y[src_idx],
+                                    view.i[src_idx],
+                                    view.q[src_idx],
+                                    0.0,
+                                ])
+                            })));
+                        pixel[r_idx] = MaybeUninit::new(rgba[0]);
+                        pixel[g_idx] = MaybeUninit::new(rgba[1]);
+                        pixel[b_idx] = MaybeUninit::new(rgba[2]);
+                        if let Some(a_idx) = a_idx {
+                            pixel[a_idx] = MaybeUninit::new(T::ONE);
+                        }
+                    }
+                }
+                (_, YiqField::InterleavedUpper | YiqField::InterleavedLower) => {
+                    // Limit to the actual width of the output (rowbytes may include trailing padding)
+                    let dst_row = &mut dst_row[blit_info.destination.0 * S::NUM_COMPONENTS
+                        ..(blit_info.destination.0 + blit_info.rect.width()) * S::NUM_COMPONENTS];
+                    dst_row_idx += blit_info.rect.top;
+                    if blit_info.flip_y {
+                        dst_row_idx = output_height - dst_row_idx - 1;
+                    }
+                    let row_offset = match view.field {
+                        YiqField::InterleavedUpper => {
+                            YiqField::Upper.num_image_rows(view.dimensions.1) * (dst_row_idx & 1)
+                        }
+                        YiqField::InterleavedLower => {
+                            YiqField::Lower.num_image_rows(view.dimensions.1)
+                                * (1 - (dst_row_idx & 1))
+                        }
+                        _ => unreachable!(),
+                    };
+                    // handle edge case where there's only one row and the mode is InterleavedLower
+                    let interleaved_row_idx =
+                        ((dst_row_idx >> 1) + row_offset).min(view.dimensions.1 - 1);
+                    let src_idx = interleaved_row_idx * width;
+                    for (pix_idx, pixel) in dst_row.chunks_exact_mut(S::NUM_COMPONENTS).enumerate()
+                    {
+                        let rgba =
+                            T::from_norm(pixel_transform.transform_pixel(yiq_to_rgb(unsafe {
+                                Simd::load4(&[
+                                    view.y[src_idx + pix_idx + blit_info.rect.left],
+                                    view.i[src_idx + pix_idx + blit_info.rect.left],
+                                    view.q[src_idx + pix_idx + blit_info.rect.left],
+                                    0.0,
+                                ])
+                            })));
+                        pixel[r_idx] = MaybeUninit::new(rgba[0]);
+                        pixel[g_idx] = MaybeUninit::new(rgba[1]);
+                        pixel[b_idx] = MaybeUninit::new(rgba[2]);
+                        if let Some(a_idx) = a_idx {
+                            pixel[a_idx] = MaybeUninit::new(T::ONE);
+                        }
+                    }
+                }
+                _ => {
+                    // Limit to the actual width of the output (rowbytes may include trailing padding)
+                    let dst_row = &mut dst_row[blit_info.destination.0 * S::NUM_COMPONENTS
+                        ..(blit_info.destination.0 + blit_info.rect.width()) * S::NUM_COMPONENTS];
+                    dst_row_idx += blit_info.rect.top;
+                    if blit_info.flip_y {
+                        dst_row_idx = output_height - dst_row_idx - 1;
+                    }
+                    for (pix_idx, pixel) in dst_row.chunks_exact_mut(S::NUM_COMPONENTS).enumerate()
+                    {
+                        let src_idx =
+                            dst_row_idx.min(num_rows - 1) * width + pix_idx + blit_info.rect.left;
+                        let rgba =
+                            T::from_norm(pixel_transform.transform_pixel(yiq_to_rgb(unsafe {
+                                Simd::load4(&[
+                                    view.y[src_idx],
+                                    view.i[src_idx],
+                                    view.q[src_idx],
+                                    0.0,
+                                ])
+                            })));
+                        pixel[r_idx] = MaybeUninit::new(rgba[0]);
+                        pixel[g_idx] = MaybeUninit::new(rgba[1]);
+                        pixel[b_idx] = MaybeUninit::new(rgba[2]);
+                        if let Some(a_idx) = a_idx {
+                            pixel[a_idx] = MaybeUninit::new(T::ONE);
+                        }
+                    }
+                }
+            }
+        }
+
+        #[simd_dispatch(Simd, scalar_fallback)]
+        fn write_single_row_simd<S: PixelFormat, T: Normalize, F: PixelTransform>(
+            view: &YiqView,
+            blit_info: &BlitInfo,
+            deinterlace_mode: DeinterlaceMode,
+            dst_row_idx: usize,
+            dst_row: &mut [MaybeUninit<T>],
+            pixel_transform: F,
+        ) {
+            write_single_row_simd_inner::<S, T, F, Simd>(
+                view,
+                blit_info,
+                deinterlace_mode,
+                dst_row_idx,
+                dst_row,
+                pixel_transform,
+            )
+        }
+
+        with_thread_pool(|| {
+            let row_length = blit_info.row_bytes / std::mem::size_of::<T>();
 
             let skip_rows = blit_info.destination.1;
             let take_rows = blit_info.rect.height();
@@ -618,175 +979,16 @@ impl<'a> YiqView<'a> {
                 row_length,
             );
 
-            match (deinterlace_mode, self.field) {
-                (DeinterlaceMode::Bob, YiqField::Upper | YiqField::Lower) => {
-                    chunks.par_for_each(|mut dst_row_idx, [dst_row]| {
-                        // Limit to the actual width of the output (rowbytes may include trailing padding)
-                        let dst_row = &mut dst_row[blit_info.destination.0 * S::NUM_COMPONENTS
-                            ..(blit_info.destination.0 + blit_info.rect.width())
-                                * S::NUM_COMPONENTS];
-                        dst_row_idx += blit_info.rect.top;
-                        if blit_info.flip_y {
-                            dst_row_idx = output_height - dst_row_idx - 1;
-                        }
-                        // Inner fields with lines above and below them. Interpolate between those fields
-                        if (dst_row_idx & 1) == skip_field
-                            && dst_row_idx != 0
-                            && dst_row_idx != output_height - 1
-                        {
-                            for (pix_idx, pixel) in
-                                dst_row.chunks_exact_mut(S::NUM_COMPONENTS).enumerate()
-                            {
-                                let src_idx_lower = ((dst_row_idx - 1) >> 1) * width
-                                    + pix_idx
-                                    + blit_info.rect.left;
-                                let src_idx_upper = ((dst_row_idx + 1) >> 1) * width
-                                    + pix_idx
-                                    + blit_info.rect.left;
-
-                                let interp_pixel = [
-                                    (self.y[src_idx_lower] + self.y[src_idx_upper]) * 0.5,
-                                    (self.i[src_idx_lower] + self.i[src_idx_upper]) * 0.5,
-                                    (self.q[src_idx_lower] + self.q[src_idx_upper]) * 0.5,
-                                ];
-
-                                let rgb = pixel_transform(yiq_to_rgb(interp_pixel));
-                                pixel[r_idx] = MaybeUninit::new(T::from_norm(rgb[0]));
-                                pixel[g_idx] = MaybeUninit::new(T::from_norm(rgb[1]));
-                                pixel[b_idx] = MaybeUninit::new(T::from_norm(rgb[2]));
-                                if let Some(a_idx) = a_idx {
-                                    pixel[a_idx] = MaybeUninit::new(T::from_norm(1.0));
-                                }
-                            }
-                        } else {
-                            // Copy the field directly
-                            for (pix_idx, pixel) in
-                                dst_row.chunks_exact_mut(S::NUM_COMPONENTS).enumerate()
-                            {
-                                let src_idx = (dst_row_idx >> 1).min(num_rows - 1) * width
-                                    + pix_idx
-                                    + blit_info.rect.left;
-                                let rgb = pixel_transform(yiq_to_rgb([
-                                    self.y[src_idx],
-                                    self.i[src_idx],
-                                    self.q[src_idx],
-                                ]));
-                                pixel[r_idx] = MaybeUninit::new(T::from_norm(rgb[0]));
-                                pixel[g_idx] = MaybeUninit::new(T::from_norm(rgb[1]));
-                                pixel[b_idx] = MaybeUninit::new(T::from_norm(rgb[2]));
-                                if let Some(a_idx) = a_idx {
-                                    pixel[a_idx] = MaybeUninit::new(T::from_norm(1.0));
-                                }
-                            }
-                        }
-                    });
-                }
-                (DeinterlaceMode::Skip, YiqField::Upper | YiqField::Lower) => {
-                    chunks.par_for_each(|mut dst_row_idx, [dst_row]| {
-                        // Limit to the actual width of the output (rowbytes may include trailing padding)
-                        let dst_row = &mut dst_row[blit_info.destination.0 * S::NUM_COMPONENTS
-                            ..(blit_info.destination.0 + blit_info.rect.width())
-                                * S::NUM_COMPONENTS];
-                        dst_row_idx += blit_info.rect.top;
-                        if blit_info.flip_y {
-                            dst_row_idx = output_height - dst_row_idx - 1;
-                        }
-                        if (dst_row_idx & 1) == skip_field {
-                            return;
-                        }
-                        for (pix_idx, pixel) in
-                            dst_row.chunks_exact_mut(S::NUM_COMPONENTS).enumerate()
-                        {
-                            let src_idx = (dst_row_idx >> 1).min(num_rows - 1) * width
-                                + pix_idx
-                                + blit_info.rect.left;
-                            let rgb = pixel_transform(yiq_to_rgb([
-                                self.y[src_idx],
-                                self.i[src_idx],
-                                self.q[src_idx],
-                            ]));
-                            pixel[r_idx] = MaybeUninit::new(T::from_norm(rgb[0]));
-                            pixel[g_idx] = MaybeUninit::new(T::from_norm(rgb[1]));
-                            pixel[b_idx] = MaybeUninit::new(T::from_norm(rgb[2]));
-                            if let Some(a_idx) = a_idx {
-                                pixel[a_idx] = MaybeUninit::new(T::from_norm(1.0));
-                            }
-                        }
-                    });
-                }
-                (_, YiqField::InterleavedUpper | YiqField::InterleavedLower) => {
-                    chunks.par_for_each(|mut dst_row_idx, [dst_row]| {
-                        // Limit to the actual width of the output (rowbytes may include trailing padding)
-                        let dst_row = &mut dst_row[blit_info.destination.0 * S::NUM_COMPONENTS
-                            ..(blit_info.destination.0 + blit_info.rect.width())
-                                * S::NUM_COMPONENTS];
-                        dst_row_idx += blit_info.rect.top;
-                        if blit_info.flip_y {
-                            dst_row_idx = output_height - dst_row_idx - 1;
-                        }
-                        let row_offset = match self.field {
-                            YiqField::InterleavedUpper => {
-                                YiqField::Upper.num_image_rows(self.dimensions.1)
-                                    * (dst_row_idx & 1)
-                            }
-                            YiqField::InterleavedLower => {
-                                YiqField::Lower.num_image_rows(self.dimensions.1)
-                                    * (1 - (dst_row_idx & 1))
-                            }
-                            _ => unreachable!(),
-                        };
-                        // handle edge case where there's only one row and the mode is InterleavedLower
-                        let interleaved_row_idx =
-                            ((dst_row_idx >> 1) + row_offset).min(self.dimensions.1 - 1);
-                        let src_idx = interleaved_row_idx * width;
-                        for (pix_idx, pixel) in
-                            dst_row.chunks_exact_mut(S::NUM_COMPONENTS).enumerate()
-                        {
-                            let rgb = pixel_transform(yiq_to_rgb([
-                                self.y[src_idx + pix_idx + blit_info.rect.left],
-                                self.i[src_idx + pix_idx + blit_info.rect.left],
-                                self.q[src_idx + pix_idx + blit_info.rect.left],
-                            ]));
-                            pixel[r_idx] = MaybeUninit::new(T::from_norm(rgb[0]));
-                            pixel[g_idx] = MaybeUninit::new(T::from_norm(rgb[1]));
-                            pixel[b_idx] = MaybeUninit::new(T::from_norm(rgb[2]));
-                            if let Some(a_idx) = a_idx {
-                                pixel[a_idx] = MaybeUninit::new(T::from_norm(1.0));
-                            }
-                        }
-                    });
-                }
-                _ => {
-                    chunks.par_for_each(|mut dst_row_idx, [dst_row]| {
-                        // Limit to the actual width of the output (rowbytes may include trailing padding)
-                        let dst_row = &mut dst_row[blit_info.destination.0 * S::NUM_COMPONENTS
-                            ..(blit_info.destination.0 + blit_info.rect.width())
-                                * S::NUM_COMPONENTS];
-                        dst_row_idx += blit_info.rect.top;
-                        if blit_info.flip_y {
-                            dst_row_idx = output_height - dst_row_idx - 1;
-                        }
-                        for (pix_idx, pixel) in
-                            dst_row.chunks_exact_mut(S::NUM_COMPONENTS).enumerate()
-                        {
-                            let src_idx = dst_row_idx.min(num_rows - 1) * width
-                                + pix_idx
-                                + blit_info.rect.left;
-                            let rgb = pixel_transform(yiq_to_rgb([
-                                self.y[src_idx],
-                                self.i[src_idx],
-                                self.q[src_idx],
-                            ]));
-                            pixel[r_idx] = MaybeUninit::new(T::from_norm(rgb[0]));
-                            pixel[g_idx] = MaybeUninit::new(T::from_norm(rgb[1]));
-                            pixel[b_idx] = MaybeUninit::new(T::from_norm(rgb[2]));
-                            if let Some(a_idx) = a_idx {
-                                pixel[a_idx] = MaybeUninit::new(T::from_norm(1.0));
-                            }
-                        }
-                    });
-                }
-            }
+            chunks.par_for_each(|dst_row_idx, [dst_row]| {
+                write_single_row_simd::<S, T, F>(
+                    self,
+                    &blit_info,
+                    deinterlace_mode,
+                    dst_row_idx,
+                    dst_row,
+                    pixel_transform,
+                );
+            });
         });
     }
 
@@ -859,7 +1061,7 @@ impl YiqOwned {
         view.set_from_strided_buffer::<S, T, _>(
             buf,
             BlitInfo::from_full_frame(width, height, row_bytes),
-            identity,
+            (),
         );
 
         YiqOwned {

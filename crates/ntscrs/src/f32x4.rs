@@ -48,21 +48,235 @@ pub trait F32x4:
     /// You must ensure that whatever flavor of SIMD vector you're creating is supported by the current CPU.
     unsafe fn set1(src: f32) -> Self;
 
+    #[inline(always)]
+    fn as_array(self) -> [f32; 4] {
+        let mut dst = [0.0; 4];
+        self.store(&mut dst);
+        dst
+    }
+
+    /// Safety:
+    /// You must ensure that whatever flavor of SIMD vector you're creating is supported by the current CPU.
+    unsafe fn from_signed_ints(src: &[i32; 4]) -> Self;
+
+    /// Converts this vector to signed integers, rounding towards zero.
+    ///
+    /// Safety:
+    /// All floating-point values must be in range for an i32 and should proooobably not be NaN.
+    unsafe fn as_signed_ints(self) -> [i32; 4];
+
     fn mul_add(self, a: Self, b: Self) -> Self;
     fn mul_sub(self, a: Self, b: Self) -> Self;
     fn neg_mul_add(self, a: Self, b: Self) -> Self;
     fn neg_mul_sub(self, a: Self, b: Self) -> Self;
+
+    fn min(self, other: Self) -> Self;
+    fn max(self, other: Self) -> Self;
+
     fn swizzle(self, x: i32, y: i32, z: i32, w: i32) -> Self;
     fn insert<const INDEX: i32>(self, value: f32) -> Self;
+}
+
+pub mod scalar {
+    use std::{
+        fmt::Debug,
+        ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign},
+    };
+
+    use super::F32x4;
+
+    #[derive(Clone, Copy, Debug)]
+    #[repr(align(16))]
+    pub struct ScalarF32x4([f32; 4]);
+
+    impl Add for ScalarF32x4 {
+        type Output = Self;
+
+        #[inline(always)]
+        fn add(self, rhs: Self) -> Self::Output {
+            Self([
+                self.0[0] + rhs.0[0],
+                self.0[1] + rhs.0[1],
+                self.0[2] + rhs.0[2],
+                self.0[3] + rhs.0[3],
+            ])
+        }
+    }
+
+    impl Sub for ScalarF32x4 {
+        type Output = Self;
+
+        #[inline(always)]
+        fn sub(self, rhs: Self) -> Self::Output {
+            Self([
+                self.0[0] - rhs.0[0],
+                self.0[1] - rhs.0[1],
+                self.0[2] - rhs.0[2],
+                self.0[3] - rhs.0[3],
+            ])
+        }
+    }
+
+    impl Mul for ScalarF32x4 {
+        type Output = Self;
+
+        #[inline(always)]
+        fn mul(self, rhs: Self) -> Self::Output {
+            Self([
+                self.0[0] * rhs.0[0],
+                self.0[1] * rhs.0[1],
+                self.0[2] * rhs.0[2],
+                self.0[3] * rhs.0[3],
+            ])
+        }
+    }
+
+    impl Div for ScalarF32x4 {
+        type Output = Self;
+
+        #[inline(always)]
+        fn div(self, rhs: Self) -> Self::Output {
+            Self([
+                self.0[0] / rhs.0[0],
+                self.0[1] / rhs.0[1],
+                self.0[2] / rhs.0[2],
+                self.0[3] / rhs.0[3],
+            ])
+        }
+    }
+
+    impl AddAssign for ScalarF32x4 {
+        #[inline(always)]
+        fn add_assign(&mut self, rhs: Self) {
+            *self = *self + rhs;
+        }
+    }
+
+    impl SubAssign for ScalarF32x4 {
+        #[inline(always)]
+        fn sub_assign(&mut self, rhs: Self) {
+            *self = *self - rhs;
+        }
+    }
+
+    impl MulAssign for ScalarF32x4 {
+        #[inline(always)]
+        fn mul_assign(&mut self, rhs: Self) {
+            *self = *self * rhs;
+        }
+    }
+
+    impl DivAssign for ScalarF32x4 {
+        #[inline(always)]
+        fn div_assign(&mut self, rhs: Self) {
+            *self = *self / rhs;
+        }
+    }
+
+    impl F32x4 for ScalarF32x4 {
+        #[inline(always)]
+        unsafe fn load(src: &[f32]) -> Self {
+            Self(src.try_into().unwrap())
+        }
+
+        #[inline(always)]
+        unsafe fn load1(src: &f32) -> Self {
+            Self([*src; 4])
+        }
+
+        #[inline(always)]
+        fn store(self, dst: &mut [f32]) {
+            dst[0..4].copy_from_slice(&self.0);
+        }
+
+        #[inline(always)]
+        fn store1(self, dst: &mut f32) {
+            *dst = self.0[0];
+        }
+
+        #[inline(always)]
+        unsafe fn set1(src: f32) -> Self {
+            Self([src; 4])
+        }
+
+        #[inline(always)]
+        unsafe fn as_signed_ints(self) -> [i32; 4] {
+            self.0.map(|x| x as i32)
+        }
+
+        #[inline(always)]
+        unsafe fn from_signed_ints(src: &[i32; 4]) -> Self {
+            Self(src.map(|x| x as f32))
+        }
+
+        #[inline(always)]
+        fn mul_add(self, a: Self, b: Self) -> Self {
+            (self * a) + b
+        }
+
+        #[inline(always)]
+        fn mul_sub(self, a: Self, b: Self) -> Self {
+            (self * a) - b
+        }
+
+        #[inline(always)]
+        fn neg_mul_add(self, a: Self, b: Self) -> Self {
+            b - (self * a)
+        }
+
+        #[inline(always)]
+        fn neg_mul_sub(self, a: Self, b: Self) -> Self {
+            (unsafe { Self::set1(0.0) } - (self * a)) - b
+        }
+
+        #[inline(always)]
+        fn min(self, other: Self) -> Self {
+            Self([
+                self.0[0].min(other.0[0]),
+                self.0[1].min(other.0[1]),
+                self.0[2].min(other.0[2]),
+                self.0[3].min(other.0[3]),
+            ])
+        }
+
+        #[inline(always)]
+        fn max(self, other: Self) -> Self {
+            Self([
+                self.0[0].max(other.0[0]),
+                self.0[1].max(other.0[1]),
+                self.0[2].max(other.0[2]),
+                self.0[3].max(other.0[3]),
+            ])
+        }
+
+        #[inline(always)]
+        fn swizzle(self, x: i32, y: i32, z: i32, w: i32) -> Self {
+            assert!((x | y | z | w) & !3 == 0, "Invalid swizzle indices");
+            Self([
+                self.0[x as usize],
+                self.0[y as usize],
+                self.0[z as usize],
+                self.0[w as usize],
+            ])
+        }
+
+        #[inline(always)]
+        fn insert<const INDEX: i32>(self, value: f32) -> Self {
+            let mut dest = self;
+            dest.0[INDEX as usize] = value;
+            dest
+        }
+    }
 }
 
 #[cfg(target_arch = "x86_64")]
 pub mod x86_64 {
     use std::arch::x86_64::{
-        __m128, _mm_add_ps, _mm_broadcast_ss, _mm_castps_si128, _mm_castsi128_ps, _mm_div_ps,
-        _mm_fmadd_ps, _mm_fmsub_ps, _mm_fnmadd_ps, _mm_fnmsub_ps, _mm_insert_epi32, _mm_loadu_ps,
-        _mm_mul_ps, _mm_permutevar_ps, _mm_set_epi8, _mm_set_epi32, _mm_set1_ps, _mm_shuffle_epi8,
-        _mm_store_ss, _mm_storeu_ps, _mm_sub_ps,
+        __m128, _mm_add_ps, _mm_broadcast_ss, _mm_castps_si128, _mm_castsi128_ps, _mm_cvtepi32_ps,
+        _mm_cvttps_epi32, _mm_div_ps, _mm_fmadd_ps, _mm_fmsub_ps, _mm_fnmadd_ps, _mm_fnmsub_ps,
+        _mm_insert_epi32, _mm_loadu_ps, _mm_loadu_si128, _mm_max_ps, _mm_min_ps, _mm_mul_ps,
+        _mm_permutevar_ps, _mm_set_epi8, _mm_set_epi32, _mm_set1_ps, _mm_shuffle_epi8,
+        _mm_store_ss, _mm_storeu_ps, _mm_storeu_si128, _mm_sub_ps,
     };
     use std::{
         fmt::Debug,
@@ -192,6 +406,22 @@ pub mod x86_64 {
         }
 
         #[inline(always)]
+        unsafe fn from_signed_ints(src: &[i32; 4]) -> Self {
+            let ints = unsafe { _mm_loadu_si128(src.as_ptr() as *const _) };
+            unsafe { _mm_cvtepi32_ps(ints).into() }
+        }
+
+        #[inline(always)]
+        unsafe fn as_signed_ints(self) -> [i32; 4] {
+            let ints = unsafe { _mm_cvttps_epi32(self.into()) };
+            let mut dst = [0i32; 4];
+            unsafe {
+                _mm_storeu_si128(dst.as_mut_ptr() as *mut _, ints);
+            }
+            dst
+        }
+
+        #[inline(always)]
         fn mul_add(self, a: Self, b: Self) -> Self {
             if USE_AVX2 {
                 unsafe { _mm_fmadd_ps(self.into(), a.into(), b.into()).into() }
@@ -225,6 +455,16 @@ pub mod x86_64 {
             } else {
                 (unsafe { Self::set1(0.0) } - (self * a)) - b
             }
+        }
+
+        #[inline(always)]
+        fn min(self, other: Self) -> Self {
+            unsafe { _mm_min_ps(self.into(), other.into()).into() }
+        }
+
+        #[inline(always)]
+        fn max(self, other: Self) -> Self {
+            unsafe { _mm_max_ps(self.into(), other.into()).into() }
         }
 
         #[inline(always)]
@@ -283,10 +523,10 @@ pub mod x86_64 {
 #[cfg(target_arch = "aarch64")]
 pub mod aarch64 {
     use std::arch::aarch64::{
-        float32x4_t, uint8x16_t, vaddq_f32, vcombine_u8, vcreate_u8, vdivq_f32, vdupq_n_f32,
-        vfmaq_f32, vfmsq_f32, vld1q_dup_f32, vld1q_f32, vmulq_f32, vnegq_f32, vqtbl1q_u8,
-        vreinterpretq_f32_u8, vreinterpretq_u8_f32, vsetq_lane_f32, vst1q_f32, vst1q_lane_f32,
-        vsubq_f32,
+        float32x4_t, uint8x16_t, vaddq_f32, vcombine_u8, vcreate_u8, vcvtq_f32_s32, vcvtq_s32_f32,
+        vdivq_f32, vdupq_n_f32, vfmaq_f32, vfmsq_f32, vld1q_dup_f32, vld1q_f32, vld1q_s32,
+        vmaxq_f32, vminq_f32, vmulq_f32, vnegq_f32, vqtbl1q_u8, vreinterpretq_f32_u8,
+        vreinterpretq_u8_f32, vsetq_lane_f32, vst1q_f32, vst1q_lane_f32, vst1q_s32, vsubq_f32,
     };
     use std::{
         fmt::Debug,
@@ -406,6 +646,22 @@ pub mod aarch64 {
         }
 
         #[inline(always)]
+        unsafe fn from_signed_ints(src: &[i32; 4]) -> Self {
+            let ints = unsafe { vld1q_s32(src.as_ptr()) };
+            unsafe { vcvtq_f32_s32(ints).into() }
+        }
+
+        #[inline(always)]
+        unsafe fn as_signed_ints(self) -> [i32; 4] {
+            let ints = unsafe { vcvtq_s32_f32(self.into()) };
+            let mut dst = [0i32; 4];
+            unsafe {
+                vst1q_s32(dst.as_mut_ptr(), ints);
+            }
+            dst
+        }
+
+        #[inline(always)]
         fn mul_add(self, a: Self, b: Self) -> Self {
             unsafe { vfmaq_f32(b.into(), self.into(), a.into()).into() }
         }
@@ -423,6 +679,16 @@ pub mod aarch64 {
         #[inline(always)]
         fn neg_mul_sub(self, a: Self, b: Self) -> Self {
             unsafe { vnegq_f32(vfmaq_f32(b.into(), self.into(), a.into())).into() }
+        }
+
+        #[inline(always)]
+        fn min(self, other: Self) -> Self {
+            unsafe { vminq_f32(self.into(), other.into()).into() }
+        }
+
+        #[inline(always)]
+        fn max(self, other: Self) -> Self {
+            unsafe { vmaxq_f32(self.into(), other.into()).into() }
         }
 
         #[inline(always)]
@@ -471,8 +737,9 @@ pub mod aarch64 {
 pub mod wasm32 {
     use std::{
         arch::wasm32::{
-            f32x4_add, f32x4_div, f32x4_mul, f32x4_replace_lane, f32x4_splat, f32x4_sub,
-            i8x16_swizzle, u8x16, v128, v128_load, v128_store, v128_store32_lane,
+            f32x4_add, f32x4_convert_i32x4, f32x4_div, f32x4_mul, f32x4_pmax, f32x4_pmin,
+            f32x4_replace_lane, f32x4_splat, f32x4_sub, i8x16_swizzle, i32x4_trunc_sat_f32x4,
+            u8x16, v128, v128_load, v128_store, v128_store32_lane,
         },
         fmt::Debug,
         ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign},
@@ -563,43 +830,79 @@ pub mod wasm32 {
     }
 
     impl F32x4 for WasmF32x4 {
+        #[inline(always)]
         unsafe fn load(src: &[f32]) -> Self {
-            v128_load(src[0..4].as_ptr() as _).into()
+            unsafe { v128_load(src[0..4].as_ptr() as _).into() }
         }
 
+        #[inline(always)]
         unsafe fn load1(src: &f32) -> Self {
             f32x4_splat(*src).into()
         }
 
+        #[inline(always)]
         fn store(self, dst: &mut [f32]) {
             // SAFETY: the range operator ensures that the slice is at least 4 elements long
             unsafe { v128_store(dst[0..4].as_mut_ptr() as _, self.into()) };
         }
 
+        #[inline(always)]
         fn store1(self, dst: &mut f32) {
             unsafe { v128_store32_lane::<0>(self.into(), dst as *mut f32 as *mut _) };
         }
 
+        #[inline(always)]
         unsafe fn set1(src: f32) -> Self {
             f32x4_splat(src).into()
         }
 
+        #[inline(always)]
+        unsafe fn from_signed_ints(src: &[i32; 4]) -> Self {
+            let ints = unsafe { v128_load(src.as_ptr() as *const _) };
+            f32x4_convert_i32x4(ints).into()
+        }
+
+        #[inline(always)]
+        unsafe fn as_signed_ints(self) -> [i32; 4] {
+            let ints = i32x4_trunc_sat_f32x4(self.into());
+            let mut dst = [0i32; 4];
+            unsafe {
+                v128_store(dst.as_mut_ptr() as *mut _, ints);
+            }
+            dst
+        }
+
+        #[inline(always)]
         fn mul_add(self, a: Self, b: Self) -> Self {
             (self * a) + b
         }
 
+        #[inline(always)]
         fn mul_sub(self, a: Self, b: Self) -> Self {
             (self * a) - b
         }
 
+        #[inline(always)]
         fn neg_mul_add(self, a: Self, b: Self) -> Self {
             b - (self * a)
         }
 
+        #[inline(always)]
         fn neg_mul_sub(self, a: Self, b: Self) -> Self {
             (unsafe { Self::set1(0.0) } - (self * a)) - b
         }
 
+        #[inline(always)]
+        fn min(self, other: Self) -> Self {
+            f32x4_pmin(self.into(), other.into()).into()
+        }
+
+        #[inline(always)]
+        fn max(self, other: Self) -> Self {
+            f32x4_pmax(self.into(), other.into()).into()
+        }
+
+        #[inline(always)]
         fn swizzle(self, x: i32, y: i32, z: i32, w: i32) -> Self {
             assert!((x | y | z | w) & !3 == 0, "Invalid swizzle indices");
             let x = (x << 2) as u8;
@@ -627,6 +930,7 @@ pub mod wasm32 {
             i8x16_swizzle(self.into(), indexes).into()
         }
 
+        #[inline(always)]
         fn insert<const INDEX: i32>(self, value: f32) -> Self {
             // Unlike the Intel and ARM SIMD ops, WASM takes a usize as the lane index! Thanks Rust!!!
             match INDEX {

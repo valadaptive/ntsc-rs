@@ -1,6 +1,4 @@
-use std::{
-    collections::VecDeque, convert::identity, f32::consts::FRAC_1_SQRT_2, ops::RangeInclusive,
-};
+use std::{collections::VecDeque, f32::consts::FRAC_1_SQRT_2, ops::RangeInclusive};
 
 use core::f32::consts::PI;
 use macros::simd_dispatch;
@@ -1451,7 +1449,7 @@ impl NtscEffect {
             input_frame,
             BlitInfo::from_full_frame(dimensions.0, dimensions.1, row_bytes),
             crate::yiq_fielding::DeinterlaceMode::Bob,
-            identity,
+            (),
         );
     }
 }

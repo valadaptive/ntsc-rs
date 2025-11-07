@@ -5,7 +5,6 @@ mod window_handle;
 
 use std::{
     borrow::BorrowMut,
-    convert::identity,
     fs::File,
     mem::{self, MaybeUninit},
     num::NonZero,
@@ -446,51 +445,31 @@ impl Plugin {
         match in_pixel_format {
             NtscrsPixelFormat::Xrgb8 => unsafe {
                 let data = transmute_slice::<u8, MaybeUninit<u8>>(in_layer.buffer());
-                view.set_from_strided_buffer_maybe_uninit::<Xrgb, u8, _>(
-                    data,
-                    src_blit_info,
-                    identity,
-                );
+                view.set_from_strided_buffer_maybe_uninit::<Xrgb, u8, _>(data, src_blit_info, ());
             },
             NtscrsPixelFormat::Xrgb16AE => unsafe {
                 let data = transmute_slice::<u8, MaybeUninit<AfterEffectsU16>>(in_layer.buffer());
                 view.set_from_strided_buffer_maybe_uninit::<Xrgb, AfterEffectsU16, _>(
                     data,
                     src_blit_info,
-                    identity,
+                    (),
                 );
             },
             NtscrsPixelFormat::Xrgb32f => unsafe {
                 let data = transmute_slice::<u8, MaybeUninit<f32>>(in_layer.buffer());
-                view.set_from_strided_buffer_maybe_uninit::<Xrgb, f32, _>(
-                    data,
-                    src_blit_info,
-                    identity,
-                );
+                view.set_from_strided_buffer_maybe_uninit::<Xrgb, f32, _>(data, src_blit_info, ());
             },
             NtscrsPixelFormat::Bgrx8 => unsafe {
                 let data = transmute_slice::<u8, MaybeUninit<u8>>(in_layer.buffer());
-                view.set_from_strided_buffer_maybe_uninit::<Bgrx, u8, _>(
-                    data,
-                    src_blit_info,
-                    identity,
-                );
+                view.set_from_strided_buffer_maybe_uninit::<Bgrx, u8, _>(data, src_blit_info, ());
             },
             NtscrsPixelFormat::Bgrx16 => unsafe {
                 let data = transmute_slice::<u8, MaybeUninit<u16>>(in_layer.buffer());
-                view.set_from_strided_buffer_maybe_uninit::<Bgrx, u16, _>(
-                    data,
-                    src_blit_info,
-                    identity,
-                );
+                view.set_from_strided_buffer_maybe_uninit::<Bgrx, u16, _>(data, src_blit_info, ());
             },
             NtscrsPixelFormat::Bgrx32f => unsafe {
                 let data = transmute_slice::<u8, MaybeUninit<f32>>(in_layer.buffer());
-                view.set_from_strided_buffer_maybe_uninit::<Bgrx, f32, _>(
-                    data,
-                    src_blit_info,
-                    identity,
-                );
+                view.set_from_strided_buffer_maybe_uninit::<Bgrx, f32, _>(data, src_blit_info, ());
             },
         }
 
@@ -513,7 +492,7 @@ impl Plugin {
                     data,
                     dst_blit_info,
                     DeinterlaceMode::Bob,
-                    identity,
+                    (),
                 );
             }
             NtscrsPixelFormat::Xrgb16AE => {
@@ -524,7 +503,7 @@ impl Plugin {
                     data,
                     dst_blit_info,
                     DeinterlaceMode::Bob,
-                    identity,
+                    (),
                 );
             }
             NtscrsPixelFormat::Xrgb32f => {
@@ -534,7 +513,7 @@ impl Plugin {
                     data,
                     dst_blit_info,
                     DeinterlaceMode::Bob,
-                    identity,
+                    (),
                 );
             }
             NtscrsPixelFormat::Bgrx8 => {
@@ -544,7 +523,7 @@ impl Plugin {
                     data,
                     dst_blit_info,
                     DeinterlaceMode::Bob,
-                    identity,
+                    (),
                 );
             }
             NtscrsPixelFormat::Bgrx16 => {
@@ -554,7 +533,7 @@ impl Plugin {
                     data,
                     dst_blit_info,
                     DeinterlaceMode::Bob,
-                    identity,
+                    (),
                 );
             }
             NtscrsPixelFormat::Bgrx32f => {
@@ -564,7 +543,7 @@ impl Plugin {
                     data,
                     dst_blit_info,
                     DeinterlaceMode::Bob,
-                    identity,
+                    (),
                 );
             }
         }

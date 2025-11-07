@@ -80,8 +80,10 @@ impl Parse for SimdDispatchInput {
 /// This macro takes a function that calls an "inner" function and generates specialized
 /// versions for different SIMD architectures (SSE4.1, AVX2, NEON, WASM).
 ///
-/// The macro expects an attribute specifying the SIMD type parameter name (e.g., `S`).
-/// This identifier will be replaced with the appropriate SIMD type in each specialized function.
+/// The macro expects an attribute specifying the SIMD type parameter name (e.g., `S`),
+/// and optionally `scalar_fallback` to use a scalar implementation instead of returning None.
+///
+/// # Without scalar_fallback
 ///
 /// The generated function returns `Option<T>` where `T` is the original return type.
 /// It returns `Some(result)` when SIMD support is available and used, or `None` when
@@ -112,19 +114,34 @@ impl Parse for SimdDispatchInput {
 /// }
 /// ```
 ///
-/// This will generate dispatch functions where `S` is replaced with `SseF32x4`, `AvxF32x4`,
-/// `ArmF32x4`, or `WasmF32x4` depending on the target architecture.
+/// # With scalar_fallback
+///
+/// When `scalar_fallback` is specified, the function returns `T` directly and uses
+/// `ScalarF32x4` when no SIMD support is available.
+///
+/// ```ignore
+/// #[simd_dispatch(S, scalar_fallback)]
+/// fn convert_pixel<const ROWS: usize>(data: [f32; 4]) -> [u8; 4] {
+///     convert_pixel_impl::<S>(data)
+/// }
+/// ```
+///
+/// This will always return a value, using ScalarF32x4 as a fallback.
 #[proc_macro_attribute]
 pub fn simd_dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as SimdDispatchInput);
 
-    // Parse the SIMD type parameter name from the attribute
-    let simd_param_name = if attr.is_empty() {
+    // Parse the attribute: either "S" or "S, scalar_fallback"
+    let attr_string = attr.to_string();
+    let parts: Vec<&str> = attr_string.split(',').map(|s| s.trim()).collect();
+
+    let simd_param_name = if parts.is_empty() || parts[0].is_empty() {
         "S".to_string()
     } else {
-        let simd_ident = parse_macro_input!(attr as Ident);
-        simd_ident.to_string()
+        parts[0].to_string()
     };
+
+    let use_scalar_fallback = parts.len() > 1 && parts[1] == "scalar_fallback";
 
     let attrs = &input.attrs;
     let vis = &input.vis;
@@ -133,14 +150,20 @@ pub fn simd_dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
     let generics = &sig.generics;
     let inputs = &sig.inputs;
     let body = &input.body;
+    let unsafety = &sig.unsafety; // Preserve unsafe keyword if present
 
-    // Extract the original return type and wrap it in Option
+    // Extract the original return type and wrap it in Option (if no scalar fallback)
     let original_output = &sig.output;
     let return_type = match original_output {
         syn::ReturnType::Default => quote! { () },
         syn::ReturnType::Type(_, ty) => quote! { #ty },
     };
-    let option_output = quote! { -> Option<#return_type> };
+    let output_type = if use_scalar_fallback {
+        original_output.clone()
+    } else {
+        let option_output = quote! { -> Option<#return_type> };
+        syn::parse2(option_output).unwrap()
+    };
 
     // Build generic parameters for the specialized functions
     let generic_params = if generics.params.is_empty() {
@@ -208,6 +231,12 @@ pub fn simd_dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
         .map(|stmt| replace_ident_in_stmt(stmt, &simd_param_name, &quote! { WasmF32x4 }))
         .collect();
 
+    // Generate scalar fallback body if requested
+    let scalar_body: Vec<_> = body
+        .iter()
+        .map(|stmt| replace_ident_in_stmt(stmt, &simd_param_name, &quote! { ScalarF32x4 }))
+        .collect();
+
     // Generate SSE4.1 dispatch function (x86_64 only)
     let sse41_fn_name = Ident::new(&format!("{}_dispatch_sse41", fn_name), fn_name.span());
     let sse41_dispatch = quote! {
@@ -263,31 +292,72 @@ pub fn simd_dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
-    // Generate the main dispatch function that returns Option
+    // Generate scalar fallback function
+    let scalar_fn_name = Ident::new(&format!("{}_scalar", fn_name), fn_name.span());
+    let scalar_dispatch = if use_scalar_fallback {
+        quote! {
+            #(#attrs)*
+            #[inline(always)]
+            #unsafety fn #scalar_fn_name #generic_params ( #inputs ) #original_output #where_clause {
+                use crate::f32x4::scalar::ScalarF32x4;
+                unsafe {
+                    #(#scalar_body)*
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    // Helper macro to wrap calls in Some(...) if needed
+    let wrap_call = |fn_name: &Ident| {
+        let call = quote! {
+            #fn_name #generic_args ( #(#param_names),* )
+        };
+        if use_scalar_fallback {
+            call
+        } else {
+            quote! { Some(#call) }
+        }
+    };
+
+    // Generate match arms for each architecture
+    let sse41_call = wrap_call(&sse41_fn_name);
+    let avx2_call = wrap_call(&avx2_fn_name);
+    let neon_call = wrap_call(&neon_fn_name);
+    let wasm_call = wrap_call(&wasm_fn_name);
+
+    let fallback_call = if use_scalar_fallback {
+        wrap_call(&scalar_fn_name)
+    } else {
+        quote! { None }
+    };
+
+    // Generate the main dispatch function
     let main_dispatch = quote! {
         #(#attrs)*
         #[inline(always)]
-        #vis fn #fn_name #generic_params ( #inputs ) #option_output #where_clause {
+        #vis #unsafety fn #fn_name #generic_params ( #inputs ) #output_type #where_clause {
             use crate::f32x4::{SupportedSimdType, get_supported_simd_type};
 
             match get_supported_simd_type() {
                 #[cfg(target_arch = "x86_64")]
                 SupportedSimdType::Sse41 => unsafe {
-                    Some(#sse41_fn_name #generic_args ( #(#param_names),* ))
+                    #sse41_call
                 },
                 #[cfg(target_arch = "x86_64")]
                 SupportedSimdType::Avx2 => unsafe {
-                    Some(#avx2_fn_name #generic_args ( #(#param_names),* ))
+                    #avx2_call
                 },
                 #[cfg(target_arch = "aarch64")]
                 SupportedSimdType::Neon => unsafe {
-                    Some(#neon_fn_name #generic_args ( #(#param_names),* ))
+                    #neon_call
                 },
                 #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
                 SupportedSimdType::Wasm => unsafe {
-                    Some(#wasm_fn_name #generic_args ( #(#param_names),* ))
+                    #wasm_call
                 },
-                _ => None
+                _ => #fallback_call
             }
         }
     };
@@ -298,6 +368,7 @@ pub fn simd_dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
         #avx2_dispatch
         #neon_dispatch
         #wasm_dispatch
+        #scalar_dispatch
         #main_dispatch
     };
 

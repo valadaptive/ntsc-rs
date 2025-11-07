@@ -1,5 +1,4 @@
 extern crate criterion;
-use std::convert::identity;
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use ntscrs::{
@@ -39,13 +38,13 @@ fn criterion_benchmark(c: &mut Criterion) {
                 );
                 let row_bytes = *width * pixel_bytes_for::<Rgb, u8>();
                 let blit_info = BlitInfo::from_full_frame(*width, *height, row_bytes);
-                yiq.set_from_strided_buffer::<Rgb, u8, _>(buf, blit_info, identity);
+                yiq.set_from_strided_buffer::<Rgb, u8, _>(buf, blit_info, ());
                 effect.apply_effect_to_yiq(&mut yiq, 0, [1.0, 1.0]);
                 yiq.write_to_strided_buffer::<Rgb, u8, _>(
                     dest,
                     blit_info,
                     ntscrs::yiq_fielding::DeinterlaceMode::Bob,
-                    identity,
+                    (),
                 );
                 black_box(dest);
             },

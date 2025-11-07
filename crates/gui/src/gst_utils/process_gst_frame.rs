@@ -1,5 +1,3 @@
-use std::convert::identity;
-
 use gstreamer::{BufferRef, ClockTime, FlowError};
 use gstreamer_video::{VideoFormat, VideoFrameExt, VideoFrameRef, VideoInterlaceMode};
 use ntscrs::{
@@ -79,12 +77,7 @@ pub fn process_gst_frame<S: PixelFormat, T: Normalize>(
             let mut yiq = frame_to_yiq(in_frame, field)?;
             let mut view = YiqView::from(&mut yiq);
             settings.apply_effect_to_yiq(&mut view, frame as usize, [1.0, 1.0]);
-            view.write_to_strided_buffer::<S, T, _>(
-                out_frame,
-                blit_info,
-                DeinterlaceMode::Bob,
-                identity,
-            );
+            view.write_to_strided_buffer::<S, T, _>(out_frame, blit_info, DeinterlaceMode::Bob, ());
         }
         VideoInterlaceMode::Interleaved | VideoInterlaceMode::Mixed => {
             let field = match (in_frame.is_tff(), in_frame.is_onefield()) {
@@ -109,7 +102,7 @@ pub fn process_gst_frame<S: PixelFormat, T: Normalize>(
                 out_frame,
                 blit_info,
                 DeinterlaceMode::Skip,
-                identity,
+                (),
             );
         }
         _ => Err(FlowError::NotSupported)?,

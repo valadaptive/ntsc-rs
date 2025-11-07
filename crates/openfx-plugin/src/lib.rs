@@ -7,7 +7,6 @@ mod bindings;
 use core::slice;
 use std::{
     collections::HashMap,
-    convert::identity,
     ffi::{CStr, CString, c_char, c_int, c_void},
     fs,
     mem::{self, MaybeUninit},
@@ -1200,7 +1199,7 @@ impl<'a> EffectApplicationParams<'a> {
             yiq_view
                 .set_from_strided_buffer_maybe_uninit::<S, T, _>(srcData, blit_info, srgb_gamma);
         } else {
-            yiq_view.set_from_strided_buffer_maybe_uninit::<S, T, _>(srcData, blit_info, identity);
+            yiq_view.set_from_strided_buffer_maybe_uninit::<S, T, _>(srcData, blit_info, ());
         }
 
         self.effect
@@ -1263,7 +1262,7 @@ impl EffectStorageParams<'_> {
                 dstData,
                 blit_info,
                 DeinterlaceMode::Bob,
-                identity,
+                (),
             )
         }
 
