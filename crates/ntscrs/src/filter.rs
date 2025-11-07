@@ -97,17 +97,19 @@ impl TransferFunction {
 
     /// Return initial conditions for the filter that results in a given steady-state value (e.g. "start" the filter as
     /// if every previous sample was the given value).
-    fn initial_condition(&self, value: f32) -> Vec<f32> {
+    fn initial_condition_into(&self, value: f32, dst: &mut [f32]) {
         // Adapted from scipy
         // https://github.com/scipy/scipy/blob/da82ac849a4ccade2d954a0998067e6aa706dd70/scipy/signal/_signaltools.py#L3609-L3742
 
         let filter_len = usize::max(self.num.len(), self.den.len());
+        assert_eq!(dst.len(), filter_len);
+        if value.abs() == 0.0 {
+            dst.fill(0.0);
+            return;
+        }
         // The last element here will always be 0--in the loop below, we intentionally do not initialize the last
         // element of zi.
-        let mut zi = vec![0f32; filter_len];
-        if value.abs() == 0.0 {
-            return zi;
-        }
+        dst[filter_len - 1] = 0.0;
 
         let first_nonzero_coeff = self
             .den
@@ -139,7 +141,7 @@ impl TransferFunction {
             b_sum += num_i - den_i * norm_num[0];
         }
 
-        zi[0] = b_sum / norm_den.iter().sum::<f32>();
+        dst[0] = b_sum / norm_den.iter().sum::<f32>();
         let mut a_sum = 1.0;
         let mut c_sum = 0.0;
         for i in 1..filter_len - 1 {
@@ -147,11 +149,9 @@ impl TransferFunction {
             let den_i = norm_den.get(i).unwrap_or(&0.0);
             a_sum += den_i;
             c_sum += num_i - den_i * norm_num[0];
-            zi[i] = (a_sum * zi[0] - c_sum) * value;
+            dst[i] = (a_sum * dst[0] - c_sum) * value;
         }
-        zi[0] *= value;
-
-        zi
+        dst[0] *= value;
     }
 
     #[inline(always)]
@@ -214,7 +214,7 @@ impl TransferFunction {
     ) {
         let mut z_rows = [[0f32; SIZE]; ROWS];
         z_rows.iter_mut().zip(initial).for_each(|(z, initial)| {
-            *z = self.initial_condition(initial).try_into().unwrap();
+            self.initial_condition_into(initial, z);
         });
         let z_rows_ref = z_rows.each_mut().map(|z| z.as_mut_slice());
 
@@ -249,7 +249,11 @@ impl TransferFunction {
             assert_eq!(signal[i].len(), width);
         }
 
-        let mut z = initial.map(|initial| unsafe { S::load(&self.initial_condition(initial)) });
+        let mut z = initial.map(|initial| unsafe {
+            let mut dest = [0.0; 4];
+            self.initial_condition_into(initial, &mut dest);
+            S::load4(&dest)
+        });
 
         let mut num: [f32; 4] = [0f32; 4];
         num.copy_from_slice(&self.num);
@@ -335,7 +339,11 @@ impl TransferFunction {
                 // Fall back to the general-length implementation
                 let mut z: [Vec<f32>; ROWS] = initial
                     .into_iter()
-                    .map(|init| self.initial_condition(init))
+                    .map(|init| {
+                        let mut dst = vec![0.0; filter_len];
+                        self.initial_condition_into(init, &mut dst);
+                        dst
+                    })
                     .collect::<Vec<Vec<_>>>()
                     .try_into()
                     .unwrap();
