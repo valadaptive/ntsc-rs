@@ -104,7 +104,8 @@ impl Normalize for f32 {
 impl Normalize for u16 {
     #[inline(always)]
     fn from_norm(value: f32) -> Self {
-        (value.clamp(0.0, 1.0) * Self::MAX as f32) as Self
+        // The `as`-cast semantics will clamp any out-of-range values
+        (value * Self::MAX as f32) as Self
     }
 
     #[inline(always)]
@@ -124,7 +125,8 @@ pub struct AfterEffectsU16(u16);
 impl Normalize for AfterEffectsU16 {
     #[inline(always)]
     fn from_norm(value: f32) -> Self {
-        Self((value.clamp(0.0, 1.0) * 32768.0) as u16)
+        // The `as`-cast semantics will clamp between 0 and u16::MAX, but our real maximum is 32768
+        Self(((value * 32768.0) as u16).min(32768))
     }
 
     #[inline(always)]
@@ -136,8 +138,8 @@ impl Normalize for AfterEffectsU16 {
 impl Normalize for i16 {
     #[inline(always)]
     fn from_norm(value: f32) -> Self {
-        // Don't allow negative values; even though it's allowed, it causes problems with AE
-        (value * Self::MAX as f32).clamp(0.0, Self::MAX as f32) as Self
+        // The `as`-cast semantics will clamp any out-of-range values
+        (value * Self::MAX as f32) as Self
     }
 
     #[inline(always)]
@@ -149,7 +151,8 @@ impl Normalize for i16 {
 impl Normalize for u8 {
     #[inline(always)]
     fn from_norm(value: f32) -> Self {
-        (value.clamp(0.0, 1.0) * Self::MAX as f32) as Self
+        // The `as`-cast semantics will clamp any out-of-range values
+        (value * Self::MAX as f32) as Self
     }
 
     #[inline(always)]
