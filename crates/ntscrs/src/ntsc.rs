@@ -223,8 +223,10 @@ fn composite_chroma_lowpass(frame: &mut YiqView, info: &CommonInfo, filter_type:
 
     let width = frame.dimensions.0;
 
-    filter_plane(frame.i, width, &i_filter, InitialCondition::Zero, 1.0, 2);
-    filter_plane(frame.q, width, &q_filter, InitialCondition::Zero, 1.0, 4);
+    rayon_core::join(
+        || filter_plane(frame.i, width, &i_filter, InitialCondition::Zero, 1.0, 2),
+        || filter_plane(frame.q, width, &q_filter, InitialCondition::Zero, 1.0, 4),
+    );
 }
 
 /// Apply a less intense lowpass filter to the input chroma.
@@ -233,8 +235,10 @@ fn composite_chroma_lowpass_lite(frame: &mut YiqView, info: &CommonInfo, filter_
 
     let width = frame.dimensions.0;
 
-    filter_plane(frame.i, width, &filter, InitialCondition::Zero, 1.0, 1);
-    filter_plane(frame.q, width, &filter, InitialCondition::Zero, 1.0, 1);
+    rayon_core::join(
+        || filter_plane(frame.i, width, &filter, InitialCondition::Zero, 1.0, 1),
+        || filter_plane(frame.q, width, &filter, InitialCondition::Zero, 1.0, 1),
+    );
 }
 
 /// Calculate the chroma subcarrier phase for a given row/field.
@@ -1285,23 +1289,35 @@ impl NtscEffect {
                     NTSC_RATE * info.horizontal_scale,
                     self.filter_type,
                 );
-                filter_plane(yiq.y, width, &luma_filter, InitialCondition::Zero, 1.0, 0);
-                filter_plane(
-                    yiq.i,
-                    width,
-                    &chroma_filter,
-                    InitialCondition::Zero,
-                    1.0,
-                    chroma_delay,
+
+                rayon_core::join(
+                    || filter_plane(yiq.y, width, &luma_filter, InitialCondition::Zero, 1.0, 0),
+                    || {
+                        rayon_core::join(
+                            || {
+                                filter_plane(
+                                    yiq.i,
+                                    width,
+                                    &chroma_filter,
+                                    InitialCondition::Zero,
+                                    1.0,
+                                    chroma_delay,
+                                )
+                            },
+                            || {
+                                filter_plane(
+                                    yiq.q,
+                                    width,
+                                    &chroma_filter,
+                                    InitialCondition::Zero,
+                                    1.0,
+                                    chroma_delay,
+                                )
+                            },
+                        )
+                    },
                 );
-                filter_plane(
-                    yiq.q,
-                    width,
-                    &chroma_filter,
-                    InitialCondition::Zero,
-                    1.0,
-                    chroma_delay,
-                );
+
                 let luma_filter_single = make_lowpass(luma_cut, NTSC_RATE * info.horizontal_scale);
                 filter_plane(
                     yiq.y,
