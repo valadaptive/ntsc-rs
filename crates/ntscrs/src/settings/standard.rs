@@ -205,8 +205,8 @@ impl Default for HeadSwitchingMidLineSettings {
 
 #[derive(FullSettings, Debug, Clone, PartialEq)]
 pub struct HeadSwitchingSettings {
-    pub height: u32,
-    pub offset: u32,
+    pub height: i32,
+    pub offset: i32,
     pub horiz_shift: f32,
     #[settings_block]
     pub mid_line: Option<HeadSwitchingMidLineSettings>,
@@ -225,7 +225,7 @@ impl Default for HeadSwitchingSettings {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrackingNoiseSettings {
-    pub height: u32,
+    pub height: i32,
     pub wave_intensity: f32,
     pub snow_intensity: f32,
     pub snow_anisotropy: f32,
@@ -265,7 +265,7 @@ impl Default for RingingSettings {
 pub struct FbmNoiseSettings {
     pub frequency: f32,
     pub intensity: f32,
-    pub detail: u32,
+    pub detail: i32,
 }
 
 #[derive(Debug, Clone, PartialEq)]

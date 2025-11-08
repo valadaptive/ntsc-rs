@@ -77,7 +77,7 @@ pub struct EnumValue(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AnySetting {
-    Enum(EnumValue),
+    Enum(u32),
     Int(i32),
     Float(f32),
     Bool(bool),
@@ -94,101 +94,76 @@ impl AnySetting {
     }
 }
 
-pub trait Downcast: Sized {
+pub trait SettingField: Sized {
     fn downcast(value: &AnySetting) -> Option<Self>;
+    fn upcast(self) -> AnySetting;
 }
 
-impl<U: TryFrom<u32>, T: SettingsEnum + TryFromPrimitive<Primitive = U>> Downcast for T {
+impl<U: TryFrom<u32> + Into<u32>, T: SettingsEnum + TryFromPrimitive<Primitive = U> + Into<U>> SettingField for T {
     fn downcast(value: &AnySetting) -> Option<Self> {
         match value {
-            AnySetting::Enum(e) => T::try_from_primitive(e.0.try_into().ok()?).ok(),
+            AnySetting::Enum(e) => T::try_from_primitive((*e).try_into().ok()?).ok(),
             _ => None,
         }
     }
+
+    fn upcast(self) -> AnySetting {
+        AnySetting::Enum(<Self as Into<U>>::into(self).into())
+    }
 }
 
-impl Downcast for i32 {
+impl SettingField for i32 {
     fn downcast(value: &AnySetting) -> Option<Self> {
         match value {
             AnySetting::Int(i) => Some(*i),
             _ => None,
         }
     }
-}
 
-impl Downcast for u32 {
-    fn downcast(value: &AnySetting) -> Option<Self> {
-        match value {
-            AnySetting::Int(i) => Some(*i as u32),
-            _ => None,
-        }
+    fn upcast(self) -> AnySetting {
+        AnySetting::Int(self)
     }
 }
 
-impl Downcast for EnumValue {
+impl SettingField for EnumValue {
     fn downcast(value: &AnySetting) -> Option<Self> {
         match value {
-            AnySetting::Enum(e) => Some(*e),
+            AnySetting::Enum(e) => Some(Self(*e)),
             _ => None,
         }
     }
+
+    fn upcast(self) -> AnySetting {
+        AnySetting::Enum(self.0)
+    }
 }
 
-impl Downcast for f32 {
+impl SettingField for f32 {
     fn downcast(value: &AnySetting) -> Option<Self> {
         match value {
             AnySetting::Float(f) => Some(*f),
             _ => None,
         }
     }
+
+    fn upcast(self) -> AnySetting {
+        AnySetting::Float(self)
+    }
 }
 
-impl Downcast for bool {
+impl SettingField for bool {
     fn downcast(value: &AnySetting) -> Option<Self> {
         match value {
             AnySetting::Bool(b) => Some(*b),
             _ => None,
         }
     }
-}
 
-impl<U: Into<u32>, T: SettingsEnum + TryFromPrimitive<Primitive = U> + Into<U>> From<T>
-    for AnySetting
-{
-    fn from(value: T) -> Self {
-        Self::Enum(EnumValue(<T as Into<U>>::into(value).into()))
+    fn upcast(self) -> AnySetting {
+        AnySetting::Bool(self)
     }
 }
 
-impl From<i32> for AnySetting {
-    fn from(value: i32) -> Self {
-        Self::Int(value)
-    }
-}
-
-impl From<u32> for AnySetting {
-    fn from(value: u32) -> Self {
-        Self::Int(value as i32)
-    }
-}
-
-impl From<EnumValue> for AnySetting {
-    fn from(value: EnumValue) -> Self {
-        Self::Enum(value)
-    }
-}
-
-impl From<f32> for AnySetting {
-    fn from(value: f32) -> Self {
-        Self::Float(value)
-    }
-}
-
-impl From<bool> for AnySetting {
-    fn from(value: bool) -> Self {
-        Self::Bool(value)
-    }
-}
 
 pub trait SettingsEnum {}
 
@@ -237,9 +212,9 @@ macro_rules! setting_id {
         $crate::settings::SettingID::new(
             $id,
             $name,
-            |settings| settings.$($field_path).+.into(),
+            |settings| $crate::settings::SettingField::upcast(settings.$($field_path).+),
             |settings, value| {
-                settings.$($field_path).+ = $crate::settings::Downcast::downcast(&value).ok_or_else(|| $crate::settings::GetSetFieldError::TypeMismatch {
+                settings.$($field_path).+ = $crate::settings::SettingField::downcast(&value).ok_or_else(|| $crate::settings::GetSetFieldError::TypeMismatch {
                     actual_type: value.type_name(),
                     requested_type: std::any::type_name_of_val(&settings.$($field_path).+)
                 })?;
@@ -304,23 +279,23 @@ impl Display for GetSetFieldError {
 }
 
 pub trait Settings: Default {
-    fn get_field<T: 'static + Downcast>(
+    fn get_field<T: 'static + SettingField>(
         &self,
         id: &SettingID<Self>,
     ) -> Result<T, GetSetFieldError> {
         let value = (id.get)(self);
-        Downcast::downcast(&value).ok_or_else(|| GetSetFieldError::TypeMismatch {
+        SettingField::downcast(&value).ok_or_else(|| GetSetFieldError::TypeMismatch {
             actual_type: value.type_name(),
             requested_type: std::any::type_name::<T>(),
         })
     }
 
-    fn set_field<T: 'static + Into<AnySetting>>(
+    fn set_field<T: 'static + SettingField>(
         &mut self,
         id: &SettingID<Self>,
         value: T,
     ) -> Result<(), GetSetFieldError> {
-        (id.set)(self, value.into())
+        (id.set)(self, value.upcast())
     }
 
     /// Returns settings which e.g. new presets can be applied on top of without any newly-added settings having an

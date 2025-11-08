@@ -603,7 +603,7 @@ fn composite_noise(yiq: &mut YiqView, info: &CommonInfo, noise_settings: &FbmNoi
             index,
             noise_settings.frequency / info.horizontal_scale,
             noise_settings.intensity,
-            noise_settings.detail,
+            noise_settings.detail.try_into().unwrap_or_default(),
         );
     });
 }
@@ -627,7 +627,7 @@ fn plane_noise(
             index,
             settings.frequency / info.horizontal_scale,
             settings.intensity,
-            settings.detail,
+            settings.detail.try_into().unwrap_or_default(),
         );
     });
 }
@@ -1160,8 +1160,8 @@ impl NtscEffect {
             head_switching(
                 yiq,
                 &info,
-                *height as usize,
-                *offset as usize,
+                (*height).try_into().unwrap_or_default(),
+                (*offset).try_into().unwrap_or_default(),
                 *horiz_shift,
                 mid_line.as_ref(),
             );
@@ -1178,7 +1178,7 @@ impl NtscEffect {
             tracking_noise(
                 yiq,
                 &info,
-                height as usize,
+                height.try_into().unwrap_or_default(),
                 wave_intensity,
                 snow_intensity,
                 snow_anisotropy,

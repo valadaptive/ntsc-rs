@@ -14,7 +14,7 @@ use super::{
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct EzTrackingNoiseSettings {
-    height: u32,
+    height: i32,
     intensity: f32,
 }
 
@@ -496,9 +496,9 @@ impl From<&EasyModeFullSettings> for NtscEffectFullSettings {
                     && easy_settings.vhs_settings.settings.head_switching > 0.0,
                 settings: HeadSwitchingSettingsFullSettings {
                     height: (easy_settings.vhs_settings.settings.head_switching * 1.25).round()
-                        as u32,
+                        as i32,
                     offset: (easy_settings.vhs_settings.settings.head_switching * 0.25).round()
-                        as u32,
+                        as i32,
                     horiz_shift: easy_settings.vhs_settings.settings.head_switching * 8.0,
                     mid_line: SettingsBlock {
                         enabled: true,
