@@ -152,7 +152,9 @@ impl Downcast for bool {
     }
 }
 
-impl<U: Into<u32>, T: SettingsEnum + TryFromPrimitive<Primitive = U> + Into<U>> From<T> for AnySetting {
+impl<U: Into<u32>, T: SettingsEnum + TryFromPrimitive<Primitive = U> + Into<U>> From<T>
+    for AnySetting
+{
     fn from(value: T) -> Self {
         Self::Enum(EnumValue(<T as Into<U>>::into(value).into()))
     }

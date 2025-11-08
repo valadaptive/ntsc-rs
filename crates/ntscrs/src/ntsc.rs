@@ -1044,22 +1044,26 @@ fn chroma_vert_blend(yiq: &mut YiqView) {
     let mut delay_i = vec![0f32; width];
     let mut delay_q = vec![0f32; width];
 
-    yiq.i
-        .chunks_exact_mut(width)
-        .zip(yiq.q.chunks_exact_mut(width))
-        .for_each(|(i_row, q_row)| {
-            // TODO: check if this is faster than interleaved (I think the cache locality is better this way)
-            i_row.iter_mut().enumerate().for_each(|(index, i)| {
-                let c_i = *i;
-                *i = (delay_i[index] + c_i) * 0.5;
-                delay_i[index] = c_i;
+    rayon_core::join(
+        || {
+            yiq.i.chunks_exact_mut(width).for_each(|row| {
+                row.iter_mut().enumerate().for_each(|(index, i)| {
+                    let c_i = *i;
+                    *i = (delay_i[index] + c_i) * 0.5;
+                    delay_i[index] = c_i;
+                });
             });
-            q_row.iter_mut().enumerate().for_each(|(index, q)| {
-                let c_q = *q;
-                *q = (delay_q[index] + c_q) * 0.5;
-                delay_q[index] = c_q;
+        },
+        || {
+            yiq.q.chunks_exact_mut(width).for_each(|row| {
+                row.iter_mut().enumerate().for_each(|(index, q)| {
+                    let c_q = *q;
+                    *q = (delay_q[index] + c_q) * 0.5;
+                    delay_q[index] = c_q;
+                });
             });
-        });
+        },
+    );
 }
 
 impl NtscEffect {
