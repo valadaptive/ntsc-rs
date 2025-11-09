@@ -1162,7 +1162,7 @@ source = "git+https://github.com/valadaptive/winit?branch=v0.30.x-termux#a4a5292
 [[package]]
 name = "ecolor"
 version = "0.33.0"
-source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#923afcbcbc75c3cb5c40b32112955302b1f4e887"
+source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#fbdcc07a4009f041ae29cb962d018db6855e0de0"
 dependencies = [
  "bytemuck",
  "emath",
@@ -1172,7 +1172,7 @@ dependencies = [
 [[package]]
 name = "eframe"
 version = "0.33.0"
-source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#923afcbcbc75c3cb5c40b32112955302b1f4e887"
+source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#fbdcc07a4009f041ae29cb962d018db6855e0de0"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1209,7 +1209,7 @@ dependencies = [
 [[package]]
 name = "egui"
 version = "0.33.0"
-source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#923afcbcbc75c3cb5c40b32112955302b1f4e887"
+source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#fbdcc07a4009f041ae29cb962d018db6855e0de0"
 dependencies = [
  "accesskit",
  "ahash",
@@ -1228,7 +1228,7 @@ dependencies = [
 [[package]]
 name = "egui-wgpu"
 version = "0.33.0"
-source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#923afcbcbc75c3cb5c40b32112955302b1f4e887"
+source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#fbdcc07a4009f041ae29cb962d018db6855e0de0"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1247,7 +1247,7 @@ dependencies = [
 [[package]]
 name = "egui-winit"
 version = "0.33.0"
-source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#923afcbcbc75c3cb5c40b32112955302b1f4e887"
+source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#fbdcc07a4009f041ae29cb962d018db6855e0de0"
 dependencies = [
  "arboard",
  "bytemuck",
@@ -1268,7 +1268,7 @@ dependencies = [
 [[package]]
 name = "egui_glow"
 version = "0.33.0"
-source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#923afcbcbc75c3cb5c40b32112955302b1f4e887"
+source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#fbdcc07a4009f041ae29cb962d018db6855e0de0"
 dependencies = [
  "bytemuck",
  "egui",
@@ -1290,7 +1290,7 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 [[package]]
 name = "emath"
 version = "0.33.0"
-source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#923afcbcbc75c3cb5c40b32112955302b1f4e887"
+source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#fbdcc07a4009f041ae29cb962d018db6855e0de0"
 dependencies = [
  "bytemuck",
  "serde",
@@ -1380,7 +1380,7 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.33.0"
-source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#923afcbcbc75c3cb5c40b32112955302b1f4e887"
+source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#fbdcc07a4009f041ae29cb962d018db6855e0de0"
 dependencies = [
  "ab_glyph",
  "ahash",
@@ -1398,7 +1398,7 @@ dependencies = [
 [[package]]
 name = "epaint_default_fonts"
 version = "0.33.0"
-source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#923afcbcbc75c3cb5c40b32112955302b1f4e887"
+source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#fbdcc07a4009f041ae29cb962d018db6855e0de0"
 
 [[package]]
 name = "equator"
@@ -1433,7 +1433,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1755,7 +1755,7 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2366,7 +2366,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b0f83760fb341a774ed326568e19f5a863af4a952def8c39f9ab92fd95b88e5"
 dependencies = [
  "equivalent",
- "hashbrown 0.15.5",
+ "hashbrown 0.16.0",
 ]
 
 [[package]]
@@ -3948,7 +3948,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4327,7 +4327,7 @@ dependencies = [
  "getrandom",
  "once_cell",
  "rustix 1.1.2",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5095,7 +5095,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
