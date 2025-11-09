@@ -3,6 +3,11 @@ use snafu::Snafu;
 
 use crate::gst_utils::{gstreamer_error::GstreamerError, ntsc_pipeline::PipelineError};
 
+#[cfg(not(target_os = "android"))]
+type TrashError = trash::Error;
+#[cfg(target_os = "android")]
+type TrashError = std::io::Error;
+
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub(crate)))]
 pub enum ApplicationError {
@@ -41,8 +46,8 @@ pub enum ApplicationError {
 
     #[snafu(display("Error deleting preset: {source}"))]
     DeletePreset {
-        #[snafu(source(from(trash::Error, Box::new)))]
-        source: Box<trash::Error>,
+        #[snafu(source(from(TrashError, Box::new)))]
+        source: Box<TrashError>,
     },
 
     #[snafu(display("Error renaming preset: {source}"))]

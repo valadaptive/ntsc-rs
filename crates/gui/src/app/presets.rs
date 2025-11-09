@@ -828,7 +828,12 @@ impl NtscApp {
                 parent.do_fs_operation_then_refresh(
                     &self.executor,
                     unblock(|| {
+                        #[cfg(not(target_os = "android"))]
                         trash::delete(path).context(DeletePresetSnafu)?;
+
+                        #[cfg(target_os = "android")]
+                        std::fs::remove_file(path).context(DeletePresetSnafu)?;
+
                         Ok(None)
                     }),
                 );
