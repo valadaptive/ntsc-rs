@@ -1157,13 +1157,12 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 [[package]]
 name = "dpi"
 version = "0.1.1"
-source = "git+https://github.com/valadaptive/winit?branch=v0.30.x-termux#a6ce93c8b1ea11b8ffd2c795770ea4b1d0f2c181"
+source = "git+https://github.com/valadaptive/winit?branch=v0.30.x-termux#a4a5292335e63f48a7e14430367219320eb6b4aa"
 
 [[package]]
 name = "ecolor"
 version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adf31f99fad93fe83c1055b92b5c1b135f1ecfa464789817c372000e768d4bd1"
+source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#923afcbcbc75c3cb5c40b32112955302b1f4e887"
 dependencies = [
  "bytemuck",
  "emath",
@@ -1173,8 +1172,7 @@ dependencies = [
 [[package]]
 name = "eframe"
 version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b829d302a09deb4acde242262a1840ba14fadd0371980ebf713060077a1987bc"
+source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#923afcbcbc75c3cb5c40b32112955302b1f4e887"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1211,8 +1209,7 @@ dependencies = [
 [[package]]
 name = "egui"
 version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab9b5d3376c79439f53a78bf7da1e3c0b862ffa3e29f46ab0f3e107430f2e576"
+source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#923afcbcbc75c3cb5c40b32112955302b1f4e887"
 dependencies = [
  "accesskit",
  "ahash",
@@ -1231,8 +1228,7 @@ dependencies = [
 [[package]]
 name = "egui-wgpu"
 version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cef1fe83ba30b3d045814b2d811804f2a7e50a832034c975408f71c20df596e4"
+source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#923afcbcbc75c3cb5c40b32112955302b1f4e887"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1251,8 +1247,7 @@ dependencies = [
 [[package]]
 name = "egui-winit"
 version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb4ea8cb063c00d8f23ce11279c01eb63a195a72be0e21d429148246dab7983e"
+source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#923afcbcbc75c3cb5c40b32112955302b1f4e887"
 dependencies = [
  "arboard",
  "bytemuck",
@@ -1273,8 +1268,7 @@ dependencies = [
 [[package]]
 name = "egui_glow"
 version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "668c0d4f726cc33838f0915f6b8c00af0ca0910e975ab58cf34b3e39c614552c"
+source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#923afcbcbc75c3cb5c40b32112955302b1f4e887"
 dependencies = [
  "bytemuck",
  "egui",
@@ -1296,8 +1290,7 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 [[package]]
 name = "emath"
 version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c615516cdceec867065f20d7db13d8eb8aedd65c9e32cc0c7c379380fa42e6e8"
+source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#923afcbcbc75c3cb5c40b32112955302b1f4e887"
 dependencies = [
  "bytemuck",
  "serde",
@@ -1387,8 +1380,7 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9926b9500ccb917adb070207ec722dd8ea78b8321f94a85ebec776f501f2930c"
+source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#923afcbcbc75c3cb5c40b32112955302b1f4e887"
 dependencies = [
  "ab_glyph",
  "ahash",
@@ -1406,8 +1398,7 @@ dependencies = [
 [[package]]
 name = "epaint_default_fonts"
 version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66054d943c66715c6003a27a3dc152d87cadf714ef2597ccd79f550413009b97"
+source = "git+https://github.com/valadaptive/egui?branch=0.33.0-termux#923afcbcbc75c3cb5c40b32112955302b1f4e887"
 
 [[package]]
 name = "equator"
@@ -5538,7 +5529,7 @@ checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
 [[package]]
 name = "winit"
 version = "0.30.12"
-source = "git+https://github.com/valadaptive/winit?branch=v0.30.x-termux#a6ce93c8b1ea11b8ffd2c795770ea4b1d0f2c181"
+source = "git+https://github.com/valadaptive/winit?branch=v0.30.x-termux#a4a5292335e63f48a7e14430367219320eb6b4aa"
 dependencies = [
  "ahash",
  "android-activity",
@@ -5918,8 +5909,3 @@ dependencies = [
  "syn",
  "winnow",
 ]
-
-[[patch.unused]]
-name = "eframe"
-version = "0.32.3"
-source = "git+https://github.com/valadaptive/egui?branch=0.32.3-termux#1df08d60a95665ee98bdaa72392cc645b630e408"
