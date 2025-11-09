@@ -52,7 +52,3 @@ name = "ntsc-rs-cli"
 
 [lints]
 workspace = true
-
-[patch.crates-io]
-eframe = { git = "https://github.com/valadaptive/eframe", branch = "0.32.3-termux" }
-winit = { git = "https://github.com/valadaptive/winit", branch = "v0.30.x-termux" }

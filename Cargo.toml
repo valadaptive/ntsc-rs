@@ -13,3 +13,7 @@ dbg_macro = "warn"
 
 [profile.bench]
 debug = "full"
+
+[patch.crates-io]
+eframe = { git = "https://github.com/valadaptive/egui", branch = "0.32.3-termux" }
+winit = { git = "https://github.com/valadaptive/winit", branch = "v0.30.x-termux" }
