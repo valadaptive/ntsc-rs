@@ -11,7 +11,6 @@ ntscrs = { path = "../ntscrs" }
 eframe = { version = "0.33", default-features = false, features = [
     "persistence",
     "x11",
-    "wayland",
     "default_fonts",
     "glow",
 ] }
