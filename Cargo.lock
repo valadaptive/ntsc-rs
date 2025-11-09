@@ -3850,8 +3850,7 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 [[package]]
 name = "rfd"
 version = "0.15.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef2bee61e6cffa4635c72d7d81a84294e28f0930db0ddcb0f66d10244674ebed"
+source = "git+https://github.com/valadaptive/rfd?branch=0.15.4-termux#e2595f7eb2c41507c90e76ce408d6630f6e2b8fa"
 dependencies = [
  "ashpd",
  "block2 0.6.2",
