@@ -99,7 +99,9 @@ pub trait SettingField: Sized {
     fn upcast(self) -> AnySetting;
 }
 
-impl<U: TryFrom<u32> + Into<u32>, T: SettingsEnum + TryFromPrimitive<Primitive = U> + Into<U>> SettingField for T {
+impl<U: TryFrom<u32> + Into<u32>, T: SettingsEnum + TryFromPrimitive<Primitive = U> + Into<U>>
+    SettingField for T
+{
     fn downcast(value: &AnySetting) -> Option<Self> {
         match value {
             AnySetting::Enum(e) => T::try_from_primitive((*e).try_into().ok()?).ok(),
@@ -163,7 +165,6 @@ impl SettingField for bool {
         AnySetting::Bool(self)
     }
 }
-
 
 pub trait SettingsEnum {}
 

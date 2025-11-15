@@ -15,7 +15,7 @@ use handle::SliceHandle;
 use ntscrs::{
     ntsc::{NtscEffect, NtscEffectFullSettings},
     settings::{
-        Downcast, EnumValue, SettingDescriptor, SettingID, SettingKind, Settings, SettingsList,
+        EnumValue, SettingDescriptor, SettingField, SettingID, SettingKind, Settings, SettingsList,
         standard::UseField,
     },
     yiq_fielding::{
@@ -585,7 +585,7 @@ impl Plugin {
         default_settings: &NtscEffectFullSettings,
         legacy_default_settings: &NtscEffectFullSettings,
     ) -> Result<(), Error> {
-        fn get_defaults<T: Downcast + 'static>(
+        fn get_defaults<T: SettingField + 'static>(
             defaults: &NtscEffectFullSettings,
             legacy_defaults: &NtscEffectFullSettings,
             descriptor: &SettingDescriptor<NtscEffectFullSettings>,
