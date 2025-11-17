@@ -1,14 +1,15 @@
 use std::{collections::VecDeque, f32::consts::FRAC_1_SQRT_2, ops::RangeInclusive};
 
+use clatter::{Simplex1d, Simplex2d};
 use core::f32::consts::PI;
 use macros::simd_dispatch;
 use rand::{Rng, RngCore, SeedableRng};
 use rand_xoshiro::Xoshiro256PlusPlus;
-use simdnoise::{NoiseBuilder, Settings as NoiseSettings, SimplexSettings};
 
 use crate::{
     f32x4::F32x4,
     filter::TransferFunction,
+    noise::{Fbm, Simplex, sample_noise_1d, sample_noise_2d},
     random::{Geometric, Seeder},
     shift::{BoundaryHandling, shift_row, shift_row_to},
     thread_pool::{ZipChunks, with_thread_pool},
@@ -573,16 +574,15 @@ fn video_noise_line(
     let noise_seed = rng.next_u32();
     let offset = rng.random::<f32>() * width as f32;
 
-    NoiseBuilder::fbm_1d_offset(offset, width)
-        .with_seed(noise_seed as i32)
-        .with_freq(frequency)
-        .with_octaves(detail.clamp(1, 5) as u8)
-        // Yes, they got the lacunarity backwards by making it apply to frequency instead of scale.
-        // 2.0 *halves* the scale each time because it doubles the frequency.
-        .with_lacunarity(2.0)
-        .with_gain(1.0)
-        .generate_into(scratch);
+    let noise = Fbm {
+        seed: noise_seed as i32,
+        octaves: detail.clamp(1, 5) as usize,
+        gain: 1.0,
+        lacunarity: 2.0,
+        frequency,
+    };
 
+    sample_noise_1d::<Simplex1d, _>(&noise, [offset], [width], scratch);
     row.iter_mut().enumerate().for_each(|(x, pixel)| {
         *pixel += scratch[x] * 0.25 * intensity;
     });
@@ -844,10 +844,12 @@ fn tracking_noise(
     let noise_seed = seeder.clone().mix(0).finalize::<i32>();
     let offset = seeder.clone().mix(1).finalize::<f32>() * yiq.num_rows() as f32;
     seeder = seeder.mix(2);
-    let shift_noise = NoiseBuilder::gradient_1d_offset(offset, num_rows)
-        .with_seed(noise_seed)
-        .with_freq(0.5)
-        .generate();
+    let mut shift_noise = vec![0.0f32; num_rows];
+    let noise = Simplex {
+        seed: noise_seed,
+        frequency: 0.5,
+    };
+    sample_noise_1d::<Simplex1d, _>(&noise, [offset], [num_rows], &mut shift_noise);
 
     // Handle cases where the number of affected rows exceeds the number of actual rows in the image
     let start_row = height.max(num_rows) - num_rows;
@@ -993,20 +995,26 @@ fn vhs_edge_wave(yiq: &mut YiqView, info: &CommonInfo, settings: &VHSEdgeWaveSet
     let seeder = Seeder::new(info.seed).mix(noise_seeds::EDGE_WAVE);
     let noise_seed: i32 = seeder.clone().mix(0).finalize();
     let offset = seeder.mix(1).finalize::<f32>() * yiq.num_rows() as f32;
-    let noise = &mut yiq.scratch[..height];
-    NoiseBuilder::fbm_2d_offset(offset, height, info.frame_num as f32 * settings.speed, 1)
-        .with_seed(noise_seed)
-        .with_freq(settings.frequency / info.vertical_scale)
-        .with_octaves(settings.detail.clamp(1, 5) as u8)
-        // Yes, they got the lacunarity backwards by making it apply to frequency instead of scale.
-        // 2.0 *halves* the scale each time because it doubles the frequency.
-        .with_lacunarity(2.0)
-        .with_gain(std::f32::consts::FRAC_1_SQRT_2)
-        .generate_into(noise);
+    let noise_dest = &mut yiq.scratch[..height];
+
+    let noise = Fbm {
+        seed: noise_seed,
+        octaves: settings.detail.clamp(1, 5) as usize,
+        gain: std::f32::consts::FRAC_1_SQRT_2,
+        lacunarity: 2.0,
+        frequency: settings.frequency / info.vertical_scale,
+    };
+    sample_noise_2d::<Simplex2d, _>(
+        &noise,
+        [offset, info.frame_num as f32 * settings.speed],
+        [height, 1],
+        noise_dest,
+    );
 
     for plane in [&mut yiq.y, &mut yiq.i, &mut yiq.q] {
         ZipChunks::new([plane], width).par_for_each(|index, [row]| {
-            let shift = (noise[index] / 0.022) * settings.intensity * 0.5 * info.horizontal_scale;
+            let shift =
+                (noise_dest[index] / 0.022) * settings.intensity * 0.5 * info.horizontal_scale;
             shift_row(row, shift, BoundaryHandling::Extend);
         })
     }

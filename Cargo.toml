@@ -13,3 +13,6 @@ dbg_macro = "warn"
 
 [profile.bench]
 debug = "full"
+
+[patch.crates-io]
+fearless_simd = { git = "https://github.com/linebender/fearless_simd/", rev = "3c9ce65" }
