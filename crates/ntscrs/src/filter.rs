@@ -279,11 +279,8 @@ impl TransferFunction {
                 zmm = num.mul_add(sample, zmm);
                 zmm = den.neg_mul_add(filt_sample, zmm);
 
-                // Shift it all over
-                zmm = zmm.swizzle(1, 2, 3, 0);
-
-                // Zero out the last element
-                zmm = zmm.insert::<3>(0.0);
+                // Shift it all over and zero out the last element
+                zmm = zmm.swizzle(1, 2, 3, -1);
 
                 z[j] = zmm;
 

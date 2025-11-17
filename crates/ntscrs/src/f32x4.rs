@@ -251,12 +251,11 @@ pub mod scalar {
 
         #[inline(always)]
         fn swizzle(self, x: i32, y: i32, z: i32, w: i32) -> Self {
-            assert!((x | y | z | w) & !3 == 0, "Invalid swizzle indices");
             Self([
-                self.0[x as usize],
-                self.0[y as usize],
-                self.0[z as usize],
-                self.0[w as usize],
+                self.0.get(x as usize).copied().unwrap_or_default(),
+                self.0.get(y as usize).copied().unwrap_or_default(),
+                self.0.get(z as usize).copied().unwrap_or_default(),
+                self.0.get(w as usize).copied().unwrap_or_default(),
             ])
         }
 
@@ -275,8 +274,8 @@ pub mod x86_64 {
         __m128, _mm_add_ps, _mm_broadcast_ss, _mm_castps_si128, _mm_castsi128_ps, _mm_cvtepi32_ps,
         _mm_cvttps_epi32, _mm_div_ps, _mm_fmadd_ps, _mm_fmsub_ps, _mm_fnmadd_ps, _mm_fnmsub_ps,
         _mm_insert_epi32, _mm_loadu_ps, _mm_loadu_si128, _mm_max_ps, _mm_min_ps, _mm_mul_ps,
-        _mm_permutevar_ps, _mm_set_epi8, _mm_set_epi32, _mm_set1_ps, _mm_shuffle_epi8,
-        _mm_store_ss, _mm_storeu_ps, _mm_storeu_si128, _mm_sub_ps,
+        _mm_set_epi8, _mm_set1_ps, _mm_shuffle_epi8, _mm_store_ss, _mm_storeu_ps, _mm_storeu_si128,
+        _mm_sub_ps,
     };
     use std::{
         fmt::Debug,
@@ -469,40 +468,35 @@ pub mod x86_64 {
 
         #[inline(always)]
         fn swizzle(self, x: i32, y: i32, z: i32, w: i32) -> Self {
-            assert!((x | y | z | w) & !3 == 0, "Invalid swizzle indices");
-            if USE_AVX2 {
-                unsafe { _mm_permutevar_ps(self.into(), _mm_set_epi32(w, z, y, x)).into() }
-            } else {
-                let x = (x << 2) as i8;
-                let y = (y << 2) as i8;
-                let z = (z << 2) as i8;
-                let w = (w << 2) as i8;
+            let x = (x << 2) as i8;
+            let y = (y << 2) as i8;
+            let z = (z << 2) as i8;
+            let w = (w << 2) as i8;
 
-                unsafe {
-                    let control_mask = _mm_set_epi8(
-                        w + 3,
-                        w + 2,
-                        w + 1,
-                        w + 0,
-                        z + 3,
-                        z + 2,
-                        z + 1,
-                        z + 0,
-                        y + 3,
-                        y + 2,
-                        y + 1,
-                        y + 0,
-                        x + 3,
-                        x + 2,
-                        x + 1,
-                        x + 0,
-                    );
-                    _mm_castsi128_ps(_mm_shuffle_epi8(
-                        _mm_castps_si128(self.into()),
-                        control_mask,
-                    ))
-                    .into()
-                }
+            unsafe {
+                let control_mask = _mm_set_epi8(
+                    w + 3,
+                    w + 2,
+                    w + 1,
+                    w + 0,
+                    z + 3,
+                    z + 2,
+                    z + 1,
+                    z + 0,
+                    y + 3,
+                    y + 2,
+                    y + 1,
+                    y + 0,
+                    x + 3,
+                    x + 2,
+                    x + 1,
+                    x + 0,
+                );
+                _mm_castsi128_ps(_mm_shuffle_epi8(
+                    _mm_castps_si128(self.into()),
+                    control_mask,
+                ))
+                .into()
             }
         }
 
@@ -693,7 +687,6 @@ pub mod aarch64 {
 
         #[inline(always)]
         fn swizzle(self, x: i32, y: i32, z: i32, w: i32) -> Self {
-            assert!((x | y | z | w) & !3 == 0, "Invalid swizzle indices");
             let x = (x << 2) as u64;
             let y = (y << 2) as u64;
             let z = (z << 2) as u64;
@@ -904,7 +897,6 @@ pub mod wasm32 {
 
         #[inline(always)]
         fn swizzle(self, x: i32, y: i32, z: i32, w: i32) -> Self {
-            assert!((x | y | z | w) & !3 == 0, "Invalid swizzle indices");
             let x = (x << 2) as u8;
             let y = (y << 2) as u8;
             let z = (z << 2) as u8;
