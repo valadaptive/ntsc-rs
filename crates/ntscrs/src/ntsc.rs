@@ -9,7 +9,7 @@ use rand_xoshiro::Xoshiro256PlusPlus;
 use crate::{
     f32x4::F32x4,
     filter::TransferFunction,
-    noise::{Fbm, Simplex, sample_noise_1d, sample_noise_2d},
+    noise::{Fbm, Simplex, add_noise_1d, sample_noise_1d, sample_noise_2d},
     random::{Geometric, Seeder},
     shift::{BoundaryHandling, shift_row, shift_row_to},
     thread_pool::{ZipChunks, with_thread_pool},
@@ -562,7 +562,6 @@ mod noise_seeds {
 /// Helper function to apply gradient noise to a single row of a single plane.
 fn video_noise_line(
     row: &mut [f32],
-    scratch: &mut [f32],
     seeder: &Seeder,
     index: usize,
     frequency: f32,
@@ -582,10 +581,7 @@ fn video_noise_line(
         frequency,
     };
 
-    sample_noise_1d::<Simplex1d, _>(&noise, [offset], [width], scratch);
-    row.iter_mut().enumerate().for_each(|(x, pixel)| {
-        *pixel += scratch[x] * 0.25 * intensity;
-    });
+    add_noise_1d::<Simplex1d, _>(&noise, intensity * 0.25, [offset], [width], row);
 }
 
 /// Add gradient noise to an NTSC-encoded (composite) signal.
@@ -595,10 +591,9 @@ fn composite_noise(yiq: &mut YiqView, info: &CommonInfo, noise_settings: &FbmNoi
         .mix(noise_seeds::VIDEO_COMPOSITE)
         .mix(info.frame_num);
 
-    ZipChunks::new([yiq.y, yiq.scratch], width).par_for_each(|index, [row, scratch]| {
+    ZipChunks::new([yiq.y], width).par_for_each(|index, [row]| {
         video_noise_line(
             row,
-            scratch,
             &seeder,
             index,
             noise_settings.frequency / info.horizontal_scale,
@@ -611,7 +606,6 @@ fn composite_noise(yiq: &mut YiqView, info: &CommonInfo, noise_settings: &FbmNoi
 /// Add gradient noise to a single plane of a de-modulated signal.
 fn plane_noise(
     plane: &mut [f32],
-    scratch: &mut [f32],
     width: usize,
     info: &CommonInfo,
     settings: &FbmNoiseSettings,
@@ -619,10 +613,9 @@ fn plane_noise(
 ) {
     let seeder = Seeder::new(info.seed).mix(noise_seed).mix(info.frame_num);
 
-    ZipChunks::new([plane, scratch], width).par_for_each(|index, [row, scratch]| {
+    ZipChunks::new([plane], width).par_for_each(|index, [row]| {
         video_noise_line(
             row,
-            scratch,
             &seeder,
             index,
             settings.frequency / info.horizontal_scale,
@@ -844,32 +837,35 @@ fn tracking_noise(
     let noise_seed = seeder.clone().mix(0).finalize::<i32>();
     let offset = seeder.clone().mix(1).finalize::<f32>() * yiq.num_rows() as f32;
     seeder = seeder.mix(2);
-    let mut shift_noise = vec![0.0f32; num_rows];
-    let noise = Simplex {
-        seed: noise_seed,
-        frequency: 0.5,
-    };
-    sample_noise_1d::<Simplex1d, _>(&noise, [offset], [num_rows], &mut shift_noise);
 
     // Handle cases where the number of affected rows exceeds the number of actual rows in the image
     let start_row = height.max(num_rows) - num_rows;
     let cut_off_rows = num_rows.saturating_sub(height);
     let affected_rows = &mut yiq.y[start_row * width..];
-    let scratch_rows = &mut yiq.scratch[start_row * width..];
 
-    ZipChunks::new([affected_rows, scratch_rows], width).par_for_each(|index, [row, scratch]| {
+    let mut shift_noise = &mut yiq.scratch[0..num_rows.min(height)];
+    let noise = Simplex {
+        seed: noise_seed,
+        frequency: 0.5,
+    };
+    sample_noise_1d::<Simplex1d, _>(&noise, [offset], [num_rows.min(height)], &mut shift_noise);
+
+    ZipChunks::new([affected_rows], width).par_for_each(|index, [row]| {
         let index = index + cut_off_rows;
         // This iterates from the top down. Increase the intensity as we approach the bottom of the picture.
         let intensity_scale = index as f32 / num_rows as f32;
         shift_row(
             row,
-            shift_noise[index] * intensity_scale * wave_intensity * 0.25 * info.horizontal_scale,
+            shift_noise[index - cut_off_rows]
+                * intensity_scale
+                * wave_intensity
+                * 0.25
+                * info.horizontal_scale,
             BoundaryHandling::Constant(0.0),
         );
 
         video_noise_line(
             row,
-            scratch,
             &seeder,
             index,
             0.25 / info.horizontal_scale,
@@ -1224,7 +1220,6 @@ impl NtscEffect {
         if let Some(luma_noise_settings) = &self.luma_noise {
             plane_noise(
                 yiq.y,
-                yiq.scratch,
                 yiq.dimensions.0,
                 &info,
                 luma_noise_settings,
@@ -1235,7 +1230,6 @@ impl NtscEffect {
         if let Some(chroma_noise_settings) = &self.chroma_noise {
             plane_noise(
                 yiq.i,
-                yiq.scratch,
                 yiq.dimensions.0,
                 &info,
                 chroma_noise_settings,
@@ -1243,7 +1237,6 @@ impl NtscEffect {
             );
             plane_noise(
                 yiq.q,
-                yiq.scratch,
                 yiq.dimensions.0,
                 &info,
                 chroma_noise_settings,

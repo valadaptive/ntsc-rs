@@ -78,6 +78,37 @@ pub fn sample_noise_1d_inner<S: Simd, B: Sampleable<Coords = [f32; 1]>, N: Noise
 }
 
 #[inline(always)]
+pub fn add_noise_1d_inner<S: Simd, B: Sampleable<Coords = [f32; 1]>, N: Noise<B>>(
+    simd: S,
+    noise: &N,
+    intensity: f32,
+    start_coords: [f32; 1],
+    dimensions: [usize; 1],
+    destination: &mut [f32],
+) {
+    assert_eq!(destination.len(), dimensions[0]);
+
+    let mut chunks = destination.chunks_exact_mut(S::f32s::N);
+    let mut coords = start_coords.splat_x(simd);
+    for chunk in chunks.by_ref() {
+        let noise = noise.generate::<S>(coords);
+        let chunk_f32s = S::f32s::from_slice(simd, chunk);
+        chunk.copy_from_slice((chunk_f32s + (noise * intensity)).as_slice());
+        coords[0] += S::f32s::N as f32;
+    }
+    let remainder = chunks.into_remainder();
+    if !remainder.is_empty() {
+        let noise = noise.generate::<S>(coords);
+        let mut chunk_f32s = S::f32s::splat(simd, 0.0);
+        for (i, &value) in remainder.iter().enumerate() {
+            chunk_f32s[i] = value;
+        }
+        remainder
+            .copy_from_slice(&(chunk_f32s + (noise * intensity)).as_slice()[..remainder.len()]);
+    }
+}
+
+#[inline(always)]
 pub fn sample_noise_2d_inner<S: Simd, B: Sampleable<Coords = [f32; 2]>, N: Noise<B>>(
     simd: S,
     noise: &N,
@@ -112,6 +143,17 @@ pub fn sample_noise_1d<B: Sampleable<Coords = [f32; 1]>, N: Noise<B>>(
 ) {
     let level = Level::new();
     dispatch!(level, simd => sample_noise_1d_inner(simd, noise, start_coords, dimensions, destination))
+}
+
+pub fn add_noise_1d<B: Sampleable<Coords = [f32; 1]>, N: Noise<B>>(
+    noise: &N,
+    intensity: f32,
+    start_coords: [f32; 1],
+    dimensions: [usize; 1],
+    destination: &mut [f32],
+) {
+    let level = Level::new();
+    dispatch!(level, simd => add_noise_1d_inner(simd, noise, intensity, start_coords, dimensions, destination))
 }
 
 pub fn sample_noise_2d<B: Sampleable<Coords = [f32; 2]>, N: Noise<B>>(
