@@ -1,5 +1,5 @@
 use clatter::{Simplex1d, Simplex2d};
-use fearless_simd::{Level, Simd, SimdBase as _, dispatch};
+use fearless_simd::{Level, Simd, SimdBase as _, SimdFloat, dispatch};
 
 pub trait Noise<BaseNoise: Sampleable> {
     fn generate<S: Simd>(
@@ -22,14 +22,13 @@ impl<BaseNoise: Sampleable> Noise<BaseNoise> for Fbm {
         &self,
         mut point: <BaseNoise::Coords as ScalarCoords>::SimdCoords<S>,
     ) -> <S as Simd>::f32s {
-        let simd = BaseNoise::Coords::witness(&point);
         point = BaseNoise::Coords::map(point, |x| x * self.frequency);
         let mut result = BaseNoise::sample(self.seed, point);
 
         let mut amplitude = self.gain;
         for _ in 1..self.octaves {
             point = BaseNoise::Coords::map(point, |x| x * self.lacunarity);
-            result += BaseNoise::sample(self.seed, point) * S::f32s::splat(simd, amplitude);
+            result = BaseNoise::sample(self.seed, point).madd(amplitude, result);
             amplitude *= self.gain;
         }
         result
@@ -174,7 +173,6 @@ pub trait ScalarCoords: Copy {
         coords: Self::SimdCoords<S>,
         f: impl Fn(S::f32s) -> S::f32s,
     ) -> Self::SimdCoords<S>;
-    fn witness<S: Simd>(coords: &Self::SimdCoords<S>) -> S;
 }
 
 impl<const N: usize> ScalarCoords for [f32; N] {
@@ -196,11 +194,6 @@ impl<const N: usize> ScalarCoords for [f32; N] {
         f: impl Fn(<S as Simd>::f32s) -> <S as Simd>::f32s,
     ) -> Self::SimdCoords<S> {
         coords.map(f)
-    }
-
-    #[inline(always)]
-    fn witness<S: Simd>(coords: &Self::SimdCoords<S>) -> S {
-        coords[0].witness()
     }
 }
 
