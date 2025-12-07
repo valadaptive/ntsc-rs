@@ -2,7 +2,7 @@
     <a href="https://ntsc.rs">
         <picture>
             <source media="(prefers-color-scheme: dark)" srcset="./docs/img/logo-darkmode.svg">
-            <img alt="ntsc-rs logo" src="./docs/img/logo-lightmode.svg" width="1216" height="256">
+            <img alt="ntsc-rs logo" src="./docs/img/logo-lightmode.svg">
         </picture>
     </a>
 </p>
