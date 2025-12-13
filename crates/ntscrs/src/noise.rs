@@ -1,5 +1,10 @@
-use clatter::{Simplex1d, Simplex2d};
 use fearless_simd::{Level, Simd, SimdBase as _, SimdFloat, dispatch};
+
+mod grid;
+mod hash;
+mod simplex;
+
+pub use simplex::{simplex_1d, simplex_2d};
 
 pub trait Noise<BaseNoise: Sampleable> {
     fn generate<S: Simd>(
@@ -28,7 +33,7 @@ impl<BaseNoise: Sampleable> Noise<BaseNoise> for Fbm {
         let mut amplitude = self.gain;
         for _ in 1..self.octaves {
             point = BaseNoise::Coords::map(point, |x| x * self.lacunarity);
-            result = BaseNoise::sample(self.seed, point).madd(amplitude, result);
+            result = BaseNoise::sample(self.seed, point).mul_add(amplitude, result);
             amplitude *= self.gain;
         }
         result
@@ -203,6 +208,7 @@ pub trait Sampleable {
     -> S::f32s;
 }
 
+pub struct Simplex1d;
 impl Sampleable for Simplex1d {
     type Coords = [f32; 1];
 
@@ -211,10 +217,11 @@ impl Sampleable for Simplex1d {
         seed: i32,
         coords: <Self::Coords as ScalarCoords>::SimdCoords<S>,
     ) -> <S as Simd>::f32s {
-        Simplex1d::with_seed(seed).sample::<S>(coords).value
+        simplex_1d::<S>(coords, seed)
     }
 }
 
+pub struct Simplex2d;
 impl Sampleable for Simplex2d {
     type Coords = [f32; 2];
 
@@ -223,6 +230,6 @@ impl Sampleable for Simplex2d {
         seed: i32,
         coords: <Self::Coords as ScalarCoords>::SimdCoords<S>,
     ) -> <S as Simd>::f32s {
-        Simplex2d::with_seed(seed).sample::<S>(coords).value
+        simplex_2d::<S>(coords, seed)
     }
 }

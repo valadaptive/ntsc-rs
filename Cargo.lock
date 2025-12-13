@@ -955,14 +955,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1d728cc89cf3aee9ff92b05e62b19ee65a02b5702cff7d5a377e32c6ae29d8d"
 
 [[package]]
-name = "clatter"
-version = "0.1.0"
-source = "git+https://github.com/valadaptive/clatter?branch=ntsc-rs#30a7b47ebcba076a7c9e82221c128f2bb9532039"
-dependencies = [
- "fearless_simd",
-]
-
-[[package]]
 name = "clipboard-win"
 version = "5.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1707,7 +1699,7 @@ dependencies = [
 [[package]]
 name = "fearless_simd"
 version = "0.3.0"
-source = "git+https://github.com/linebender/fearless_simd/?rev=3c9ce65#3c9ce65dd811043f69f710a51a9d255db9e67706"
+source = "git+https://github.com/valadaptive/fearless_simd/?branch=ntsc-rs#5ba566660965a84384dc74c21f26a57448353d70"
 
 [[package]]
 name = "find-msvc-tools"
@@ -3129,7 +3121,6 @@ dependencies = [
 name = "ntscrs"
 version = "0.1.2"
 dependencies = [
- "clatter",
  "criterion",
  "fearless_simd",
  "image",

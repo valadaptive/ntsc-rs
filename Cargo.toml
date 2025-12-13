@@ -15,4 +15,4 @@ dbg_macro = "warn"
 debug = "full"
 
 [patch.crates-io]
-fearless_simd = { git = "https://github.com/linebender/fearless_simd/", rev = "3c9ce65" }
+fearless_simd = { git = "https://github.com/valadaptive/fearless_simd/", branch = "ntsc-rs" }

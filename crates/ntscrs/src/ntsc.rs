@@ -1,6 +1,5 @@
 use std::{collections::VecDeque, f32::consts::FRAC_1_SQRT_2, ops::RangeInclusive};
 
-use clatter::{Simplex1d, Simplex2d};
 use core::f32::consts::PI;
 use macros::simd_dispatch;
 use rand::{Rng, RngCore, SeedableRng};
@@ -9,7 +8,7 @@ use rand_xoshiro::Xoshiro256PlusPlus;
 use crate::{
     f32x4::F32x4,
     filter::TransferFunction,
-    noise::{Fbm, Simplex, add_noise_1d, sample_noise_1d, sample_noise_2d},
+    noise::{Fbm, Simplex, Simplex1d, Simplex2d, add_noise_1d, sample_noise_1d, sample_noise_2d},
     random::{Geometric, Seeder},
     shift::{BoundaryHandling, shift_row, shift_row_to},
     thread_pool::{ZipChunks, with_thread_pool},
