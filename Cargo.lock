@@ -1699,7 +1699,7 @@ dependencies = [
 [[package]]
 name = "fearless_simd"
 version = "0.3.0"
-source = "git+https://github.com/valadaptive/fearless_simd/?branch=ntsc-rs#5ba566660965a84384dc74c21f26a57448353d70"
+source = "git+https://github.com/valadaptive/fearless_simd/?branch=ntsc-rs#ee4f89c4144570839aa8c20b20a1500d50ed4a1b"
 
 [[package]]
 name = "find-msvc-tools"
