@@ -18,23 +18,22 @@ pub fn simplex_1d<S: Simd>(point: [S::f32s; 1], seed: i32) -> S::f32s {
 
     // Compute the contribution from the first gradient
     // n0 = grad0 * (1 - x0^2)^4 * x0
-    let x20 = x0 * x0;
-    let t0 = S::f32s::splat(x0.witness(), 1.0) - x20;
+    // t0 = 1.0 - (x0 * x0);
+    let t0 = (-x0).mul_add(x0, 1.0);
     let t20 = t0 * t0;
     let t40 = t20 * t20;
     let gx0 = gradient_1d::<S>(gi0);
-    let n0 = t40 * gx0 * x0;
 
     // Compute the contribution from the second gradient
     // n1 = grad1 * (x0 - 1) * (1 - (x0 - 1)^2)^4
-    let x21 = x1 * x1;
-    let t1 = S::f32s::splat(x0.witness(), 1.0) - x21;
+    // t1 = 1.0 - (x1 * x1);
+    let t1 = (-x1).mul_add(x1, 1.0);
     let t21 = t1 * t1;
     let t41 = t21 * t21;
     let gx1 = gradient_1d::<S>(gi1);
-    let n1 = t41 * gx1 * x1;
 
-    n0 + n1
+    // (t40 * gx0 * x0) + (t41 * gx1 * x1)
+    (t40 * gx0).mul_add(x0, t41 * gx1 * x1)
 }
 
 /// Generates a nonzero random integer gradient in ±8 inclusive
@@ -44,7 +43,8 @@ fn gradient_1d<S: Simd>(hash: S::u32s) -> S::f32s {
     let v = ((h & 7) + 1).to_float::<S::f32s>();
 
     let h_and_8 = (h & 8).simd_eq(S::u32s::splat(hash.witness(), 0));
-    h_and_8.select(v, -v)
+    //h_and_8.select(v, -v)
+    v.copysign(h_and_8.bitcast::<S::f32s>())
 }
 
 #[inline(always)]
