@@ -36,7 +36,7 @@ pub fn make_lowpass(cutoff: f32, rate: f32) -> TransferFunction {
 /// (composite-video-simulator and ntscqt) applies a lowpass filter 3 times in a row, but it's more efficient to
 /// multiply the coefficients and just apply the filter once, which is mathematically equivalent.
 pub fn make_lowpass_triple(cutoff: f32, rate: f32) -> TransferFunction {
-    make_lowpass(cutoff, rate).cascade_self(3)
+    dbg!(make_lowpass(cutoff, rate).cascade_self(3))
 }
 
 /// Construct a lowpass filter of the filter type given in the settings.
@@ -110,6 +110,7 @@ enum InitialCondition {
 /// - `scale` - Scale the effect of the filter on the signal by this amount.
 /// - `delay` - Offset the filter output backwards (to the left) by this amount.
 fn filter_plane(
+    info: &CommonInfo,
     plane: &mut [f32],
     width: usize,
     filter: &TransferFunction,
@@ -117,14 +118,15 @@ fn filter_plane(
     scale: f32,
     delay: usize,
 ) {
-    if filter.should_use_row_chunks() {
-        filter_plane_with_rows::<8>(plane, width, filter, initial, scale, delay)
+    if filter.should_use_simd(info.level) {
+        filter_plane_with_rows::<8>(info.level, plane, width, filter, initial, scale, delay)
     } else {
-        filter_plane_with_rows::<1>(plane, width, filter, initial, scale, delay)
+        filter_plane_with_rows::<1>(info.level, plane, width, filter, initial, scale, delay)
     }
 }
 
 fn filter_plane_with_rows<const ROWS: usize>(
+    level: Level,
     plane: &mut [f32],
     width: usize,
     filter: &TransferFunction,
@@ -146,7 +148,7 @@ fn filter_plane_with_rows<const ROWS: usize>(
                     InitialCondition::Constant(c) => c,
                     InitialCondition::FirstSample => row[0],
                 };
-                filter.filter_signal_in_place::<1>(&mut [row], [initial], scale, delay)
+                filter.filter_signal_in_place::<1>(level, &mut [row], [initial], scale, delay)
             });
             return;
         };
@@ -160,12 +162,14 @@ fn filter_plane_with_rows<const ROWS: usize>(
             };
         }
 
-        filter.filter_signal_in_place::<ROWS>(rows, initial_rows, scale, delay);
+        filter.filter_signal_in_place::<ROWS>(level, rows, initial_rows, scale, delay);
     });
 }
 
 /// Common settings/info that many passes need to use. Passed to each individual effect function as needed.
 struct CommonInfo {
+    /// SIMD feature level token.
+    level: fearless_simd::Level,
     /// Random seed.
     seed: u64,
     /// Current frame index.
@@ -179,7 +183,7 @@ struct CommonInfo {
 /// Apply a lowpass filter to the luminance (Y) plane before the Y, I, and Q planes are modulated together. This should
 /// reduce color fringing/rainbow artifacts, which may or may not be what you want. Note that this is *not* the "Luma
 /// smear" setting--that's its own function (`luma_smear`).
-fn luma_filter(frame: &mut YiqView, filter_mode: LumaLowpass) {
+fn luma_filter(frame: &mut YiqView, info: &CommonInfo, filter_mode: LumaLowpass) {
     match filter_mode {
         LumaLowpass::None => {}
         LumaLowpass::Box => {
@@ -203,6 +207,7 @@ fn luma_filter(frame: &mut YiqView, filter_mode: LumaLowpass) {
             });
         }
         LumaLowpass::Notch => filter_plane(
+            info,
             frame.y,
             frame.dimensions.0,
             &make_notch_filter(0.5, 2.0),
@@ -223,8 +228,28 @@ fn composite_chroma_lowpass(frame: &mut YiqView, info: &CommonInfo, filter_type:
     let width = frame.dimensions.0;
 
     rayon_core::join(
-        || filter_plane(frame.i, width, &i_filter, InitialCondition::Zero, 1.0, 2),
-        || filter_plane(frame.q, width, &q_filter, InitialCondition::Zero, 1.0, 4),
+        || {
+            filter_plane(
+                info,
+                frame.i,
+                width,
+                &i_filter,
+                InitialCondition::Zero,
+                1.0,
+                2,
+            )
+        },
+        || {
+            filter_plane(
+                info,
+                frame.q,
+                width,
+                &q_filter,
+                InitialCondition::Zero,
+                1.0,
+                4,
+            )
+        },
     );
 }
 
@@ -235,8 +260,28 @@ fn composite_chroma_lowpass_lite(frame: &mut YiqView, info: &CommonInfo, filter_
     let width = frame.dimensions.0;
 
     rayon_core::join(
-        || filter_plane(frame.i, width, &filter, InitialCondition::Zero, 1.0, 1),
-        || filter_plane(frame.q, width, &filter, InitialCondition::Zero, 1.0, 1),
+        || {
+            filter_plane(
+                info,
+                frame.i,
+                width,
+                &filter,
+                InitialCondition::Zero,
+                1.0,
+                1,
+            )
+        },
+        || {
+            filter_plane(
+                info,
+                frame.q,
+                width,
+                &filter,
+                InitialCondition::Zero,
+                1.0,
+                1,
+            )
+        },
     );
 }
 
@@ -465,7 +510,7 @@ fn luma_into_chroma(
             // Apply a notch filter to the signal to remove the high-frequency chroma carrier, and store it in the
             // scratch buffer. We can then get *just* the chroma by subtracting the filtered signal from the original.
             let filter: TransferFunction = make_notch_filter(0.5, 2.0);
-            filter_plane(yiq.y, width, &filter, InitialCondition::Zero, 1.0, 0);
+            filter_plane(info, yiq.y, width, &filter, InitialCondition::Zero, 1.0, 0);
 
             let lines = ZipChunks::new([yiq.y, yiq.i, yiq.q, modulated], width);
             lines.par_for_each(|index, [y, i, q, modulated]| {
@@ -535,6 +580,7 @@ fn luma_into_chroma(
 fn luma_smear(yiq: &mut YiqView, info: &CommonInfo, amount: f32) {
     let lowpass = make_lowpass(f32::exp2(-4.0 * amount) * 0.25, info.horizontal_scale);
     filter_plane(
+        info,
         yiq.y,
         yiq.dimensions.0,
         &lowpass,
@@ -1100,6 +1146,7 @@ impl NtscEffect {
                 }
         });
         let info = CommonInfo {
+            level: Level::new(),
             seed,
             frame_num,
             horizontal_scale: self
@@ -1114,7 +1161,7 @@ impl NtscEffect {
                 .unwrap_or(1.0),
         };
 
-        luma_filter(yiq, self.input_luma_filter);
+        luma_filter(yiq, &info, self.input_luma_filter);
 
         match self.chroma_lowpass_in {
             ChromaLowpass::Full => {
@@ -1139,6 +1186,7 @@ impl NtscEffect {
                 NTSC_RATE * info.horizontal_scale,
             );
             filter_plane(
+                &info,
                 yiq.y,
                 width,
                 &preemphasis_filter,
@@ -1210,6 +1258,7 @@ impl NtscEffect {
                 ringing.power,
             );
             filter_plane(
+                &info,
                 yiq.y,
                 width,
                 &notch_filter,
@@ -1294,11 +1343,22 @@ impl NtscEffect {
                 );
 
                 rayon_core::join(
-                    || filter_plane(yiq.y, width, &luma_filter, InitialCondition::Zero, 1.0, 0),
+                    || {
+                        filter_plane(
+                            &info,
+                            yiq.y,
+                            width,
+                            &luma_filter,
+                            InitialCondition::Zero,
+                            1.0,
+                            0,
+                        )
+                    },
                     || {
                         rayon_core::join(
                             || {
                                 filter_plane(
+                                    &info,
                                     yiq.i,
                                     width,
                                     &chroma_filter,
@@ -1309,6 +1369,7 @@ impl NtscEffect {
                             },
                             || {
                                 filter_plane(
+                                    &info,
                                     yiq.q,
                                     width,
                                     &chroma_filter,
@@ -1323,6 +1384,7 @@ impl NtscEffect {
 
                 let luma_filter_single = make_lowpass(luma_cut, NTSC_RATE * info.horizontal_scale);
                 filter_plane(
+                    &info,
                     yiq.y,
                     width,
                     &luma_filter_single,
@@ -1357,6 +1419,7 @@ impl NtscEffect {
                         self.filter_type,
                     );*/
                     filter_plane(
+                        &info,
                         yiq.y,
                         width,
                         &luma_sharpen_filter,
@@ -1365,6 +1428,7 @@ impl NtscEffect {
                         0,
                     );
                     /*filter_plane(
+                        &info,
                         yiq.i,
                         width,
                         &chroma_sharpen_filter,
@@ -1373,6 +1437,7 @@ impl NtscEffect {
                         0,
                     );
                     filter_plane(
+                        &info,
                         yiq.q,
                         width,
                         &chroma_sharpen_filter,

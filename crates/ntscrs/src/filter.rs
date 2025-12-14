@@ -1,6 +1,4 @@
-use macros::simd_dispatch;
-
-use crate::f32x4::{F32x4, SupportedSimdType, get_supported_simd_type};
+use fearless_simd::{Level, dispatch, f32x4, prelude::*};
 
 /// Multiplies two polynomials (lowest coefficients first).
 /// Note that this function does not trim trailing zero coefficients--see below for that.
@@ -39,17 +37,23 @@ pub struct TransferFunction {
     den: Vec<f32>,
 }
 
-#[simd_dispatch(S)]
 fn filter_signal_simd<const ROWS: usize>(
+    level: Level,
     tf: &TransferFunction,
     signal: &mut [&mut [f32]; ROWS],
     initial: [f32; ROWS],
     scale: f32,
     delay: usize,
-) {
-    TransferFunction::filter_signal_in_place_fixed_size_simdx4::<S, ROWS>(
-        tf, signal, initial, scale, delay,
-    )
+) -> bool {
+    if level.is_fallback() {
+        return false;
+    }
+    dispatch!(level, simd =>
+        tf.filter_signal_in_place_fixed_size_simdx4::<_, ROWS>(
+            simd, signal, initial, scale, delay,
+        )
+    );
+    true
 }
 
 impl TransferFunction {
@@ -59,17 +63,9 @@ impl TransferFunction {
         J: IntoIterator<Item = f32>,
     {
         let mut num = num.into_iter().collect::<Vec<f32>>();
-        let mut den = den.into_iter().collect::<Vec<f32>>();
+        let den = den.into_iter().collect::<Vec<f32>>();
         if num.len() > den.len() {
             panic!("Numerator length exceeds denominator length.");
-        }
-
-        // Resize to 4 so we can use the SIMD implementation. This is faster than the scalar implementation, even if
-        // we only use 2 coefficients.
-        if get_supported_simd_type() != SupportedSimdType::None
-            && (den.len() == 2 || den.len() == 3)
-        {
-            den.resize(4, 0.0);
         }
 
         // Zero-pad the numerator from the right
@@ -88,11 +84,9 @@ impl TransferFunction {
         filt
     }
 
-    /// Whether processing the rows in chunks or one-by-one is faster.
-    pub fn should_use_row_chunks(&self) -> bool {
-        // Row chunks are ~25% slower than processing each row one-by-one with the scalar implementation.
-        // We should only process rows in chunks with the SIMD implementation.
-        self.den.len() == 4 && get_supported_simd_type() != SupportedSimdType::None
+    /// Whether we should use SIMD and hence process rows in chunks.
+    pub fn should_use_simd(&self, level: Level) -> bool {
+        !level.is_fallback() && (2..=4).contains(&self.den.len())
     }
 
     /// Return initial conditions for the filter that results in a given steady-state value (e.g. "start" the filter as
@@ -101,8 +95,9 @@ impl TransferFunction {
         // Adapted from scipy
         // https://github.com/scipy/scipy/blob/da82ac849a4ccade2d954a0998067e6aa706dd70/scipy/signal/_signaltools.py#L3609-L3742
 
-        let filter_len = usize::max(self.num.len(), self.den.len());
+        let filter_len = self.num.len();
         assert_eq!(dst.len(), filter_len);
+        assert_eq!(self.den.len(), filter_len);
         if value.abs() == 0.0 {
             dst.fill(0.0);
             return;
@@ -236,8 +231,9 @@ impl TransferFunction {
     /// Note that this is `inline(always)` so that the dispatch functions below will actually compile this with the
     /// correct architecture-specific SIMD features enabled.
     #[inline(always)]
-    unsafe fn filter_signal_in_place_fixed_size_simdx4<S: F32x4, const ROWS: usize>(
+    fn filter_signal_in_place_fixed_size_simdx4<S: Simd, const ROWS: usize>(
         &self,
+        simd: S,
         signal: &mut [&mut [f32]; ROWS],
         initial: [f32; ROWS],
         scale: f32,
@@ -249,22 +245,20 @@ impl TransferFunction {
             assert_eq!(signal[i].len(), width);
         }
 
-        let mut z = initial.map(|initial| unsafe {
+        let mut z = initial.map(|initial| {
             let mut dest = [0.0; 4];
-            self.initial_condition_into(initial, &mut dest);
-            S::load4(&dest)
+            self.initial_condition_into(initial, &mut dest[..self.num.len()]);
+            f32x4::simd_from(dest, simd)
         });
 
-        let mut num: [f32; 4] = [0f32; 4];
-        num.copy_from_slice(&self.num);
+        let mut num = [0.0f32; 4];
+        let mut den = [0.0f32; 4];
+        num[0..self.num.len()].copy_from_slice(&self.num);
+        den[0..self.den.len()].copy_from_slice(&self.den);
 
-        let mut den: [f32; 4] = [0f32; 4];
-        den.copy_from_slice(&self.den);
+        let num = f32x4::simd_from(num, simd);
+        let den = -f32x4::simd_from(den, simd).slide::<1>(0.0);
 
-        let num = unsafe { S::load(&num) };
-        let den = unsafe { S::load(&den) };
-        let scale_b = unsafe { S::set1(scale) };
-        let width = signal[0].len();
         let is_unit_scale = scale == 1.0;
 
         for i in 0..(width + delay) {
@@ -272,17 +266,9 @@ impl TransferFunction {
                 let mut zmm = z[j];
                 // While the compiler cannot elide this bounds check in the scalar version either, here it is probably
                 // also because it doesn't know that each row of the signal has the same length.
-                let sample = unsafe { S::load1(signal[j].get_unchecked(i.min(width - 1))) };
-                let filt_sample = num.mul_add(sample, zmm).swizzle(0, 0, 0, 0);
-
-                // Add the sample * the numerator, subtract the filtered sample * the denominator
-                zmm = num.mul_add(sample, zmm);
-                zmm = den.neg_mul_add(filt_sample, zmm);
-
-                // Shift it all over and zero out the last element
-                zmm = zmm.swizzle(1, 2, 3, -1);
-
-                z[j] = zmm;
+                let sample =
+                    unsafe { f32x4::splat(simd, *signal[j].get_unchecked(i.min(width - 1))) };
+                let filt_sample = num.mul_add(sample, zmm);
 
                 if i >= delay {
                     // If the filter scale is 1.0, we can skip scaling the sample. Either this branch is easily
@@ -291,10 +277,22 @@ impl TransferFunction {
                         filt_sample
                     } else {
                         let samp_diff = filt_sample - sample;
-                        samp_diff.mul_add(scale_b, sample)
+                        samp_diff.mul_add(scale, sample)
                     };
-                    final_samp.store1(unsafe { signal[j].get_unchecked_mut(i - delay) });
+                    unsafe {
+                        *signal[j].get_unchecked_mut(i - delay) = final_samp[0];
+                    }
                 }
+
+                // Add the sample * the numerator, subtract the filtered sample * the denominator, and shift it all over
+                zmm = den.mul_add(
+                    // Filtered sample * the denominator, pre-negated and shifted
+                    f32x4::splat(simd, filt_sample[0]),
+                    // Sample * the numerator, which we are now shifting over
+                    filt_sample.slide::<1>(0.0),
+                );
+
+                z[j] = zmm;
             }
         }
     }
@@ -312,6 +310,7 @@ impl TransferFunction {
     /// - `delay` - Offset the filter output backwards (to the left) by this amount.
     pub fn filter_signal_in_place<const ROWS: usize>(
         &self,
+        level: Level,
         signal: &mut [&mut [f32]; ROWS],
         initial: [f32; ROWS],
         scale: f32,
@@ -319,15 +318,18 @@ impl TransferFunction {
     ) {
         let filter_len = usize::max(self.num.len(), self.den.len());
 
+        if self.should_use_simd(level)
+            && filter_signal_simd(level, self, signal, initial, scale, delay)
+        {
+            return;
+        }
+
         match filter_len {
-            // Specialize fixed-size implementations for filter sizes 1-8
+            // Specialize fixed-size implementations for filter sizes 1-4
             1 => self.filter_signal_in_place_fixed_size::<1, ROWS>(signal, initial, scale, delay),
             2 => self.filter_signal_in_place_fixed_size::<2, ROWS>(signal, initial, scale, delay),
             3 => self.filter_signal_in_place_fixed_size::<3, ROWS>(signal, initial, scale, delay),
-            // Use SIMD implementation for filters of length 4, if possible
-            4 => filter_signal_simd(self, signal, initial, scale, delay).unwrap_or_else(|| {
-                self.filter_signal_in_place_fixed_size::<4, ROWS>(signal, initial, scale, delay)
-            }),
+            4 => self.filter_signal_in_place_fixed_size::<4, ROWS>(signal, initial, scale, delay),
             _ => {
                 // Fall back to the general-length implementation
                 let mut z: [Vec<f32>; ROWS] = initial
