@@ -263,12 +263,11 @@ impl TransferFunction {
 
         for i in 0..(width + delay) {
             for j in 0..ROWS {
-                let mut zmm = z[j];
                 // While the compiler cannot elide this bounds check in the scalar version either, here it is probably
                 // also because it doesn't know that each row of the signal has the same length.
                 let sample =
                     unsafe { f32x4::splat(simd, *signal[j].get_unchecked(i.min(width - 1))) };
-                let filt_sample = num.mul_add(sample, zmm);
+                let filt_sample = num.mul_add(sample, z[j]);
 
                 if i >= delay {
                     // If the filter scale is 1.0, we can skip scaling the sample. Either this branch is easily
@@ -285,14 +284,12 @@ impl TransferFunction {
                 }
 
                 // Add the sample * the numerator, subtract the filtered sample * the denominator, and shift it all over
-                zmm = den.mul_add(
+                z[j] = den.mul_add(
                     // Filtered sample * the denominator, pre-negated and shifted
                     f32x4::splat(simd, filt_sample[0]),
                     // Sample * the numerator, which we are now shifting over
                     filt_sample.slide::<1>(0.0),
                 );
-
-                z[j] = zmm;
             }
         }
     }
