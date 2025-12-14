@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, f32::consts::FRAC_1_SQRT_2, ops::RangeInclusive};
 
 use core::f32::consts::PI;
-use fearless_simd::{Level, dispatch, f32x4, prelude::*};
+use fearless_simd::{Level, dispatch, prelude::*};
 use rand::{Rng, RngCore, SeedableRng};
 use rand_xoshiro::Xoshiro256PlusPlus;
 
@@ -352,58 +352,45 @@ fn demodulate_chroma_simd_inner<S: Simd>(
 ) -> usize {
     let width = y.len();
 
-    let i_mult_inv = |offset: usize| {
-        f32x4::simd_from(
-            match offset {
-                0 => [-1.0, 0.0, 1.0, 0.0],
-                1 => [0.0, 1.0, 0.0, -1.0],
-                2 => [1.0, 0.0, -1.0, 0.0],
-                3 => [0.0, -1.0, 0.0, 1.0],
-                _ => unreachable!(),
-            },
-            simd,
-        )
+    let offset_wave = |offset: usize| {
+        S::f32s::from_fn(simd, |i| {
+            let ii = offset + i;
+
+            let sign = if ii & 2 == 0 { -1.0 } else { 1.0 };
+            let mag = if ii & 1 == 0 { 1.0 } else { 0.0 };
+            sign * mag
+        })
     };
-    let q_mult_inv = |offset: usize| {
-        f32x4::simd_from(
-            match offset {
-                0 => [0.0, -1.0, 0.0, 1.0],
-                1 => [-1.0, 0.0, 1.0, 0.0],
-                2 => [0.0, 1.0, 0.0, -1.0],
-                3 => [1.0, 0.0, -1.0, 0.0],
-                _ => unreachable!(),
-            },
-            simd,
-        )
-    };
+    let i_mult_inv_l = offset_wave(xi) * 0.5;
+    let i_mult_inv_c = offset_wave(1 + xi);
+    let i_mult_inv_r = offset_wave(2 + xi) * 0.5;
+    let q_mult_inv_l = offset_wave(3 + xi) * 0.5;
+    let q_mult_inv_c = offset_wave(4 + xi);
+    let q_mult_inv_r = offset_wave(5 + xi) * 0.5;
 
     let mut index = 1;
-    while index < width.saturating_sub(4) {
-        let yy_l = f32x4::from_slice(simd, &y[index - 1..=index + 2]);
-        let yy_c = f32x4::from_slice(simd, &y[index..=index + 3]);
-        let yy_r = f32x4::from_slice(simd, &y[index + 1..=index + 4]);
-        let mm_l = f32x4::from_slice(simd, &modulated[index - 1..=index + 2]);
-        let mm_c = f32x4::from_slice(simd, &modulated[index..=index + 3]);
-        let mm_r = f32x4::from_slice(simd, &modulated[index + 1..=index + 4]);
+    while index < width.saturating_sub(S::f32s::N) {
+        let yy_l = S::f32s::from_slice(simd, &y[index - 1..index - 1 + S::f32s::N]);
+        let yy_c = S::f32s::from_slice(simd, &y[index..index + S::f32s::N]);
+        let yy_r = S::f32s::from_slice(simd, &y[index + 1..index + 1 + S::f32s::N]);
+        let mm_l = S::f32s::from_slice(simd, &modulated[index - 1..index - 1 + S::f32s::N]);
+        let mm_c = S::f32s::from_slice(simd, &modulated[index..index + S::f32s::N]);
+        let mm_r = S::f32s::from_slice(simd, &modulated[index + 1..index + 1 + S::f32s::N]);
         let chroma_l = yy_l - mm_l;
         let chroma_c = yy_c - mm_c;
         let chroma_r = yy_r - mm_r;
 
-        let offset_l = (index - 1 + xi) & 3;
-        let offset_c = (index + xi) & 3;
-        let offset_r = (index + 1 + xi) & 3;
+        let mut i_modulated = chroma_c * i_mult_inv_c;
+        i_modulated = chroma_l.mul_add(i_mult_inv_l, i_modulated);
+        i_modulated = chroma_r.mul_add(i_mult_inv_r, i_modulated);
+        let mut q_modulated = chroma_c * q_mult_inv_c;
+        q_modulated = chroma_l.mul_add(q_mult_inv_l, q_modulated);
+        q_modulated = chroma_r.mul_add(q_mult_inv_r, q_modulated);
 
-        let mut i_modulated = chroma_c * i_mult_inv(offset_c);
-        i_modulated = chroma_l.mul_add(i_mult_inv(offset_l) * 0.5, i_modulated);
-        i_modulated = chroma_r.mul_add(i_mult_inv(offset_r) * 0.5, i_modulated);
-        let mut q_modulated = chroma_c * q_mult_inv(offset_c);
-        q_modulated = chroma_l.mul_add(q_mult_inv(offset_l) * 0.5, q_modulated);
-        q_modulated = chroma_r.mul_add(q_mult_inv(offset_r) * 0.5, q_modulated);
+        (&mut i[index..index + S::f32s::N]).copy_from_slice(i_modulated.as_slice());
+        (&mut q[index..index + S::f32s::N]).copy_from_slice(q_modulated.as_slice());
 
-        (&mut i[index..=index + 3]).copy_from_slice(i_modulated.as_slice());
-        (&mut q[index..=index + 3]).copy_from_slice(q_modulated.as_slice());
-
-        index += 4;
+        index += S::f32s::N;
     }
 
     index
@@ -438,7 +425,11 @@ fn demodulate_chroma_line(
     // The SIMD loop doesn't handle boundary conditions and operates on chunks of 4 pixels at a time. We need to handle
     // both the leftmost pixel and the rightmost few. We unconditionally handle the leftmost one, so the "rightmost"
     // range starts at 1. If there is no SIMD, process everything using the scalar approach.
-    let remainder_start = demodulate_chroma_simd(y, i, q, modulated, xi, level).max(1);
+    let remainder_start = if level.is_fallback() {
+        1
+    } else {
+        demodulate_chroma_simd(y, i, q, modulated, xi, level).max(1)
+    };
 
     for index in std::iter::once(0).chain(remainder_start..width) {
         let offset_c = (index + xi) & 3;
