@@ -140,33 +140,33 @@ pub fn sample_noise_2d_inner<S: Simd, B: Sampleable<Coords = [f32; 2]>, N: Noise
 }
 
 pub fn sample_noise_1d<B: Sampleable<Coords = [f32; 1]>, N: Noise<B>>(
+    level: Level,
     noise: &N,
     start_coords: [f32; 1],
     dimensions: [usize; 1],
     destination: &mut [f32],
 ) {
-    let level = Level::new();
     dispatch!(level, simd => sample_noise_1d_inner(simd, noise, start_coords, dimensions, destination))
 }
 
 pub fn add_noise_1d<B: Sampleable<Coords = [f32; 1]>, N: Noise<B>>(
+    level: Level,
     noise: &N,
     intensity: f32,
     start_coords: [f32; 1],
     dimensions: [usize; 1],
     destination: &mut [f32],
 ) {
-    let level = Level::new();
     dispatch!(level, simd => add_noise_1d_inner(simd, noise, intensity, start_coords, dimensions, destination))
 }
 
 pub fn sample_noise_2d<B: Sampleable<Coords = [f32; 2]>, N: Noise<B>>(
+    level: Level,
     noise: &N,
     start_coords: [f32; 2],
     dimensions: [usize; 2],
     destination: &mut [f32],
 ) {
-    let level = Level::new();
     dispatch!(level, simd => sample_noise_2d_inner(simd, noise, start_coords, dimensions, destination))
 }
 

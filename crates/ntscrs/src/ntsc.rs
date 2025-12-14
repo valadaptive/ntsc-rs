@@ -415,14 +415,21 @@ fn demodulate_chroma_simd(
     q: &mut [f32],
     modulated: &[f32],
     xi: usize,
+    level: Level,
 ) -> usize {
-    let level = Level::new();
     dispatch!(level, simd => demodulate_chroma_simd_inner(simd, y, i, q, modulated, xi))
 }
 
 /// Demodulate the chrominance (I and Q) signals from a combined NTSC signal, looking at a single source pixel at the
 /// given index and writing into the destination I and Q plane pixels as well as their immediate neighbors.
-fn demodulate_chroma_line(y: &[f32], i: &mut [f32], q: &mut [f32], modulated: &[f32], xi: usize) {
+fn demodulate_chroma_line(
+    y: &[f32],
+    i: &mut [f32],
+    q: &mut [f32],
+    modulated: &[f32],
+    xi: usize,
+    level: Level,
+) {
     assert_eq!(y.len(), modulated.len());
     assert_eq!(y.len(), i.len());
     assert_eq!(y.len(), q.len());
@@ -431,7 +438,7 @@ fn demodulate_chroma_line(y: &[f32], i: &mut [f32], q: &mut [f32], modulated: &[
     // The SIMD loop doesn't handle boundary conditions and operates on chunks of 4 pixels at a time. We need to handle
     // both the leftmost pixel and the rightmost few. We unconditionally handle the leftmost one, so the "rightmost"
     // range starts at 1. If there is no SIMD, process everything using the scalar approach.
-    let remainder_start = demodulate_chroma_simd(y, i, q, modulated, xi).max(1);
+    let remainder_start = demodulate_chroma_simd(y, i, q, modulated, xi, level).max(1);
 
     for index in std::iter::once(0).chain(remainder_start..width) {
         let offset_c = (index + xi) & 3;
@@ -463,6 +470,7 @@ fn luma_into_chroma_line_box(
     q: &mut [f32],
     modulated: &[f32],
     xi: usize,
+    level: Level,
 ) {
     let width = y.len();
     for index in 0..width {
@@ -477,7 +485,7 @@ fn luma_into_chroma_line_box(
         ];
         y[index] = area.iter().sum::<f32>() * 0.25;
     }
-    demodulate_chroma_line(y, i, q, modulated, xi);
+    demodulate_chroma_line(y, i, q, modulated, xi, level);
 }
 
 /// Demodulate the chroma signal from the Y (luma) plane back into the I and Q planes.
@@ -503,7 +511,7 @@ fn luma_into_chroma(
             lines.par_for_each(|index, [y, i, q, modulated]| {
                 let xi = chroma_phase_shift(phase_shift, phase_offset, info.frame_num, index * 2);
 
-                luma_into_chroma_line_box(y, i, q, modulated, xi);
+                luma_into_chroma_line_box(y, i, q, modulated, xi, info.level);
             });
         }
         ChromaDemodulationFilter::Notch => {
@@ -515,7 +523,7 @@ fn luma_into_chroma(
             let lines = ZipChunks::new([yiq.y, yiq.i, yiq.q, modulated], width);
             lines.par_for_each(|index, [y, i, q, modulated]| {
                 let xi = chroma_phase_shift(phase_shift, phase_offset, info.frame_num, index * 2);
-                demodulate_chroma_line(y, i, q, modulated, xi);
+                demodulate_chroma_line(y, i, q, modulated, xi, info.level);
             });
         }
         ChromaDemodulationFilter::OneLineComb => {
@@ -538,7 +546,7 @@ fn luma_into_chroma(
                 // Demodulate the chroma
                 let xi =
                     chroma_phase_shift(phase_shift, phase_offset, info.frame_num, line_index * 2);
-                demodulate_chroma_line(y, i, q, bottom_line, xi);
+                demodulate_chroma_line(y, i, q, bottom_line, xi, info.level);
             });
         }
         ChromaDemodulationFilter::TwoLineComb => {
@@ -570,7 +578,7 @@ fn luma_into_chroma(
 
                 let xi =
                     chroma_phase_shift(phase_shift, phase_offset, info.frame_num, line_index * 2);
-                demodulate_chroma_line(y, i, q, cur_line, xi);
+                demodulate_chroma_line(y, i, q, cur_line, xi, info.level);
             });
         }
     };
@@ -611,6 +619,7 @@ mod noise_seeds {
 fn video_noise_line(
     row: &mut [f32],
     seeder: &Seeder,
+    level: Level,
     index: usize,
     frequency: f32,
     intensity: f32,
@@ -629,7 +638,7 @@ fn video_noise_line(
         frequency,
     };
 
-    add_noise_1d::<Simplex1d, _>(&noise, intensity * 0.25, [offset], [width], row);
+    add_noise_1d::<Simplex1d, _>(level, &noise, intensity * 0.25, [offset], [width], row);
 }
 
 /// Add gradient noise to an NTSC-encoded (composite) signal.
@@ -643,6 +652,7 @@ fn composite_noise(yiq: &mut YiqView, info: &CommonInfo, noise_settings: &FbmNoi
         video_noise_line(
             row,
             &seeder,
+            info.level,
             index,
             noise_settings.frequency / info.horizontal_scale,
             noise_settings.intensity,
@@ -665,6 +675,7 @@ fn plane_noise(
         video_noise_line(
             row,
             &seeder,
+            info.level,
             index,
             settings.frequency / info.horizontal_scale,
             settings.intensity,
@@ -896,7 +907,13 @@ fn tracking_noise(
         seed: noise_seed,
         frequency: 0.5,
     };
-    sample_noise_1d::<Simplex1d, _>(&noise, [offset], [num_rows.min(height)], &mut shift_noise);
+    sample_noise_1d::<Simplex1d, _>(
+        info.level,
+        &noise,
+        [offset],
+        [num_rows.min(height)],
+        &mut shift_noise,
+    );
 
     ZipChunks::new([affected_rows], width).par_for_each(|index, [row]| {
         let index = index + cut_off_rows;
@@ -915,6 +932,7 @@ fn tracking_noise(
         video_noise_line(
             row,
             &seeder,
+            info.level,
             index,
             0.25 / info.horizontal_scale,
             intensity_scale.powi(2) * noise_intensity * 4.0,
@@ -1049,6 +1067,7 @@ fn vhs_edge_wave(yiq: &mut YiqView, info: &CommonInfo, settings: &VHSEdgeWaveSet
         frequency: settings.frequency / info.vertical_scale,
     };
     sample_noise_2d::<Simplex2d, _>(
+        info.level,
         &noise,
         [offset, info.frame_num as f32 * settings.speed],
         [height, 1],

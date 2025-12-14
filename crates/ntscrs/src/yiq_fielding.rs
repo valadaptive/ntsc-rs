@@ -940,6 +940,7 @@ impl<'a> YiqView<'a> {
         }
 
         fn write_single_row_simd<P: PixelFormat, T: Normalize, F: PixelTransform>(
+            level: Level,
             view: &YiqView,
             blit_info: &BlitInfo,
             deinterlace_mode: DeinterlaceMode,
@@ -947,10 +948,10 @@ impl<'a> YiqView<'a> {
             dst_row: &mut [MaybeUninit<T>],
             pixel_transform: F,
         ) {
-            let level = Level::new();
             dispatch!(level, simd => write_single_row_simd_inner::<_, P, T, F>(simd, view, blit_info, deinterlace_mode, dst_row_idx, dst_row, pixel_transform))
         }
 
+        let level = Level::new();
         with_thread_pool(|| {
             let row_length = blit_info.row_bytes / std::mem::size_of::<T>();
 
@@ -963,6 +964,7 @@ impl<'a> YiqView<'a> {
 
             chunks.par_for_each(|dst_row_idx, [dst_row]| {
                 write_single_row_simd::<S, T, F>(
+                    level,
                     self,
                     &blit_info,
                     deinterlace_mode,
