@@ -162,7 +162,7 @@ impl Normalize for u16 {
             simd,
         )
         .to_float();
-        values / Self::MAX as f32
+        values * (1.0 / Self::MAX as f32)
     }
 }
 
@@ -201,7 +201,7 @@ impl Normalize for AfterEffectsU16 {
             simd,
         )
         .to_float();
-        values / 32768.0
+        values * (1.0 / 32768.0)
     }
 }
 
@@ -232,7 +232,7 @@ impl Normalize for i16 {
             simd,
         )
         .to_float();
-        values / Self::MAX as f32
+        values * (1.0 / Self::MAX as f32)
     }
 }
 
@@ -263,7 +263,7 @@ impl Normalize for u8 {
             simd,
         )
         .to_float();
-        values / Self::MAX as f32
+        values * (1.0 / Self::MAX as f32)
     }
 }
 
