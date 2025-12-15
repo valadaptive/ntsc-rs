@@ -750,9 +750,9 @@ fn head_switching(
         let noisy_shift = (row_shift + (seeder.clone().mix(index).finalize::<f32>() - 0.5))
             * info.horizontal_scale;
 
-        // because if-let chains are unstable :(
-        if index == num_affected_rows && mid_line.is_some() {
-            let mid_line = mid_line.unwrap();
+        if index == num_affected_rows
+            && let Some(mid_line) = mid_line
+        {
             // Shift the entire row, but only copy back a portion of it.
             let mut tmp_row = vec![0.0; width];
             shift_row_to(
