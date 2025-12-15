@@ -1,13 +1,14 @@
 //! This is a simple parser for math expressions so that users can enter them into the GUI's slider numeric inputs.
 
 use logos::{Lexer, Logos};
-use std::mem;
+use std::{fmt, mem};
 
 fn parse_num(lex: &mut Lexer<Token>) -> Option<f64> {
     lex.slice().parse::<f64>().ok()
 }
 
 #[derive(Clone, Copy, Logos, Debug, PartialEq)]
+#[logos(error(ParseError, ParseError::from_lexer))]
 #[logos(skip r"[ \t\n\f]+")]
 enum Token {
     #[regex(r"([0-9]+(\.[0-9]*)?|(\.[0-9]+))(e[+-][0-9]+)?", parse_num)]
@@ -38,18 +39,41 @@ enum Token {
     RParen,
 }
 
-#[derive(Debug)]
-pub struct ParseError {
-    pub message: String,
+#[derive(Debug, Default, PartialEq, Clone)]
+pub enum ParseError {
+    UnexpectedChar(char),
+    UnexpectedEOF,
+    ExpectedChar(char),
+    ExpectedOperator,
+    InvalidLHS,
+    #[default]
+    Other,
 }
 
 impl ParseError {
-    fn new(message: &str) -> Self {
-        ParseError {
-            message: String::from(message),
+    fn from_lexer(lex: &mut Lexer<'_, Token>) -> Self {
+        if let Some(unexpected_char) = lex.slice().chars().next() {
+            Self::UnexpectedChar(unexpected_char)
+        } else {
+            Self::UnexpectedEOF
         }
     }
 }
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ParseError::UnexpectedChar(c) => write!(f, "Unexpected character: {c}"),
+            ParseError::UnexpectedEOF => write!(f, "Unexpected EOF"),
+            ParseError::ExpectedChar(c) => write!(f, "Expected a \"{c}\" character"),
+            ParseError::ExpectedOperator => write!(f, "Expected an operator"),
+            ParseError::InvalidLHS => write!(f, "Invalid left-hand side"),
+            ParseError::Other => write!(f, "Unknown error"),
+        }
+    }
+}
+
+impl std::error::Error for ParseError {}
 
 struct LexerWrapper<'a> {
     lexer: Lexer<'a, Token>,
@@ -61,26 +85,13 @@ impl<'a> LexerWrapper<'a> {
     fn new_from_str(string: &'a str) -> Result<LexerWrapper<'a>, ParseError> {
         let mut lexer = Token::lexer(string);
         let cur = None;
-        let next = lexer.next();
-        if let Some(token) = &next {
-            if token.is_err() {
-                return Err(ParseError::new("aaa"));
-            }
-        };
+        let next = lexer.next().transpose()?;
 
-        Ok(LexerWrapper {
-            lexer,
-            cur,
-            next: next.map(|token| token.unwrap()),
-        })
+        Ok(LexerWrapper { lexer, cur, next })
     }
 
     fn advance(&mut self) -> Result<Option<&Token>, ParseError> {
-        let next = self
-            .lexer
-            .next()
-            .transpose()
-            .map_err(|_| ParseError::new("No next token"))?;
+        let next = self.lexer.next().transpose()?;
         let old_next = mem::replace(&mut self.next, next);
         self.cur = old_next;
         Ok(self.next.as_ref())
@@ -116,7 +127,7 @@ fn eval_expr(lexer: &mut LexerWrapper, min_binding_power: usize) -> Result<f64, 
             lexer.advance()?;
             let res = eval_expr(lexer, 0)?;
             if lexer.cur != Some(Token::RParen) {
-                return Err(ParseError::new("Expected closing parenthesis"));
+                return Err(ParseError::ExpectedChar(')'));
             }
             Ok(res)
         }
@@ -136,7 +147,7 @@ fn eval_expr(lexer: &mut LexerWrapper, min_binding_power: usize) -> Result<f64, 
             // unary negation
             Ok(-inner_value)
         }
-        _ => Err(ParseError::new("Invalid left-hand side")),
+        _ => Err(ParseError::InvalidLHS),
     }?;
 
     loop {
@@ -149,7 +160,7 @@ fn eval_expr(lexer: &mut LexerWrapper, min_binding_power: usize) -> Result<f64, 
                 | Token::Power
                 | Token::Percent => Ok(token),
                 Token::RParen => break Ok(lhs),
-                _ => Err(ParseError::new("Expected operator")),
+                _ => Err(ParseError::ExpectedOperator),
             },
             None => break Ok(lhs),
         }?;
