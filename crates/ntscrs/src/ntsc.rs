@@ -36,7 +36,7 @@ pub fn make_lowpass(cutoff: f32, rate: f32) -> TransferFunction {
 /// (composite-video-simulator and ntscqt) applies a lowpass filter 3 times in a row, but it's more efficient to
 /// multiply the coefficients and just apply the filter once, which is mathematically equivalent.
 pub fn make_lowpass_triple(cutoff: f32, rate: f32) -> TransferFunction {
-    dbg!(make_lowpass(cutoff, rate).cascade_self(3))
+    make_lowpass(cutoff, rate).cascade_self(3)
 }
 
 /// Construct a lowpass filter of the filter type given in the settings.
