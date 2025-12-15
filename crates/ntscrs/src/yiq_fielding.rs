@@ -72,7 +72,7 @@ impl YiqField {
         // (take an image 3 pixels tall. it goes render, skip, render--that's 2 renders) but floor division if we
         // render lower-field-first (skip, render, skip--only 1 render).
         match self {
-            Self::Upper => (image_height + 1) / 2,
+            Self::Upper => image_height.div_ceil(2),
             Self::Lower => (image_height / 2).max(1),
             Self::Both | Self::InterleavedUpper | Self::InterleavedLower => image_height,
         }
@@ -86,7 +86,7 @@ impl YiqField {
         // (take an image 3 pixels tall. it goes render, skip, render--that's 2 renders) but floor division if we
         // render lower-field-first (skip, render, skip--only 1 render).
         match self {
-            Self::Upper => (image_height + 1) / 2,
+            Self::Upper => image_height.div_ceil(2),
             Self::Lower => image_height / 2,
             Self::Both | Self::InterleavedUpper | Self::InterleavedLower => image_height,
         }
@@ -583,7 +583,7 @@ impl<'a> YiqView<'a> {
                     let mut field = self.field;
 
                     let num_skipped_rows = match field {
-                        YiqField::Upper => (blit_info.destination.1 + 1) / 2,
+                        YiqField::Upper => blit_info.destination.1.div_ceil(2),
                         YiqField::Lower => blit_info.destination.1 / 2,
                         _ => blit_info.destination.1,
                     };

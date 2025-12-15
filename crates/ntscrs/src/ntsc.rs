@@ -387,8 +387,8 @@ fn demodulate_chroma_simd_inner<S: Simd>(
         q_modulated = chroma_l.mul_add(q_mult_inv_l, q_modulated);
         q_modulated = chroma_r.mul_add(q_mult_inv_r, q_modulated);
 
-        (&mut i[index..index + S::f32s::N]).copy_from_slice(i_modulated.as_slice());
-        (&mut q[index..index + S::f32s::N]).copy_from_slice(q_modulated.as_slice());
+        i[index..index + S::f32s::N].copy_from_slice(i_modulated.as_slice());
+        q[index..index + S::f32s::N].copy_from_slice(q_modulated.as_slice());
 
         index += S::f32s::N;
     }
@@ -893,7 +893,7 @@ fn tracking_noise(
     let cut_off_rows = num_rows.saturating_sub(height);
     let affected_rows = &mut yiq.y[start_row * width..];
 
-    let mut shift_noise = &mut yiq.scratch[0..num_rows.min(height)];
+    let shift_noise = &mut yiq.scratch[0..num_rows.min(height)];
     let noise = Simplex {
         seed: noise_seed,
         frequency: 0.5,
@@ -903,7 +903,7 @@ fn tracking_noise(
         &noise,
         [offset],
         [num_rows.min(height)],
-        &mut shift_noise,
+        shift_noise,
     );
 
     ZipChunks::new([affected_rows], width).par_for_each(|index, [row]| {

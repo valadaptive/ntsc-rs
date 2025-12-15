@@ -534,7 +534,7 @@ impl<T: Settings> SettingsList<T> {
                         )
                     });
                 }
-                SettingKind::Boolean { .. } => {
+                SettingKind::Boolean => {
                     json.get_and_expect::<bool>(key)?
                         .map(|b| settings.set_field::<bool>(&descriptor.id, b));
                 }

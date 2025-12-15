@@ -347,7 +347,7 @@ impl PresetsListState {
         };
 
         if not_loaded {
-            dir.reload(&executor, false);
+            dir.reload(executor, false);
         }
         match &*dir_state {
             DirState::NotLoaded | DirState::Loading(None) => {
@@ -437,7 +437,7 @@ impl PresetsListState {
             }
         }
 
-        return action;
+        action
     }
 
     fn show_dir_entry(

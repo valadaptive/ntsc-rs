@@ -516,13 +516,7 @@ unsafe fn map_params(
 
                 propSetInt(checkboxProps, kOfxParamPropAnimates.as_ptr(), 0, 0).ofx_ok()?;
 
-                map_params(
-                    data,
-                    param_set,
-                    children,
-                    default_settings,
-                    &group_name_cstr,
-                )?;
+                map_params(data, param_set, children, default_settings, group_name_cstr)?;
             }
         }
         if !paramProps.is_null() {
@@ -535,7 +529,7 @@ unsafe fn map_params(
                 descriptor_label_cstr.as_ptr(),
             )
             .ofx_ok()?;
-            if let Some(description) = descriptor_strings.2.as_ref().map(CString::as_c_str) {
+            if let Some(description) = descriptor_strings.2.as_deref() {
                 propSetString(
                     paramProps,
                     kOfxParamPropHint.as_ptr(),
@@ -601,7 +595,7 @@ unsafe fn apply_params(
                 dst.set_field::<f32>(&descriptor.id, float_value as f32)
                     .unwrap();
             }
-            SettingKind::Boolean { .. } => {
+            SettingKind::Boolean => {
                 let mut bool_value: i32 = 0;
                 paramGetValueAtTime(param, time, &mut bool_value).ofx_ok()?;
                 dst.set_field::<bool>(&descriptor.id, bool_value != 0)
@@ -932,7 +926,7 @@ unsafe fn set_controls_from_settings(
                 )
                 .ofx_ok()?;
             }
-            SettingKind::Boolean { .. } => {
+            SettingKind::Boolean => {
                 paramSetValue(
                     param,
                     settings

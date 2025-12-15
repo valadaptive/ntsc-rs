@@ -126,7 +126,7 @@ impl<'a, const N: usize, T> ZipChunks<'a, N, T> {
         let num_total_chunks = self.len().div_ceil(self.chunk_size);
         let chunks_per_thread = num_total_chunks / num_work_units;
         let mut remainder = num_total_chunks % num_work_units;
-        if self.len() % self.chunk_size != 0 {
+        if !self.len().is_multiple_of(self.chunk_size) {
             remainder += 1;
         }
 

@@ -61,10 +61,7 @@ impl StatusExt for std::io::Result<ExitStatus> {
                 if status.success() {
                     Ok(())
                 } else {
-                    Err(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        status.to_string(),
-                    ))
+                    Err(std::io::Error::other(status.to_string()))
                 }
             }
         }

@@ -718,7 +718,7 @@ impl NtscApp {
                 slider
             }
             SettingDescriptor {
-                kind: SettingKind::Boolean { .. },
+                kind: SettingKind::Boolean,
                 ..
             } => {
                 let mut value = effect_settings.get_field::<bool>(&descriptor.id).unwrap();
