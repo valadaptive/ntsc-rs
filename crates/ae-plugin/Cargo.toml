@@ -8,12 +8,12 @@ license = "MIT OR ISC OR Apache-2.0"
 crate-type = ["cdylib"]
 
 [target.'cfg(any(windows, target_os="macos"))'.dependencies]
-after-effects = {git = "https://github.com/virtualritz/after-effects", rev = "c70729a", features = ["catch-panics"]}
-premiere = {git = "https://github.com/virtualritz/after-effects", rev = "c70729a"}
+after-effects = {git = "https://github.com/virtualritz/after-effects", rev = "0e0b197"}
+premiere = {git = "https://github.com/virtualritz/after-effects", rev = "0e0b197"}
 ntscrs = { path = "../ntscrs" }
 
 [target.'cfg(any(windows, target_os="macos"))'.build-dependencies]
-pipl = {git = "https://github.com/virtualritz/after-effects", rev = "c70729a"}
+pipl = {git = "https://github.com/virtualritz/after-effects", rev = "0e0b197"}
 
 [dependencies]
 raw-window-handle = "0.6.2"
