@@ -98,22 +98,22 @@ impl BaseTransformImpl for VideoPadFilter {
             gstreamer::PadDirection::Src => Some({
                 let mut caps = caps.clone();
                 for s in caps.make_mut().iter_mut() {
-                    if let Ok(width) = s.value("width").ok()?.get::<i32>() {
-                        if width % 2 == 0 {
-                            s.set_value(
-                                "width",
-                                (&gstreamer::IntRange::<i32>::new(width - 1, width)).into(),
-                            );
-                        }
+                    if let Ok(width) = s.value("width").ok()?.get::<i32>()
+                        && width % 2 == 0
+                    {
+                        s.set_value(
+                            "width",
+                            (&gstreamer::IntRange::<i32>::new(width - 1, width)).into(),
+                        );
                     }
 
-                    if let Ok(height) = s.value("height").ok()?.get::<i32>() {
-                        if height % 2 == 0 {
-                            s.set_value(
-                                "height",
-                                (&gstreamer::IntRange::<i32>::new(height - 1, height)).into(),
-                            );
-                        }
+                    if let Ok(height) = s.value("height").ok()?.get::<i32>()
+                        && height % 2 == 0
+                    {
+                        s.set_value(
+                            "height",
+                            (&gstreamer::IntRange::<i32>::new(height - 1, height)).into(),
+                        );
                     }
                 }
                 caps

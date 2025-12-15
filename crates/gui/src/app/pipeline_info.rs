@@ -47,13 +47,13 @@ impl PipelineInfo {
                     self.pipeline.query_position::<ClockTime>(),
                     self.pipeline.query_duration::<ClockTime>(),
                 );
-                if let (Some(position), Some(duration)) = (position, duration) {
-                    if position == duration {
-                        self.pipeline.seek_simple(
-                            gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
-                            ClockTime::ZERO,
-                        )?;
-                    }
+                if let (Some(position), Some(duration)) = (position, duration)
+                    && position == duration
+                {
+                    self.pipeline.seek_simple(
+                        gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
+                        ClockTime::ZERO,
+                    )?;
                 }
 
                 self.pipeline.set_state(gstreamer::State::Playing)?;

@@ -380,53 +380,51 @@ impl NtscApp {
                             ctx.request_repaint();
                         }
 
-                        if let gstreamer::MessageView::StateChanged(state_changed) = msg.view() {
-                            if state_changed.old() == gstreamer::State::Ready
-                                && matches!(
-                                    state_changed.current(),
-                                    gstreamer::State::Paused | gstreamer::State::Playing
-                                )
-                            {
-                                // Changed from READY to PAUSED/PLAYING.
-                                *pipeline_info_state.lock().unwrap() = PipelineStatus::Loaded;
+                        if let gstreamer::MessageView::StateChanged(state_changed) = msg.view()
+                            && state_changed.old() == gstreamer::State::Ready
+                            && matches!(
+                                state_changed.current(),
+                                gstreamer::State::Paused | gstreamer::State::Playing
+                            )
+                        {
+                            // Changed from READY to PAUSED/PLAYING.
+                            *pipeline_info_state.lock().unwrap() = PipelineStatus::Loaded;
 
-                                let mut metadata = metadata.lock().unwrap();
+                            let mut metadata = metadata.lock().unwrap();
 
-                                let is_still_image =
-                                    pipeline.by_name("still_image_freeze").is_some();
-                                metadata.is_still_image = Some(is_still_image);
+                            let is_still_image = pipeline.by_name("still_image_freeze").is_some();
+                            metadata.is_still_image = Some(is_still_image);
 
-                                let video_rate = pipeline.by_name("video_rate");
-                                let caps = video_rate.and_then(|video_rate| {
-                                    video_rate
-                                        .static_pad("src")
-                                        .and_then(|pad| pad.current_caps())
+                            let video_rate = pipeline.by_name("video_rate");
+                            let caps = video_rate.and_then(|video_rate| {
+                                video_rate
+                                    .static_pad("src")
+                                    .and_then(|pad| pad.current_caps())
+                            });
+
+                            if let Some(caps) = caps {
+                                let structure = caps.structure(0);
+
+                                metadata.framerate = structure.and_then(|structure| {
+                                    structure.get::<gstreamer::Fraction>("framerate").ok()
                                 });
 
-                                if let Some(caps) = caps {
-                                    let structure = caps.structure(0);
+                                metadata.interlace_mode = structure.and_then(|structure| {
+                                    Some(VideoInterlaceMode::from_string(
+                                        structure.get("interlace-mode").ok()?,
+                                    ))
+                                });
 
-                                    metadata.framerate = structure.and_then(|structure| {
-                                        structure.get::<gstreamer::Fraction>("framerate").ok()
-                                    });
-
-                                    metadata.interlace_mode = structure.and_then(|structure| {
-                                        Some(VideoInterlaceMode::from_string(
-                                            structure.get("interlace-mode").ok()?,
-                                        ))
-                                    });
-
-                                    metadata.resolution = structure.and_then(|structure| {
-                                        Some((
-                                            structure.get::<i32>("width").ok()? as usize,
-                                            structure.get::<i32>("height").ok()? as usize,
-                                        ))
-                                    });
-                                } else {
-                                    metadata.framerate = None;
-                                    metadata.interlace_mode = None;
-                                    metadata.resolution = None;
-                                }
+                                metadata.resolution = structure.and_then(|structure| {
+                                    Some((
+                                        structure.get::<i32>("width").ok()? as usize,
+                                        structure.get::<i32>("height").ok()? as usize,
+                                    ))
+                                });
+                            } else {
+                                metadata.framerate = None;
+                                metadata.interlace_mode = None;
+                                metadata.resolution = None;
                             }
                         }
                     }
@@ -1087,18 +1085,18 @@ impl NtscApp {
                                     }
                                 });
                             filter_resp.response.on_hover_text("Resizing filter");
-                            if drag_resp.changed() || scale_checkbox.changed() || filter_changed {
-                                if let Some(info) = &self.pipeline {
-                                    let res = info.pipeline.rescale_video(
-                                        info.last_seek_pos,
-                                        if self.video_scale.enabled {
-                                            Some(self.video_scale.scale)
-                                        } else {
-                                            None
-                                        },
-                                    );
-                                    self.handle_result(res);
-                                }
+                            if (drag_resp.changed() || scale_checkbox.changed() || filter_changed)
+                                && let Some(info) = &self.pipeline
+                            {
+                                let res = info.pipeline.rescale_video(
+                                    info.last_seek_pos,
+                                    if self.video_scale.enabled {
+                                        Some(self.video_scale.scale)
+                                    } else {
+                                        None
+                                    },
+                                );
+                                self.handle_result(res);
                             }
                         });
                     });
@@ -1734,16 +1732,16 @@ impl NtscApp {
                         drag_value = drag_value.range(0..=duration.mseconds());
                     }
 
-                    if ui.add(drag_value).changed() {
-                        if let Some(info) = &self.pipeline {
-                            // don't use KEY_UNIT here; it causes seeking to often be very inaccurate (almost a second of deviation)
-                            let _ = info.pipeline.seek_simple(
-                                gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
-                                ClockTime::from_nseconds(
-                                    (timecode_ms * ClockTime::MSECOND.nseconds() as f64) as u64,
-                                ),
-                            );
-                        }
+                    if ui.add(drag_value).changed()
+                        && let Some(info) = &self.pipeline
+                    {
+                        // don't use KEY_UNIT here; it causes seeking to often be very inaccurate (almost a second of deviation)
+                        let _ = info.pipeline.seek_simple(
+                            gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
+                            ClockTime::from_nseconds(
+                                (timecode_ms * ClockTime::MSECOND.nseconds() as f64) as u64,
+                            ),
+                        );
                     }
 
                     ui.separator();
@@ -1822,15 +1820,13 @@ impl NtscApp {
                             update_volume = true;
                         }
 
-                        if update_volume {
-                            if let Some(pipeline_info) = &self.pipeline {
-                                pipeline_info.pipeline.set_volume(
-                                    // Unlogarithmify volume (at least to my ears, this gives more control at the low end
-                                    // of the slider)
-                                    10f64.powf(self.audio_volume.gain - 1.0).max(0.0),
-                                    self.audio_volume.mute || self.audio_volume.gain == 0.0,
-                                );
-                            }
+                        if update_volume && let Some(pipeline_info) = &self.pipeline {
+                            pipeline_info.pipeline.set_volume(
+                                // Unlogarithmify volume (at least to my ears, this gives more control at the low end
+                                // of the slider)
+                                10f64.powf(self.audio_volume.gain - 1.0).max(0.0),
+                                self.audio_volume.mute || self.audio_volume.gain == 0.0,
+                            );
                         }
                     });
 
@@ -1861,13 +1857,13 @@ impl NtscApp {
                         )
                         .changed();
 
-                    if update_effect_preview {
-                        if let Some(PipelineInfo { egui_sink, .. }) = &self.pipeline {
-                            egui_sink.set_property(
-                                "preview-mode",
-                                Self::sink_preview_mode(&self.effect_preview),
-                            );
-                        }
+                    if update_effect_preview
+                        && let Some(PipelineInfo { egui_sink, .. }) = &self.pipeline
+                    {
+                        egui_sink.set_property(
+                            "preview-mode",
+                            Self::sink_preview_mode(&self.effect_preview),
+                        );
                     }
                 });
             });
@@ -1882,20 +1878,19 @@ impl NtscApp {
 
                         let duration = info.pipeline.query_duration::<ClockTime>();
 
-                        if let Some(duration) = duration {
-                            if ui
+                        if let Some(duration) = duration
+                            && ui
                                 .add(Timeline::new(
                                     &mut timecode,
                                     0..=duration.nseconds(),
                                     framerate,
                                 ))
                                 .changed()
-                            {
-                                let _ = info.pipeline.seek_simple(
-                                    gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
-                                    ClockTime::from_nseconds(timecode),
-                                );
-                            }
+                        {
+                            let _ = info.pipeline.seek_simple(
+                                gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::ACCURATE,
+                                ClockTime::from_nseconds(timecode),
+                            );
                         }
                     }
                     egui::ScrollArea::both()

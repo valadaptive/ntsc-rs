@@ -90,18 +90,18 @@ pub enum GstreamerInitState {
 
 impl GstreamerInitState {
     pub fn check(&mut self) -> &mut Self {
-        if let Self::Initializing(handle) = self {
-            if handle.as_ref().is_some_and(|h| h.is_finished()) {
-                // In order to be able to "move" the error between enum variants, we need to be able to mem::take the
-                // join handle.
-                let res = handle
-                    .take()
-                    .unwrap()
-                    .join()
-                    .unwrap()
-                    .context(GstreamerInitSnafu);
-                *self = Self::Initialized(res);
-            }
+        if let Self::Initializing(handle) = self
+            && handle.as_ref().is_some_and(|h| h.is_finished())
+        {
+            // In order to be able to "move" the error between enum variants, we need to be able to mem::take the
+            // join handle.
+            let res = handle
+                .take()
+                .unwrap()
+                .join()
+                .unwrap()
+                .context(GstreamerInitSnafu);
+            *self = Self::Initialized(res);
         }
 
         self

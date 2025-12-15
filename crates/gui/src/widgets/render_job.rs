@@ -113,21 +113,20 @@ impl RenderJobWidget<'_> {
                     if matches!(
                         job_state,
                         RenderJobState::Rendering | RenderJobState::Paused
-                    ) {
-                        if let Some(time_remaining) = estimated_time_remaining {
-                            let mut label = String::from("Time remaining: ");
-                            format_eta(
-                                &mut label,
-                                time_remaining,
-                                [
-                                    [" hour", " hours"],
-                                    [" minute", " minutes"],
-                                    [" second", " seconds"],
-                                ],
-                                ", ",
-                            );
-                            ui.label(&label);
-                        }
+                    ) && let Some(time_remaining) = estimated_time_remaining
+                    {
+                        let mut label = String::from("Time remaining: ");
+                        format_eta(
+                            &mut label,
+                            time_remaining,
+                            [
+                                [" hour", " hours"],
+                                [" minute", " minutes"],
+                                [" second", " seconds"],
+                            ],
+                            ", ",
+                        );
+                        ui.label(&label);
                     }
                 });
 

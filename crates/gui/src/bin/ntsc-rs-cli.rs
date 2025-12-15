@@ -415,16 +415,16 @@ pub fn main() -> Result<()> {
         output_path.set_extension(codec.extension());
     }
 
-    if let Some(extension) = output_path.extension() {
-        if extension != codec.extension() {
-            warn!(
-                term,
-                "Warning: the provided output file name's extension (.{}) does not match the file \
+    if let Some(extension) = output_path.extension()
+        && extension != codec.extension()
+    {
+        warn!(
+            term,
+            "Warning: the provided output file name's extension (.{}) does not match the file \
                  extension for the container being used (.{})",
-                extension.to_string_lossy(),
-                codec.extension(),
-            )?;
-        }
+            extension.to_string_lossy(),
+            codec.extension(),
+        )?;
     }
 
     if single_frame_time.is_some() && *codec != OutputCodecArg::Png {

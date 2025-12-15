@@ -665,15 +665,13 @@ impl NtscApp {
                     if ui
                         .add_enabled(selected_preset_modified, egui::Button::new("Overwrite"))
                         .clicked()
-                    {
-                        if let Some(selected_preset) =
+                        && let Some(selected_preset) =
                             self.presets_state.list_state.selected_preset.as_ref()
-                        {
-                            action = Some(Action::OverwritePreset {
-                                path: selected_preset.path.clone(),
-                                parent: self.presets_state.presets_dir.clone(),
-                            })
-                        }
+                    {
+                        action = Some(Action::OverwritePreset {
+                            path: selected_preset.path.clone(),
+                            parent: self.presets_state.presets_dir.clone(),
+                        })
                     }
 
                     if ui.button("Save as").clicked() {

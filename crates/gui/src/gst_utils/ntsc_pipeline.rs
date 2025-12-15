@@ -205,37 +205,36 @@ impl NtscPipeline {
 
                     if let Some(pipeline) = pipeline.upgrade() {
                         let audio_sink = audio_sink.lock().unwrap().take();
-                        if let Some(sink) = audio_sink.map(|sink| sink(&pipeline)) {
-                            if let Some(sink) = sink? {
-                                let audio_queue =
-                                    gstreamer::ElementFactory::make("queue").build()?;
-                                let audio_convert =
-                                    gstreamer::ElementFactory::make("audioconvert").build()?;
-                                let audio_resample =
-                                    gstreamer::ElementFactory::make("audioresample").build()?;
-                                let audio_volume = gstreamer::ElementFactory::make("volume")
-                                    .name("audio_volume")
-                                    .build()?;
+                        if let Some(sink) = audio_sink.map(|sink| sink(&pipeline))
+                            && let Some(sink) = sink?
+                        {
+                            let audio_queue = gstreamer::ElementFactory::make("queue").build()?;
+                            let audio_convert =
+                                gstreamer::ElementFactory::make("audioconvert").build()?;
+                            let audio_resample =
+                                gstreamer::ElementFactory::make("audioresample").build()?;
+                            let audio_volume = gstreamer::ElementFactory::make("volume")
+                                .name("audio_volume")
+                                .build()?;
 
-                                let audio_elements =
-                                    &[&audio_queue, &audio_convert, &audio_resample, &audio_volume];
-                                pipeline.add_many(audio_elements)?;
-                                gstreamer::Element::link_many(audio_elements)?;
+                            let audio_elements =
+                                &[&audio_queue, &audio_convert, &audio_resample, &audio_volume];
+                            pipeline.add_many(audio_elements)?;
+                            gstreamer::Element::link_many(audio_elements)?;
 
-                                audio_volume.link(&sink)?;
-                                sink.sync_state_with_parent()?;
+                            audio_volume.link(&sink)?;
+                            sink.sync_state_with_parent()?;
 
-                                for e in audio_elements {
-                                    e.sync_state_with_parent()?
-                                }
-
-                                // Get the queue element's sink pad and link the decodebin's newly created
-                                // src pad for the audio stream to it.
-                                let sink_pad = audio_queue
-                                    .static_pad("sink")
-                                    .expect("queue has no sinkpad");
-                                src_pad.link(&sink_pad)?;
+                            for e in audio_elements {
+                                e.sync_state_with_parent()?
                             }
+
+                            // Get the queue element's sink pad and link the decodebin's newly created
+                            // src pad for the audio stream to it.
+                            let sink_pad = audio_queue
+                                .static_pad("sink")
+                                .expect("queue has no sinkpad");
+                            src_pad.link(&sink_pad)?;
                         }
 
                         *has_audio = true;
@@ -347,18 +346,17 @@ impl NtscPipeline {
                                 .static_pad("sink")
                                 .expect("queue has no sinkpad");
 
-                            if let (Some(caps), Some(initial_scale)) = (caps, initial_scale) {
-                                if let Some((width, height)) =
+                            if let (Some(caps), Some(initial_scale)) = (caps, initial_scale)
+                                && let Some((width, height)) =
                                     scale_from_caps(caps, initial_scale.scanlines)
-                                {
-                                    caps_filter.set_property(
-                                        "caps",
-                                        gstreamer_video::VideoCapsBuilder::default()
-                                            .width(width)
-                                            .height(height)
-                                            .build(),
-                                    );
-                                }
+                            {
+                                caps_filter.set_property(
+                                    "caps",
+                                    gstreamer_video::VideoCapsBuilder::default()
+                                        .width(width)
+                                        .height(height)
+                                        .build(),
+                                );
                             }
 
                             if is_still_image {

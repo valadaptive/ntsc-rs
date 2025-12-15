@@ -1325,10 +1325,10 @@ impl NtscEffect {
         }
 
         if let Some(vhs_settings) = &self.vhs_settings {
-            if let Some(edge_wave) = &vhs_settings.edge_wave {
-                if edge_wave.intensity > 0.0 {
-                    vhs_edge_wave(yiq, &info, edge_wave);
-                }
+            if let Some(edge_wave) = &vhs_settings.edge_wave
+                && edge_wave.intensity > 0.0
+            {
+                vhs_edge_wave(yiq, &info, edge_wave);
             }
 
             if let Some(VHSTapeParams {
@@ -1408,54 +1408,53 @@ impl NtscEffect {
                 chroma_loss(yiq, &info, vhs_settings.chroma_loss);
             }
 
-            if let Some(sharpen) = &vhs_settings.sharpen {
-                if let Some(VHSTapeParams { luma_cut, .. }) =
+            if let Some(sharpen) = &vhs_settings.sharpen
+                && let Some(VHSTapeParams { luma_cut, .. }) =
                     vhs_settings.tape_speed.filter_params()
-                {
-                    let frequency_extra_multiplier = match self.filter_type {
-                        FilterType::ConstantK => 4.0,
-                        FilterType::Butterworth => 1.0,
-                    };
-                    let luma_sharpen_filter = make_lowpass_for_type(
-                        luma_cut * frequency_extra_multiplier * sharpen.frequency,
-                        NTSC_RATE * info.horizontal_scale,
-                        self.filter_type,
-                    );
-                    // The composite-video-simulator code sharpens the chroma plane, but ntscqt and this effect do not.
-                    // I'm not sure if I'm implementing it wrong, but chroma sharpening looks awful.
-                    /*let chroma_sharpen_filter = make_lowpass_for_type(
-                        chroma_cut * frequency_extra_multiplier * sharpen.frequency,
-                        NTSC_RATE * info.horizontal_scale,
-                        self.filter_type,
-                    );*/
-                    filter_plane(
-                        &info,
-                        yiq.y,
-                        width,
-                        &luma_sharpen_filter,
-                        InitialCondition::Zero,
-                        -sharpen.intensity * 2.0 * sharpen.frequency,
-                        0,
-                    );
-                    /*filter_plane(
-                        &info,
-                        yiq.i,
-                        width,
-                        &chroma_sharpen_filter,
-                        InitialCondition::Zero,
-                        -sharpen.intensity * 0.85 * sharpen.frequency,
-                        0,
-                    );
-                    filter_plane(
-                        &info,
-                        yiq.q,
-                        width,
-                        &chroma_sharpen_filter,
-                        InitialCondition::Zero,
-                        -sharpen.intensity * 0.85 * sharpen.frequency,
-                        0,
-                    );*/
-                }
+            {
+                let frequency_extra_multiplier = match self.filter_type {
+                    FilterType::ConstantK => 4.0,
+                    FilterType::Butterworth => 1.0,
+                };
+                let luma_sharpen_filter = make_lowpass_for_type(
+                    luma_cut * frequency_extra_multiplier * sharpen.frequency,
+                    NTSC_RATE * info.horizontal_scale,
+                    self.filter_type,
+                );
+                // The composite-video-simulator code sharpens the chroma plane, but ntscqt and this effect do not.
+                // I'm not sure if I'm implementing it wrong, but chroma sharpening looks awful.
+                /*let chroma_sharpen_filter = make_lowpass_for_type(
+                    chroma_cut * frequency_extra_multiplier * sharpen.frequency,
+                    NTSC_RATE * info.horizontal_scale,
+                    self.filter_type,
+                );*/
+                filter_plane(
+                    &info,
+                    yiq.y,
+                    width,
+                    &luma_sharpen_filter,
+                    InitialCondition::Zero,
+                    -sharpen.intensity * 2.0 * sharpen.frequency,
+                    0,
+                );
+                /*filter_plane(
+                    &info,
+                    yiq.i,
+                    width,
+                    &chroma_sharpen_filter,
+                    InitialCondition::Zero,
+                    -sharpen.intensity * 0.85 * sharpen.frequency,
+                    0,
+                );
+                filter_plane(
+                    &info,
+                    yiq.q,
+                    width,
+                    &chroma_sharpen_filter,
+                    InitialCondition::Zero,
+                    -sharpen.intensity * 0.85 * sharpen.frequency,
+                    0,
+                );*/
             }
         }
 
