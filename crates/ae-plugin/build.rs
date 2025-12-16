@@ -52,6 +52,6 @@ fn main() {
         println!("cargo:rustc-env=EFFECT_VERSION_MINOR={EFFECT_VERSION_MINOR}");
         println!("cargo:rustc-env=EFFECT_VERSION_PATCH={EFFECT_VERSION_PATCH}");
         println!("cargo:rustc-cfg=with_premiere");
-        println!("cargo:rustc-cfg=catch-panics");
+        println!("cargo:rustc-cfg=catch_panics");
     }
 }
