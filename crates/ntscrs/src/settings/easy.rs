@@ -1,14 +1,12 @@
 use macros::FullSettings;
 
-use crate::ntsc::{NtscEffectFullSettings, ScaleSettings, VHSEdgeWaveSettings};
-
 use super::{
     MenuItem, SettingDescriptor, SettingKind, Settings, SettingsBlock,
     standard::{
         ChromaDemodulationFilter, ChromaLowpass, FbmNoiseSettings, FilterType,
-        HeadSwitchingMidLineSettings, HeadSwitchingSettingsFullSettings, LumaLowpass, PhaseShift,
-        RingingSettings, TrackingNoiseSettings, UseField, VHSSettingsFullSettings,
-        VHSSharpenSettings, VHSTapeSpeed,
+        HeadSwitchingMidLineSettings, HeadSwitchingSettingsFullSettings, LumaLowpass,
+        NtscEffectFullSettings, PhaseShift, RingingSettings, ScaleSettings, TrackingNoiseSettings,
+        UseField, VHSEdgeWaveSettings, VHSSettingsFullSettings, VHSSharpenSettings, VHSTapeSpeed,
     },
 };
 

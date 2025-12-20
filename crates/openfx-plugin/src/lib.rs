@@ -23,7 +23,7 @@ use allocator_api2::{
 };
 
 use ntscrs::{
-    ntsc::NtscEffect,
+    NtscEffect,
     settings::{
         EnumValue, SettingDescriptor, SettingID, SettingKind, Settings, SettingsList,
         standard::NtscEffectFullSettings,

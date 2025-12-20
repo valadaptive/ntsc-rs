@@ -9,6 +9,7 @@ use crate::{
     filter::TransferFunction,
     noise::{Fbm, Simplex, Simplex1d, Simplex2d, add_noise_1d, sample_noise_1d, sample_noise_2d},
     random::{Geometric, Seeder},
+    settings::standard::*,
     shift::{BoundaryHandling, shift_row, shift_row_to},
     thread_pool::{ZipChunks, with_thread_pool},
     yiq_fielding::{
@@ -16,15 +17,13 @@ use crate::{
     },
 };
 
-pub use crate::settings::standard::*;
-
 // 315/88 Mhz rate * 4
 // TODO: why do we multiply by 4? composite-video-simulator does this for every filter and ntscqt defines NTSC_RATE the
 // same way as we do here.
 const NTSC_RATE: f32 = (315000000.00 / 88.0) * 4.0;
 
 /// Create a simple constant-k lowpass filter with the given frequency cutoff, which can then be used to filter a signal.
-pub fn make_lowpass(cutoff: f32, rate: f32) -> TransferFunction {
+fn make_lowpass(cutoff: f32, rate: f32) -> TransferFunction {
     let time_interval = 1.0 / rate;
     let tau = (cutoff * 2.0 * PI).recip();
     let alpha = time_interval / (tau + time_interval);
@@ -35,7 +34,7 @@ pub fn make_lowpass(cutoff: f32, rate: f32) -> TransferFunction {
 /// Simulate three constant-k lowpass filters in a row by multiplying the coefficients. The original code
 /// (composite-video-simulator and ntscqt) applies a lowpass filter 3 times in a row, but it's more efficient to
 /// multiply the coefficients and just apply the filter once, which is mathematically equivalent.
-pub fn make_lowpass_triple(cutoff: f32, rate: f32) -> TransferFunction {
+fn make_lowpass_triple(cutoff: f32, rate: f32) -> TransferFunction {
     make_lowpass(cutoff, rate).cascade_self(3)
 }
 
@@ -48,7 +47,7 @@ fn make_lowpass_for_type(cutoff: f32, rate: f32, filter_type: FilterType) -> Tra
 }
 
 /// Create an IIR notch filter.
-pub fn make_notch_filter(freq: f32, quality: f32) -> TransferFunction {
+fn make_notch_filter(freq: f32, quality: f32) -> TransferFunction {
     // Adapted from scipy and simplified
     // https://github.com/scipy/scipy/blob/686422c4f0a71be1b4258309590fd3e9de102e18/scipy/signal/_filter_design.py#L5099-L5171
     if !(0.0..=1.0).contains(&freq) {
@@ -69,7 +68,7 @@ pub fn make_notch_filter(freq: f32, quality: f32) -> TransferFunction {
 }
 
 /// Create a 2nd-order Butterworth filter.
-pub fn make_butterworth_filter(cutoff: f32, rate: f32) -> TransferFunction {
+fn make_butterworth_filter(cutoff: f32, rate: f32) -> TransferFunction {
     // Adapted from biquad-rs
     // https://github.com/korken89/biquad-rs/blob/aebd893a5c7e84ed1941b28b417cdbd1f3f530ae/src/coefficients.rs#L142
     let freq = (2.0 * cutoff).min(rate) / rate;

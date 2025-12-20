@@ -13,7 +13,7 @@ use std::{
 use after_effects::{self as ae};
 use handle::SliceHandle;
 use ntscrs::{
-    ntsc::{NtscEffect, NtscEffectFullSettings},
+    NtscEffect, NtscEffectFullSettings,
     settings::{
         EnumValue, SettingDescriptor, SettingField, SettingID, SettingKind, Settings, SettingsList,
         standard::UseField,

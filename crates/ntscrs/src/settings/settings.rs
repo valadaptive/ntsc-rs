@@ -14,7 +14,7 @@ use tinyjson::{InnerAsRef, JsonParseError, JsonValue};
 // These are the individual setting definitions. The descriptions of what they do are included below, so I mostly won't
 // repeat them here.
 
-/// The "full settings" equivalent of an Option<T> for an optionally-disabled section of the settings.
+/// The "full settings" equivalent of an `Option<T>` for an optionally-disabled section of the settings.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SettingsBlock<T> {
     pub enabled: bool,

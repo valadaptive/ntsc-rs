@@ -14,7 +14,7 @@ use std::{
 use blocking::unblock;
 use eframe::egui::{self, InnerResponse};
 use futures_lite::Future;
-use ntscrs::ntsc::NtscEffectFullSettings;
+use ntscrs::NtscEffectFullSettings;
 use snafu::prelude::*;
 
 use crate::path_compare::cmp_paths;

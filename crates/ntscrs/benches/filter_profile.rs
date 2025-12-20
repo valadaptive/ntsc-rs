@@ -2,7 +2,7 @@ extern crate criterion;
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use ntscrs::{
-    ntsc::NtscEffect,
+    NtscEffect,
     yiq_fielding::{BlitInfo, Rgb, YiqView, pixel_bytes_for},
 };
 #[cfg(not(target_os = "windows"))]

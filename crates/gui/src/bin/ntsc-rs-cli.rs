@@ -39,7 +39,7 @@ use gui::{
     },
 };
 use ntscrs::{
-    ntsc::NtscEffectFullSettings,
+    NtscEffectFullSettings,
     settings::{ParseSettingsError, SettingsList},
 };
 

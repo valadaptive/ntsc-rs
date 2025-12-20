@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use app_state::GstreamerInitState;
 use eframe::egui::util::undoer::Undoer;
 use ntscrs::{
-    ntsc::NtscEffectFullSettings,
+    NtscEffectFullSettings,
     settings::{SettingsList, easy::EasyModeFullSettings},
 };
 use presets::PresetsState;

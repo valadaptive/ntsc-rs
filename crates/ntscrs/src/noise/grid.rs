@@ -1,4 +1,4 @@
-//! Adapted from Clatter (https://github.com/Ralith/clatter/)
+//! Adapted from Clatter (<https://github.com/Ralith/clatter/>)
 //! which is available under MIT/Apache-2.0/zlib
 
 use fearless_simd::prelude::*;
