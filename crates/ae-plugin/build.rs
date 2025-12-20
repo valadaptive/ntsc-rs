@@ -1,7 +1,8 @@
+use std::ffi::OsStr;
+
 #[rustfmt::skip]
 fn main() {
-    #[cfg(any(windows, target_os = "macos"))]
-    {
+    if std::env::var_os("CARGO_CFG_WINDOWS").is_some() || std::env::var_os("CARGO_CFG_TARGET_OS").as_deref() == Some(OsStr::new("macos")) {
         const PF_PLUG_IN_VERSION: u16 = 13;
         const PF_PLUG_IN_SUBVERS: u16 = 28;
 

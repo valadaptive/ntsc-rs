@@ -109,10 +109,6 @@ fn map_logarithmic_inverse(value: f64, min: f64, max: f64, base: f64) -> f64 {
 ae::define_effect!(Plugin, (), ParamID);
 
 impl AdobePluginGlobal for Plugin {
-    fn can_load(_host_name: &str, _host_version: &str) -> bool {
-        true
-    }
-
     fn params_setup(
         &self,
         params: &mut Parameters<ParamID>,
@@ -604,9 +600,9 @@ impl Plugin {
             match &descriptor.kind {
                 SettingKind::Enumeration { options } => {
                     let [default_idx, legacy_default_idx] = get_defaults::<EnumValue>(
-                        &default_settings,
-                        &legacy_default_settings,
-                        &descriptor,
+                        default_settings,
+                        legacy_default_settings,
+                        descriptor,
                     )?
                     .map(|default| {
                         options
@@ -633,9 +629,9 @@ impl Plugin {
                 }
                 SettingKind::Percentage { logarithmic } => {
                     let [default_value, legacy_default_value] = get_defaults::<f32>(
-                        &default_settings,
-                        &legacy_default_settings,
-                        &descriptor,
+                        default_settings,
+                        legacy_default_settings,
+                        descriptor,
                     )?
                     .map(|default| match (*logarithmic, default as f64) {
                         (true, v) => {
@@ -665,11 +661,8 @@ impl Plugin {
                     )?
                 }
                 SettingKind::IntRange { range } => {
-                    let [default_value, legacy_default_value] = get_defaults::<i32>(
-                        &default_settings,
-                        &legacy_default_settings,
-                        &descriptor,
-                    )?;
+                    let [default_value, legacy_default_value] =
+                        get_defaults::<i32>(default_settings, legacy_default_settings, descriptor)?;
                     params.add_customized(
                         ParamID::Param(descriptor.id.ae_id()),
                         descriptor.label,
@@ -691,20 +684,17 @@ impl Plugin {
                     )?
                 }
                 SettingKind::FloatRange { range, logarithmic } => {
-                    let [default_value, legacy_default_value] = get_defaults::<f32>(
-                        &default_settings,
-                        &legacy_default_settings,
-                        &descriptor,
-                    )?
-                    .map(|default| match (*logarithmic, default as f64) {
-                        (true, v) => map_logarithmic_inverse(
-                            v,
-                            *range.start() as f64,
-                            *range.end() as f64,
-                            LOG_SLIDER_BASE,
-                        ),
-                        (false, v) => v,
-                    });
+                    let [default_value, legacy_default_value] =
+                        get_defaults::<f32>(default_settings, legacy_default_settings, descriptor)?
+                            .map(|default| match (*logarithmic, default as f64) {
+                                (true, v) => map_logarithmic_inverse(
+                                    v,
+                                    *range.start() as f64,
+                                    *range.end() as f64,
+                                    LOG_SLIDER_BASE,
+                                ),
+                                (false, v) => v,
+                            });
                     params.add_customized(
                         ParamID::Param(descriptor.id.ae_id()),
                         descriptor.label,
@@ -727,9 +717,9 @@ impl Plugin {
                 }
                 SettingKind::Boolean => {
                     let [default_value, legacy_default_value] = get_defaults::<bool>(
-                        &default_settings,
-                        &legacy_default_settings,
-                        &descriptor,
+                        default_settings,
+                        legacy_default_settings,
+                        descriptor,
                     )?;
                     params.add_customized(
                         ParamID::Param(descriptor.id.ae_id()),
@@ -751,9 +741,9 @@ impl Plugin {
                 SettingKind::Group { children } => {
                     let descriptor_id = descriptor.id.ae_id();
                     let [default_value, legacy_default_value] = get_defaults::<bool>(
-                        &default_settings,
-                        &legacy_default_settings,
-                        &descriptor,
+                        default_settings,
+                        legacy_default_settings,
+                        descriptor,
                     )?;
                     params.add_group(
                         ParamID::GroupStart(descriptor_id),
@@ -838,17 +828,15 @@ impl Plugin {
                 let Some(preset_path) = dialog.pick_file() else {
                     return Ok(());
                 };
-                let file_contents = match std::fs::read_to_string(preset_path) {
-                    Ok(contents) => contents,
+
+                let loaded_preset: Result<_, Box<dyn std::error::Error>> = (|| {
+                    let file_contents = std::fs::read_to_string(preset_path)?;
+                    Ok(self.settings.from_json(&file_contents)?)
+                })();
+                let loaded_preset = match loaded_preset {
+                    Ok(loaded_preset) => loaded_preset,
                     Err(e) => {
-                        out_data.set_error_msg(&format!("Error loading preset: {}", e.kind()));
-                        return Ok(());
-                    }
-                };
-                let loaded_preset = match self.settings.from_json(&file_contents) {
-                    Ok(settings) => settings,
-                    Err(e) => {
-                        out_data.set_error_msg(&format!("Error loading preset: {}", e));
+                        out_data.set_error_msg(&format!("Error loading preset: {e}"));
                         return Ok(());
                     }
                 };
@@ -874,10 +862,9 @@ impl Plugin {
 
                 let effect_settings = self.apply_settings(params)?;
                 let res: Result<(), Box<dyn std::error::Error>> = (|| {
-                    let mut destination = File::create(preset_path).map_err(Box::new)?;
+                    let mut destination = File::create(preset_path)?;
                     self.settings
-                        .write_json_to_io(&effect_settings, &mut destination)
-                        .map_err(Box::new)?;
+                        .write_json_to_io(&effect_settings, &mut destination)?;
 
                     Ok(())
                 })();
@@ -950,7 +937,7 @@ impl Plugin {
                     });
                     param.set_value_changed();
                 }
-                SettingKind::Boolean { .. } => {
+                SettingKind::Boolean => {
                     let mut param = params.get_mut(ParamID::Param(descriptor.id.ae_id()))?;
                     let mut param = param.as_checkbox_mut()?;
                     let setting = settings.get_field::<bool>(&descriptor.id).unwrap();
@@ -1043,7 +1030,7 @@ impl Plugin {
                             .set_field::<f32>(&descriptor.id, slider_value as f32)
                             .map_err(|_| Error::BadCallbackParameter)?;
                     }
-                    SettingKind::Boolean { .. } => {
+                    SettingKind::Boolean => {
                         settings
                             .set_field::<bool>(
                                 &descriptor.id,
