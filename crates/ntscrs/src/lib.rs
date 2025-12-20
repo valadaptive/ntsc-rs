@@ -4,5 +4,5 @@ pub mod ntsc;
 mod random;
 pub mod settings;
 mod shift;
-pub mod thread_pool;
+mod thread_pool;
 pub mod yiq_fielding;
