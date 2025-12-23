@@ -23,6 +23,7 @@ pub mod render_settings;
 pub mod system_fonts;
 pub mod third_party_licenses_dialog;
 pub mod ui_context;
+pub mod update_dialog;
 
 pub type AppFn = Box<dyn FnOnce(&mut NtscApp) -> Result<(), error::ApplicationError> + Send>;
 pub type ApplessFn = Box<dyn FnOnce() -> Result<(), error::ApplicationError> + Send>;
@@ -50,6 +51,7 @@ pub struct NtscApp {
     pub credits_dialog_open: bool,
     pub third_party_licenses_dialog_open: bool,
     pub license_dialog_open: bool,
+    pub update_dialog: update_dialog::UpdateDialogState,
     pub image_sequence_dialog_queued_render_job: Option<
         Box<dyn FnOnce(&mut Self) -> Result<render_job::RenderJob, error::ApplicationError>>,
     >,

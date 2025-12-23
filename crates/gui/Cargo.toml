@@ -31,6 +31,7 @@ blocking = "1.6.1"
 clap = { version = "4.5.17", features = ["cargo", "string"] }
 color-eyre = "0.6.3"
 console = "0.15.8"
+ureq = { version = "3.1.4", default-features = false, features = ["native-tls"] }
 
 [build-dependencies]
 embed-resource = "3.0.1"

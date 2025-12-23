@@ -19,6 +19,7 @@ use gstreamer::{ClockTime, Fraction, glib::subclass::types::ObjectSubclassExt, p
 use gstreamer_video::VideoInterlaceMode;
 
 use crate::{
+    app::update_dialog::UpdateDialogState,
     expression_parser::eval_expression_string,
     gst_utils::{
         clock_format::{clock_time_format, clock_time_parser},
@@ -244,6 +245,7 @@ impl NtscApp {
             credits_dialog_open: false,
             third_party_licenses_dialog_open: false,
             license_dialog_open: false,
+            update_dialog: UpdateDialogState::Closed,
             image_sequence_dialog_queued_render_job: None,
         }
     }
@@ -2088,6 +2090,8 @@ impl NtscApp {
             self.show_license_dialog(ctx);
         }
 
+        self.update_dialog.show(ctx);
+
         if self.image_sequence_dialog_queued_render_job.is_some() {
             let modal = egui::Modal::new(egui::Id::new("directory_not_empty")).show(ctx, |ui| {
                 ui.set_max_width(ctx.input(|i| i.content_rect().width() - 24.0).min(400.0));
@@ -2252,6 +2256,11 @@ impl NtscApp {
 
                         if ui.button("About + Credits").clicked() {
                             self.credits_dialog_open = true;
+                            ui.close();
+                        }
+
+                        if ui.button("Check for Updates...").clicked() {
+                            self.update_dialog.open();
                             ui.close();
                         }
                     });
