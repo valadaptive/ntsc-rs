@@ -11,7 +11,7 @@ use crate::{
     random::{Geometric, Seeder},
     settings::standard::*,
     shift::{BoundaryHandling, shift_row, shift_row_to},
-    thread_pool::{ZipChunks, with_thread_pool},
+    thread_pool::{self, ZipChunks, with_thread_pool},
     yiq_fielding::{
         BlitInfo, Normalize, PixelFormat, YiqField, YiqOwned, YiqView, pixel_bytes_for,
     },
@@ -226,7 +226,7 @@ fn composite_chroma_lowpass(frame: &mut YiqView, info: &CommonInfo, filter_type:
 
     let width = frame.dimensions.0;
 
-    rayon_core::join(
+    thread_pool::join(
         || {
             filter_plane(
                 info,
@@ -258,7 +258,7 @@ fn composite_chroma_lowpass_lite(frame: &mut YiqView, info: &CommonInfo, filter_
 
     let width = frame.dimensions.0;
 
-    rayon_core::join(
+    thread_pool::join(
         || {
             filter_plane(
                 info,
@@ -1109,7 +1109,7 @@ fn chroma_vert_blend(yiq: &mut YiqView) {
     let mut delay_i = vec![0f32; width];
     let mut delay_q = vec![0f32; width];
 
-    rayon_core::join(
+    thread_pool::join(
         || {
             yiq.i.chunks_exact_mut(width).for_each(|row| {
                 row.iter_mut().enumerate().for_each(|(index, i)| {
@@ -1351,7 +1351,7 @@ impl NtscEffect {
                     self.filter_type,
                 );
 
-                rayon_core::join(
+                thread_pool::join(
                     || {
                         filter_plane(
                             &info,
@@ -1364,7 +1364,7 @@ impl NtscEffect {
                         )
                     },
                     || {
-                        rayon_core::join(
+                        thread_pool::join(
                             || {
                                 filter_plane(
                                     &info,

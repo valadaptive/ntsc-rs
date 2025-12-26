@@ -1,10 +1,8 @@
-pub use rayon_core::ThreadPool;
-
 pub fn with_thread_pool<T: Send>(op: impl (FnOnce() -> T) + Send + Sync) -> T {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(feature = "rayon", not(target_arch = "wasm32")))]
     {
         use std::sync::OnceLock;
-        static POOL: OnceLock<ThreadPool> = OnceLock::new();
+        static POOL: OnceLock<rayon_core::ThreadPool> = OnceLock::new();
 
         let pool = POOL.get_or_init(|| {
             // On Windows debug builds, the stack overflows with the default stack size
@@ -21,7 +19,7 @@ pub fn with_thread_pool<T: Send>(op: impl (FnOnce() -> T) + Send + Sync) -> T {
 
         pool.install(op)
     }
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(not(feature = "rayon"), target_arch = "wasm32"))]
     {
         // wasm-bindgen-rayon doesn't support custom thread pools
         // https://github.com/RReverser/wasm-bindgen-rayon/issues/18
@@ -57,6 +55,30 @@ impl<'a, const N: usize, T> ZipChunks<'a, N, T> {
         }
     }
 
+    pub fn seq_for_each(mut self, mut cb: impl FnMut(usize, [&mut [T]; N])) {
+        let len = self.len();
+        let num_chunks = len / self.chunk_size;
+        let remainder = len % self.chunk_size;
+        let mut base = 0;
+        for i in 0..num_chunks {
+            let chunks: [&mut [T]; N] = self
+                .arrays
+                .each_mut()
+                .map(|s| &mut s[base..base + self.chunk_size]);
+            cb(i + self.start, chunks);
+
+            base += self.chunk_size;
+        }
+        if remainder != 0 {
+            let chunks: [&mut [T]; N] = self
+                .arrays
+                .each_mut()
+                .map(|s| &mut s[base..base + remainder]);
+            cb(self.start + num_chunks, chunks);
+        }
+    }
+
+    #[cfg(feature = "rayon")]
     fn split_at(mut self, chunk_idx: usize) -> (Self, Self) {
         let len = self.len();
         let split_point = (chunk_idx * self.chunk_size).min(len);
@@ -86,29 +108,7 @@ impl<'a, const N: usize, T> ZipChunks<'a, N, T> {
         )
     }
 
-    pub fn seq_for_each(mut self, mut cb: impl FnMut(usize, [&mut [T]; N])) {
-        let len = self.len();
-        let num_chunks = len / self.chunk_size;
-        let remainder = len % self.chunk_size;
-        let mut base = 0;
-        for i in 0..num_chunks {
-            let chunks: [&mut [T]; N] = self
-                .arrays
-                .each_mut()
-                .map(|s| &mut s[base..base + self.chunk_size]);
-            cb(i + self.start, chunks);
-
-            base += self.chunk_size;
-        }
-        if remainder != 0 {
-            let chunks: [&mut [T]; N] = self
-                .arrays
-                .each_mut()
-                .map(|s| &mut s[base..base + remainder]);
-            cb(self.start + num_chunks, chunks);
-        }
-    }
-
+    #[cfg(feature = "rayon")]
     fn par_for_each_inner<'b>(
         self,
         num_threads: usize,
@@ -160,13 +160,34 @@ impl<'a, const N: usize, T> ZipChunks<'a, N, T> {
     where
         T: Send,
     {
-        let num_threads = rayon_core::current_num_threads();
-        if num_threads == 1 {
+        #[cfg(feature = "rayon")]
+        {
+            let num_threads = rayon_core::current_num_threads();
+            if num_threads == 1 {
+                self.seq_for_each(cb);
+            } else {
+                rayon_core::scope(|scope| {
+                    self.par_for_each_inner(num_threads, scope, &cb);
+                });
+            }
+        }
+
+        #[cfg(not(feature = "rayon"))]
+        {
             self.seq_for_each(cb);
-        } else {
-            rayon_core::scope(|scope| {
-                self.par_for_each_inner(num_threads, scope, &cb);
-            });
         }
     }
+}
+
+#[cfg(feature = "rayon")]
+pub use rayon_core::join;
+#[cfg(not(feature = "rayon"))]
+pub fn join<A, B, RA, RB>(oper_a: A, oper_b: B) -> (RA, RB)
+where
+    A: FnOnce() -> RA + Send,
+    B: FnOnce() -> RB + Send,
+    RA: Send,
+    RB: Send,
+{
+    (oper_a(), oper_b())
 }

@@ -13,7 +13,7 @@ num_enum = "0.7.5"
 macros = {path = "../macros"}
 siphasher = "1.0.0"
 tinyjson = "2.5.1"
-rayon-core = "1.13.0"
+rayon-core = { version = "1.13.0", optional = true }
 num_cpus = "1.16.0"
 sval = { version = "2.14.1", features = ["std"] }
 sval_json = { version = "2.14.1", features = ["std"] }
@@ -24,6 +24,10 @@ image = { version = "0.25.1", default-features = false, features = ["png"] }
 
 [target.'cfg(not(windows))'.dev-dependencies]
 pprof = { version = "0.14.0", features = ["flamegraph", "criterion"] }
+
+[features]
+default = ["rayon"]
+rayon = ["dep:rayon-core"]
 
 [[bench]]
 name = "filter_profile"
