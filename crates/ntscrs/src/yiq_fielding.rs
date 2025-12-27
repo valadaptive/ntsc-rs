@@ -1,6 +1,9 @@
 use std::mem::{self, MaybeUninit};
 
-use crate::thread_pool::{ZipChunks, with_thread_pool};
+use crate::{
+    settings::UseField,
+    thread_pool::{ZipChunks, with_thread_pool},
+};
 
 use fearless_simd::{Level, dispatch, f32x4, i32x4, prelude::*};
 
@@ -1017,6 +1020,19 @@ impl<'a> YiqView<'a> {
     /// field.
     pub fn buf_length_for(dimensions: (usize, usize), field: YiqField) -> usize {
         dimensions.0 * field.num_image_rows(dimensions.1) * 4
+    }
+
+    /// Calculate the maximum length (in elements, not bytes) of a buffer needed to hold a YiqView with the given
+    /// dimensions and `use_field` effect setting. The actual length may vary depending on the frame number if
+    /// `use_field` is set to `UseField::Alternating`, and this returns an upper bound.
+    pub fn max_buf_length_for(dimensions: (usize, usize), field: UseField) -> usize {
+        let num_rows = match field {
+            UseField::Alternating => YiqField::Upper
+                .num_image_rows(dimensions.1)
+                .max(YiqField::Lower.num_image_rows(dimensions.1)),
+            _ => field.to_yiq_field(0).num_image_rows(dimensions.1),
+        };
+        dimensions.0 * num_rows * 4
     }
 }
 
