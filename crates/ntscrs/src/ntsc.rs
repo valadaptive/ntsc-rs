@@ -118,9 +118,13 @@ fn filter_plane(
     delay: usize,
 ) {
     if filter.should_use_simd(info.level) {
-        filter_plane_with_rows::<8>(info.level, plane, width, filter, initial, scale, delay)
+        // The optimal number of rows seems to vary by architecture.
+        #[cfg(target_family = "wasm")]
+        filter_plane_with_rows::<4>(info.level, plane, width, filter, initial, scale, delay);
+        #[cfg(not(target_family = "wasm"))]
+        filter_plane_with_rows::<8>(info.level, plane, width, filter, initial, scale, delay);
     } else {
-        filter_plane_with_rows::<1>(info.level, plane, width, filter, initial, scale, delay)
+        filter_plane_with_rows::<1>(info.level, plane, width, filter, initial, scale, delay);
     }
 }
 

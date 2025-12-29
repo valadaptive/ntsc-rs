@@ -245,7 +245,7 @@ impl TransferFunction {
             assert_eq!(signal[i].len(), width);
         }
 
-        let mut z = initial.map(|initial| {
+        let z = initial.map(|initial| {
             let mut dest = [0.0; 4];
             self.initial_condition_into(initial, &mut dest[..self.num.len()]);
             f32x4::simd_from(dest, simd)
@@ -261,36 +261,56 @@ impl TransferFunction {
 
         let is_unit_scale = scale == 1.0;
 
-        for i in 0..(width + delay) {
-            for j in 0..ROWS {
-                // While the compiler cannot elide this bounds check in the scalar version either, here it is probably
-                // also because it doesn't know that each row of the signal has the same length.
-                let sample =
-                    unsafe { f32x4::splat(simd, *signal[j].get_unchecked(i.min(width - 1))) };
-                let filt_sample = num.mul_add(sample, z[j]);
+        #[inline(always)]
+        fn inner_loop<S: Simd, const ROWS: usize, const IS_UNIT_SCALE: bool>(
+            simd: S,
+            signal: &mut [&mut [f32]; ROWS],
+            mut z: [f32x4<S>; ROWS],
+            num: f32x4<S>,
+            den: f32x4<S>,
+            scale: f32,
+            width: usize,
+            delay: usize,
+        ) {
+            for i in 0..(width + delay) {
+                for j in 0..ROWS {
+                    // While the compiler cannot elide this bounds check in the scalar version either, here it is probably
+                    // also because it doesn't know that each row of the signal has the same length.
+                    let sample =
+                        unsafe { f32x4::splat(simd, *signal[j].get_unchecked(i.min(width - 1))) };
+                    let filt_sample = num.mul_add(sample, z[j]);
 
-                if i >= delay {
-                    // If the filter scale is 1.0, we can skip scaling the sample. Either this branch is easily
-                    // predicted or hoisted by the compiler, and this is ~4.5% faster.
-                    let final_samp = if is_unit_scale {
-                        filt_sample
-                    } else {
-                        let samp_diff = filt_sample - sample;
-                        samp_diff.mul_add(scale, sample)
-                    };
-                    unsafe {
-                        *signal[j].get_unchecked_mut(i - delay) = final_samp[0];
+                    if i >= delay {
+                        // We can skip scaling the filter effect if the scale is 1.0. The compiler *should* be able to
+                        // do a "loop unswitching" optimization and compile this to two separate loops, one of which
+                        // assumes is_unit_scale is true and the other of which assumes it's false, and does this on
+                        // x86, but not on WebAssembly. Doing the loop unswitching manually provides a ~15% speedup
+                        // there.
+                        let final_samp = if IS_UNIT_SCALE {
+                            filt_sample
+                        } else {
+                            let samp_diff = filt_sample - sample;
+                            samp_diff.mul_add(scale, sample)
+                        };
+                        unsafe {
+                            *signal[j].get_unchecked_mut(i - delay) = final_samp[0];
+                        }
                     }
-                }
 
-                // Add the sample * the numerator, subtract the filtered sample * the denominator, and shift it all over
-                z[j] = den.mul_add(
-                    // Filtered sample * the denominator, pre-negated and shifted
-                    f32x4::splat(simd, filt_sample[0]),
-                    // Sample * the numerator, which we are now shifting over
-                    filt_sample.slide::<1>(0.0),
-                );
+                    // Add the sample * the numerator, subtract the filtered sample * the denominator, and shift it all over
+                    z[j] = den.mul_add(
+                        // Filtered sample * the denominator, pre-negated and shifted
+                        f32x4::splat(simd, filt_sample[0]),
+                        // Sample * the numerator, which we are now shifting over
+                        filt_sample.slide::<1>(0.0),
+                    );
+                }
             }
+        }
+        if is_unit_scale {
+            inner_loop::<S, ROWS, true>(simd, signal, z, num, den, scale, width, delay);
+        } else {
+            inner_loop::<S, ROWS, false>(simd, signal, z, num, den, scale, width, delay);
         }
     }
 

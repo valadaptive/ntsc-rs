@@ -5,8 +5,6 @@ use ntscrs::{
     NtscEffect,
     yiq_fielding::{BlitInfo, Rgb, YiqView, pixel_bytes_for},
 };
-#[cfg(not(target_os = "windows"))]
-use pprof::criterion::{Output, PProfProfiler};
 
 const BENCH_IMAGE: &'static [u8] = include_bytes!("./balloons.png");
 
@@ -56,9 +54,6 @@ fn criterion_benchmark(c: &mut Criterion) {
 criterion_group! {
     name = benches;
     config = {
-        #[cfg(not(target_os="windows"))]
-        let config = Criterion::default().with_profiler(PProfProfiler::new(100, Output::Flamegraph(None)));
-        #[cfg(target_os="windows")]
         let config = Criterion::default();
 
         config

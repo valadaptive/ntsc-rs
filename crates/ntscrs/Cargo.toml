@@ -19,11 +19,8 @@ sval = { version = "2.14.1", features = ["std"] }
 sval_json = { version = "2.14.1", features = ["std"] }
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.5.1", default-features = false }
 image = { version = "0.25.1", default-features = false, features = ["png"] }
-
-[target.'cfg(not(windows))'.dev-dependencies]
-pprof = { version = "0.14.0", features = ["flamegraph", "criterion"] }
 
 [features]
 default = ["rayon"]

@@ -1,2 +1,6 @@
 [alias]
 xtask = "run --package xtask --"
+
+[target.wasm32-wasip1]
+runner = "wasmtime"
+rustflags = ["-Ctarget-feature=+simd128,+relaxed-simd"]
