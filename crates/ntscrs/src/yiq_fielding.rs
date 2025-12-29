@@ -293,7 +293,7 @@ impl_pix_fmt!(Xbgr, 4, (3, 2, 1, Some(0)));
 impl_pix_fmt!(Rgb, 3, (0, 1, 2, None));
 impl_pix_fmt!(Bgr, 3, (2, 1, 0, None));
 
-pub fn pixel_bytes_for<S: PixelFormat, T: Normalize>() -> usize {
+pub const fn pixel_bytes_for<S: PixelFormat, T: Normalize>() -> usize {
     S::NUM_COMPONENTS * std::mem::size_of::<T>()
 }
 
