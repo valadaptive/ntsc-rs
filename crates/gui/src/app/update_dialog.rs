@@ -37,16 +37,16 @@ pub enum UpdateDialogState {
 
 impl UpdateDialogState {
     pub(crate) fn show(&mut self, ctx: &egui::Context) {
-        if let UpdateDialogState::Loading(handle) = &self {
-            if handle.is_finished() {
-                let handle = match std::mem::replace(self, UpdateDialogState::Closed) {
-                    UpdateDialogState::Loading(handle) => handle,
-                    _ => unreachable!(),
-                };
-                *self = match handle.join().unwrap() {
-                    Ok(resp) => UpdateDialogState::Loaded(resp),
-                    Err(e) => UpdateDialogState::Error(e),
-                }
+        if let UpdateDialogState::Loading(handle) = &self
+            && handle.is_finished()
+        {
+            let handle = match std::mem::replace(self, UpdateDialogState::Closed) {
+                UpdateDialogState::Loading(handle) => handle,
+                _ => unreachable!(),
+            };
+            *self = match handle.join().unwrap() {
+                Ok(resp) => UpdateDialogState::Loaded(resp),
+                Err(e) => UpdateDialogState::Error(e),
             }
         }
         let mut open = !matches!(self, UpdateDialogState::Closed);
@@ -64,10 +64,8 @@ impl UpdateDialogState {
                     ui.heading(&update_response.latest_release_label);
                     if update_response.up_to_date {
                         ui.label("✓ Up to date");
-                    } else {
-                        if ui.button("Download from GitHub ⤴").clicked() {
-                            ctx.open_url(egui::OpenUrl::new_tab(&update_response.download_url));
-                        }
+                    } else if ui.button("Download from GitHub ⤴").clicked() {
+                        ctx.open_url(egui::OpenUrl::new_tab(&update_response.download_url));
                     }
                 }
                 UpdateDialogState::Error(error) => {
@@ -107,7 +105,7 @@ impl UpdateDialogState {
                     .get()
                     .context(IncorrectFieldTypeSnafu { field: "<root>" })?;
                 let release: &HashMap<_, _> = releases
-                    .get(0)
+                    .first()
                     .context(MissingFieldSnafu { field: "0" })?
                     .get()
                     .context(IncorrectFieldTypeSnafu { field: "root[0]" })?;
