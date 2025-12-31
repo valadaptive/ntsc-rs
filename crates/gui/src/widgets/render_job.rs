@@ -128,6 +128,15 @@ impl RenderJobWidget<'_> {
                         );
                         ui.label(&label);
                     }
+                    if matches!(job_state, RenderJobState::Complete { .. }) {
+                        ui.horizontal(|ui| {
+                            if ui.button("Open containing folder").clicked()
+                                && let Some(parent) = job.settings.output_path.parent()
+                            {
+                                let _ = open::that_detached(parent);
+                            }
+                        });
+                    }
                 });
 
             (closed, error)
