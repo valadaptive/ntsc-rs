@@ -41,7 +41,6 @@ fn filter_signal_simd<const ROWS: usize>(
     tf: &TransferFunction,
     signal: &mut [&mut [f32]; ROWS],
     initial: [f32; ROWS],
-    scale: f32,
     delay: usize,
 ) -> bool {
     if level.is_fallback() {
@@ -49,7 +48,7 @@ fn filter_signal_simd<const ROWS: usize>(
     }
     dispatch!(level, simd =>
         tf.filter_signal_in_place_fixed_size_simdx4::<_, ROWS>(
-            simd, signal, initial, scale, delay,
+            simd, signal, initial, delay,
         )
     );
     true
@@ -72,6 +71,18 @@ impl TransferFunction {
         let len = NonZero::new(len as u32).unwrap();
 
         TransferFunction { coeffs, len }
+    }
+
+    pub fn with_scale(&self, scale: f32) -> Self {
+        let (num, den) = self.coeffs.split_at(4);
+        let mut new_num = [0f32; 4];
+
+        new_num[0] = scale * num[0] + (1.0 - scale);
+        for i in 1..self.len() {
+            new_num[i] = scale * num[i] + (1.0 - scale) * den[i - 1];
+        }
+
+        TransferFunction::new(&new_num[..self.len()], &den[..self.len() - 1])
     }
 
     /// Chain this filter into itself `n` times. This multiplies the filter's coefficients (see polynomial_multiply
@@ -146,7 +157,6 @@ impl TransferFunction {
         den: &[f32],
         z: &mut [f32],
         sample: f32,
-        scale: f32,
     ) -> f32 {
         // This function gets auto-vectorized by the compiler. The following attempts to optimize it have backfired:
         // - Special-casing a function for when there's only one nonzero coefficient in the numerator: slower.
@@ -155,7 +165,7 @@ impl TransferFunction {
         for i in 0..filter_len - 1 {
             z[i] = z[i + 1] + (num[i + 1] * sample) - (den[i] * filt_sample);
         }
-        (filt_sample - sample) * scale + sample
+        filt_sample
     }
 
     /// Scalar implementation of a linear filter.
@@ -166,7 +176,6 @@ impl TransferFunction {
         num: &[f32],
         den: &[f32],
         z: [&mut [f32]; ROWS],
-        scale: f32,
         delay: usize,
     ) {
         let filter_len = num.len();
@@ -177,8 +186,7 @@ impl TransferFunction {
                 // determining that we're in-bounds here. Since i.min(items.len() - 1) never exceeds items.len() - 1 by
                 // definition, this is safe.
                 let sample = unsafe { signal.get_unchecked(i.min(signal.len() - 1)) };
-                let filt_sample =
-                    Self::filter_sample(filter_len, num, den, z[row_idx], *sample, scale);
+                let filt_sample = Self::filter_sample(filter_len, num, den, z[row_idx], *sample);
                 if i >= delay {
                     signal[i - delay] = filt_sample;
                 }
@@ -194,7 +202,6 @@ impl TransferFunction {
         &self,
         signal: &mut [&mut [f32]; ROWS],
         initial: [f32; ROWS],
-        scale: f32,
         delay: usize,
     ) {
         let mut z_rows = [[0f32; SIZE]; ROWS];
@@ -204,7 +211,7 @@ impl TransferFunction {
         let z_rows_ref = z_rows.each_mut().map(|z| z.as_mut_slice());
 
         let (num, den) = self.num_den();
-        Self::filter_signal_in_place_impl::<ROWS>(signal, num, den, z_rows_ref, scale, delay);
+        Self::filter_signal_in_place_impl::<ROWS>(signal, num, den, z_rows_ref, delay);
     }
 
     /// SIMD implementation of a linear filter. This isn't row-parallel--the architecture is a bit more complex.
@@ -225,7 +232,6 @@ impl TransferFunction {
         simd: S,
         signal: &mut [&mut [f32]; ROWS],
         initial: [f32; ROWS],
-        scale: f32,
         delay: usize,
     ) {
         // Ensure the chunks are actually of equal length
@@ -235,7 +241,7 @@ impl TransferFunction {
         }
 
         let len = self.len();
-        let z = initial.map(|initial| {
+        let mut z = initial.map(|initial| {
             let mut dest = [0.0; 4];
             self.initial_condition_into(initial, &mut dest[..len]);
             f32x4::simd_from(dest, simd)
@@ -250,58 +256,28 @@ impl TransferFunction {
         let num = f32x4::simd_from(num, simd);
         let den = -f32x4::simd_from(den, simd);
 
-        let is_unit_scale = scale == 1.0;
+        for i in 0..(width + delay) {
+            for j in 0..ROWS {
+                // While the compiler cannot elide this bounds check in the scalar version either, here it is probably
+                // also because it doesn't know that each row of the signal has the same length.
+                let sample =
+                    unsafe { f32x4::splat(simd, *signal[j].get_unchecked(i.min(width - 1))) };
+                let filt_sample = num.mul_add(sample, z[j]);
 
-        #[inline(always)]
-        fn inner_loop<S: Simd, const ROWS: usize, const IS_UNIT_SCALE: bool>(
-            simd: S,
-            signal: &mut [&mut [f32]; ROWS],
-            mut z: [f32x4<S>; ROWS],
-            num: f32x4<S>,
-            den: f32x4<S>,
-            scale: f32,
-            width: usize,
-            delay: usize,
-        ) {
-            for i in 0..(width + delay) {
-                for j in 0..ROWS {
-                    // While the compiler cannot elide this bounds check in the scalar version either, here it is probably
-                    // also because it doesn't know that each row of the signal has the same length.
-                    let sample =
-                        unsafe { f32x4::splat(simd, *signal[j].get_unchecked(i.min(width - 1))) };
-                    let filt_sample = num.mul_add(sample, z[j]);
-
-                    if i >= delay {
-                        // We can skip scaling the filter effect if the scale is 1.0. The compiler *should* be able to
-                        // do a "loop unswitching" optimization and compile this to two separate loops, one of which
-                        // assumes is_unit_scale is true and the other of which assumes it's false, and does this on
-                        // x86, but not on WebAssembly. Doing the loop unswitching manually provides a ~15% speedup
-                        // there.
-                        let final_samp = if IS_UNIT_SCALE {
-                            filt_sample
-                        } else {
-                            let samp_diff = filt_sample - sample;
-                            samp_diff.mul_add(scale, sample)
-                        };
-                        unsafe {
-                            *signal[j].get_unchecked_mut(i - delay) = final_samp[0];
-                        }
+                if i >= delay {
+                    unsafe {
+                        *signal[j].get_unchecked_mut(i - delay) = filt_sample[0];
                     }
-
-                    // Add the sample * the numerator, subtract the filtered sample * the denominator, and shift it all over
-                    z[j] = den.mul_add(
-                        // Filtered sample * the denominator, pre-negated and shifted
-                        f32x4::splat(simd, filt_sample[0]),
-                        // Sample * the numerator, which we are now shifting over
-                        filt_sample.slide::<1>(0.0),
-                    );
                 }
+
+                // Add the sample * the numerator, subtract the filtered sample * the denominator, and shift it all over
+                z[j] = den.mul_add(
+                    // Filtered sample * the denominator, pre-negated and shifted
+                    f32x4::splat(simd, filt_sample[0]),
+                    // Sample * the numerator, which we are now shifting over
+                    filt_sample.slide::<1>(0.0),
+                );
             }
-        }
-        if is_unit_scale {
-            inner_loop::<S, ROWS, true>(simd, signal, z, num, den, scale, width, delay);
-        } else {
-            inner_loop::<S, ROWS, false>(simd, signal, z, num, den, scale, width, delay);
         }
     }
 
@@ -321,21 +297,18 @@ impl TransferFunction {
         level: Level,
         signal: &mut [&mut [f32]; ROWS],
         initial: [f32; ROWS],
-        scale: f32,
         delay: usize,
     ) {
-        if self.should_use_simd(level)
-            && filter_signal_simd(level, self, signal, initial, scale, delay)
-        {
+        if self.should_use_simd(level) && filter_signal_simd(level, self, signal, initial, delay) {
             return;
         }
 
         match self.len() {
             // Specialize fixed-size implementations for filter sizes 1-4
-            1 => self.filter_signal_in_place_fixed_size::<1, ROWS>(signal, initial, scale, delay),
-            2 => self.filter_signal_in_place_fixed_size::<2, ROWS>(signal, initial, scale, delay),
-            3 => self.filter_signal_in_place_fixed_size::<3, ROWS>(signal, initial, scale, delay),
-            4 => self.filter_signal_in_place_fixed_size::<4, ROWS>(signal, initial, scale, delay),
+            1 => self.filter_signal_in_place_fixed_size::<1, ROWS>(signal, initial, delay),
+            2 => self.filter_signal_in_place_fixed_size::<2, ROWS>(signal, initial, delay),
+            3 => self.filter_signal_in_place_fixed_size::<3, ROWS>(signal, initial, delay),
+            4 => self.filter_signal_in_place_fixed_size::<4, ROWS>(signal, initial, delay),
             _ => unreachable!("Filters with an order > 4 are not supported"),
         }
     }

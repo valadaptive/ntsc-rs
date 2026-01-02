@@ -114,17 +114,16 @@ fn filter_plane(
     width: usize,
     filter: &TransferFunction,
     initial: InitialCondition,
-    scale: f32,
     delay: usize,
 ) {
     if filter.should_use_simd(info.level) {
         // The optimal number of rows seems to vary by architecture.
         #[cfg(target_family = "wasm")]
-        filter_plane_with_rows::<4>(info.level, plane, width, filter, initial, scale, delay);
+        filter_plane_with_rows::<4>(info.level, plane, width, filter, initial, delay);
         #[cfg(not(target_family = "wasm"))]
-        filter_plane_with_rows::<8>(info.level, plane, width, filter, initial, scale, delay);
+        filter_plane_with_rows::<8>(info.level, plane, width, filter, initial, delay);
     } else {
-        filter_plane_with_rows::<1>(info.level, plane, width, filter, initial, scale, delay);
+        filter_plane_with_rows::<1>(info.level, plane, width, filter, initial, delay);
     }
 }
 
@@ -134,7 +133,6 @@ fn filter_plane_with_rows<const ROWS: usize>(
     width: usize,
     filter: &TransferFunction,
     initial: InitialCondition,
-    scale: f32,
     delay: usize,
 ) {
     let row_chunks = ZipChunks::new([plane], width * ROWS);
@@ -149,7 +147,7 @@ fn filter_plane_with_rows<const ROWS: usize>(
                     InitialCondition::Constant(c) => c,
                     InitialCondition::FirstSample => row[0],
                 };
-                filter.filter_signal_in_place::<1>(level, &mut [row], [initial], scale, delay);
+                filter.filter_signal_in_place::<1>(level, &mut [row], [initial], delay);
             }
             return;
         }
@@ -163,7 +161,7 @@ fn filter_plane_with_rows<const ROWS: usize>(
             InitialCondition::FirstSample => std::array::from_fn(|i| rows[i][0]),
         };
 
-        filter.filter_signal_in_place::<ROWS>(level, &mut rows, initial_rows, scale, delay);
+        filter.filter_signal_in_place::<ROWS>(level, &mut rows, initial_rows, delay);
     });
 }
 
@@ -242,7 +240,6 @@ fn luma_filter(frame: &mut YiqView, info: &CommonInfo, filter_mode: LumaLowpass)
             frame.dimensions.0,
             &make_notch_filter(0.5, 2.0),
             InitialCondition::FirstSample,
-            1.0,
             0,
         ),
     }
@@ -258,28 +255,8 @@ fn composite_chroma_lowpass(frame: &mut YiqView, info: &CommonInfo, filter_type:
     let width = frame.dimensions.0;
 
     thread_pool::join(
-        || {
-            filter_plane(
-                info,
-                frame.i,
-                width,
-                &i_filter,
-                InitialCondition::Zero,
-                1.0,
-                2,
-            )
-        },
-        || {
-            filter_plane(
-                info,
-                frame.q,
-                width,
-                &q_filter,
-                InitialCondition::Zero,
-                1.0,
-                4,
-            )
-        },
+        || filter_plane(info, frame.i, width, &i_filter, InitialCondition::Zero, 2),
+        || filter_plane(info, frame.q, width, &q_filter, InitialCondition::Zero, 4),
     );
 }
 
@@ -290,28 +267,8 @@ fn composite_chroma_lowpass_lite(frame: &mut YiqView, info: &CommonInfo, filter_
     let width = frame.dimensions.0;
 
     thread_pool::join(
-        || {
-            filter_plane(
-                info,
-                frame.i,
-                width,
-                &filter,
-                InitialCondition::Zero,
-                1.0,
-                1,
-            )
-        },
-        || {
-            filter_plane(
-                info,
-                frame.q,
-                width,
-                &filter,
-                InitialCondition::Zero,
-                1.0,
-                1,
-            )
-        },
+        || filter_plane(info, frame.i, width, &filter, InitialCondition::Zero, 1),
+        || filter_plane(info, frame.q, width, &filter, InitialCondition::Zero, 1),
     );
 }
 
@@ -539,7 +496,7 @@ fn luma_into_chroma(
             // Apply a notch filter to the signal to remove the high-frequency chroma carrier, and store it in the
             // scratch buffer. We can then get *just* the chroma by subtracting the filtered signal from the original.
             let filter: TransferFunction = make_notch_filter(0.5, 2.0);
-            filter_plane(info, yiq.y, width, &filter, InitialCondition::Zero, 1.0, 0);
+            filter_plane(info, yiq.y, width, &filter, InitialCondition::Zero, 0);
 
             let lines = ZipChunks::new([yiq.y, yiq.i, yiq.q, modulated], width);
             lines.par_for_each(|index, [y, i, q, modulated]| {
@@ -614,7 +571,6 @@ fn luma_smear(yiq: &mut YiqView, info: &CommonInfo, amount: f32) {
         yiq.dimensions.0,
         &lowpass,
         InitialCondition::Zero,
-        1.0,
         0,
     );
 }
@@ -1220,14 +1176,14 @@ impl NtscEffect {
             let preemphasis_filter = make_lowpass(
                 (315000000.0 / 88.0 / 2.0) * info.horizontal_scale,
                 NTSC_RATE * info.horizontal_scale,
-            );
+            )
+            .with_scale(-self.composite_sharpening);
             filter_plane(
                 &info,
                 yiq.y,
                 width,
                 &preemphasis_filter,
                 InitialCondition::Zero,
-                -self.composite_sharpening,
                 0,
             );
         }
@@ -1292,14 +1248,14 @@ impl NtscEffect {
             let notch_filter = make_notch_filter(
                 (ringing.frequency / info.horizontal_scale).clamp(0.0, 1.0),
                 ringing.power,
-            );
+            )
+            .with_scale(ringing.intensity);
             filter_plane(
                 &info,
                 yiq.y,
                 width,
                 &notch_filter,
                 InitialCondition::FirstSample,
-                ringing.intensity,
                 1,
             );
         }
@@ -1379,17 +1335,7 @@ impl NtscEffect {
                 );
 
                 thread_pool::join(
-                    || {
-                        filter_plane(
-                            &info,
-                            yiq.y,
-                            width,
-                            &luma_filter,
-                            InitialCondition::Zero,
-                            1.0,
-                            0,
-                        )
-                    },
+                    || filter_plane(&info, yiq.y, width, &luma_filter, InitialCondition::Zero, 0),
                     || {
                         thread_pool::join(
                             || {
@@ -1399,7 +1345,6 @@ impl NtscEffect {
                                     width,
                                     &chroma_filter,
                                     InitialCondition::Zero,
-                                    1.0,
                                     chroma_delay,
                                 )
                             },
@@ -1410,7 +1355,6 @@ impl NtscEffect {
                                     width,
                                     &chroma_filter,
                                     InitialCondition::Zero,
-                                    1.0,
                                     chroma_delay,
                                 )
                             },
@@ -1418,14 +1362,14 @@ impl NtscEffect {
                     },
                 );
 
-                let luma_filter_single = make_lowpass(luma_cut, NTSC_RATE * info.horizontal_scale);
+                let luma_filter_single =
+                    make_lowpass(luma_cut, NTSC_RATE * info.horizontal_scale).with_scale(-1.6);
                 filter_plane(
                     &info,
                     yiq.y,
                     width,
                     &luma_filter_single,
                     InitialCondition::Zero,
-                    -1.6,
                     0,
                 );
             }
@@ -1446,21 +1390,21 @@ impl NtscEffect {
                     luma_cut * frequency_extra_multiplier * sharpen.frequency,
                     NTSC_RATE * info.horizontal_scale,
                     self.filter_type,
-                );
+                )
+                .with_scale(-sharpen.intensity * 2.0 * sharpen.frequency);
                 // The composite-video-simulator code sharpens the chroma plane, but ntscqt and this effect do not.
                 // I'm not sure if I'm implementing it wrong, but chroma sharpening looks awful.
                 /*let chroma_sharpen_filter = make_lowpass_for_type(
                     chroma_cut * frequency_extra_multiplier * sharpen.frequency,
                     NTSC_RATE * info.horizontal_scale,
                     self.filter_type,
-                );*/
+                ).with_scale(-sharpen.intensity * 0.85 * sharpen.frequency);*/
                 filter_plane(
                     &info,
                     yiq.y,
                     width,
                     &luma_sharpen_filter,
                     InitialCondition::Zero,
-                    -sharpen.intensity * 2.0 * sharpen.frequency,
                     0,
                 );
                 /*filter_plane(
@@ -1469,7 +1413,6 @@ impl NtscEffect {
                     width,
                     &chroma_sharpen_filter,
                     InitialCondition::Zero,
-                    -sharpen.intensity * 0.85 * sharpen.frequency,
                     0,
                 );
                 filter_plane(
@@ -1478,7 +1421,6 @@ impl NtscEffect {
                     width,
                     &chroma_sharpen_filter,
                     InitialCondition::Zero,
-                    -sharpen.intensity * 0.85 * sharpen.frequency,
                     0,
                 );*/
             }
