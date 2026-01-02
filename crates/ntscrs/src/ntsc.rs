@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, f32::consts::FRAC_1_SQRT_2, ops::RangeInclusive};
+use std::{f32::consts::FRAC_1_SQRT_2, ops::RangeInclusive};
 
 use core::f32::consts::PI;
 use fearless_simd::{Level, dispatch, prelude::*};
@@ -141,31 +141,29 @@ fn filter_plane_with_rows<const ROWS: usize>(
 
     // Process the row in chunks, each `ROWS` rows tall.
     row_chunks.par_for_each(|_, [rows]| {
-        let mut row_chunks: Vec<&mut [f32]> = rows.chunks_exact_mut(width).collect();
-        let Ok(rows): Result<&mut [&mut [f32]; ROWS], _> = row_chunks.as_mut_slice().try_into()
-        else {
+        if rows.len() != width * ROWS {
             // Handling the remainder
-            row_chunks.iter_mut().for_each(|row| {
+            for row in rows.chunks_exact_mut(width) {
                 let initial = match initial {
                     InitialCondition::Zero => 0.0,
                     InitialCondition::Constant(c) => c,
                     InitialCondition::FirstSample => row[0],
                 };
-                filter.filter_signal_in_place::<1>(level, &mut [row], [initial], scale, delay)
-            });
+                filter.filter_signal_in_place::<1>(level, &mut [row], [initial], scale, delay);
+            }
             return;
-        };
-
-        let mut initial_rows: [f32; ROWS] = [0f32; ROWS];
-        for i in 0..ROWS {
-            initial_rows[i] = match initial {
-                InitialCondition::Zero => 0.0,
-                InitialCondition::Constant(c) => c,
-                InitialCondition::FirstSample => rows[i][0],
-            };
         }
 
-        filter.filter_signal_in_place::<ROWS>(level, rows, initial_rows, scale, delay);
+        let mut iter = rows.chunks_exact_mut(width);
+        let mut rows: [&mut [f32]; ROWS] = std::array::from_fn(|_| iter.next().unwrap());
+
+        let initial_rows: [f32; ROWS] = match initial {
+            InitialCondition::Zero => [0.0f32; ROWS],
+            InitialCondition::Constant(c) => [c; ROWS],
+            InitialCondition::FirstSample => std::array::from_fn(|i| rows[i][0]),
+        };
+
+        filter.filter_signal_in_place::<ROWS>(level, &mut rows, initial_rows, scale, delay);
     });
 }
 
@@ -183,6 +181,29 @@ struct CommonInfo {
     vertical_scale: f32,
 }
 
+struct FixedQueue<T, const N: usize> {
+    queue: [T; N],
+    i: usize,
+}
+impl<T, const N: usize> FixedQueue<T, N> {
+    #[inline(always)]
+    fn new(items: [T; N]) -> Self {
+        Self { queue: items, i: 0 }
+    }
+
+    #[inline(always)]
+    fn push(&mut self, item: T) -> T {
+        let res = std::mem::replace(&mut self.queue[self.i], item);
+        self.i = (self.i + 1) % N;
+        res
+    }
+
+    #[inline(always)]
+    fn queue(&self) -> &[T; N] {
+        &self.queue
+    }
+}
+
 /// Apply a lowpass filter to the luminance (Y) plane before the Y, I, and Q planes are modulated together. This should
 /// reduce color fringing/rainbow artifacts, which may or may not be what you want. Note that this is *not* the "Luma
 /// smear" setting--that's its own function (`luma_smear`).
@@ -190,20 +211,26 @@ fn luma_filter(frame: &mut YiqView, info: &CommonInfo, filter_mode: LumaLowpass)
     match filter_mode {
         LumaLowpass::None => {}
         LumaLowpass::Box => {
-            ZipChunks::new([frame.y], frame.dimensions.0).par_for_each(|_, [y]| {
-                let mut delay = VecDeque::<f32>::with_capacity(4);
-                delay.push_back(16.0 / 255.0);
-                delay.push_back(16.0 / 255.0);
-                delay.push_back(y[0]);
-                delay.push_back(y[1]);
-                let mut sum: f32 = delay.iter().sum();
-                let width = y.len();
+            let width = frame.dimensions.0;
+            if width < 2 {
+                return;
+            }
+            ZipChunks::new([frame.y], width).par_for_each(|_, [y]| {
+                let mut delay = FixedQueue::new([16.0 / 255.0, 16.0 / 255.0, y[0], y[1]]);
+                let mut sum: f32 = delay.queue().iter().sum();
 
-                for index in 0..width {
-                    // Box-blur the signal.
-                    let c = y[usize::min(index + 2, width - 1)];
-                    sum -= delay.pop_front().unwrap();
-                    delay.push_back(c);
+                // Box-blur the signal.
+                for index in 0..width - 2 {
+                    let c = unsafe { *y.get_unchecked(index + 2) };
+                    sum -= delay.push(c);
+                    sum += c;
+                    y[index] = sum * 0.25;
+                }
+                // Handle the remainder separately
+                let last = y[width - 1];
+                for index in width - 2..width {
+                    let c = last;
+                    sum -= delay.push(c);
                     sum += c;
                     y[index] = sum * 0.25;
                 }
@@ -741,13 +768,14 @@ fn head_switching(
     // Handle cases where the number of affected rows exceeds the number of actual rows in the image
     let start_row = height.max(num_affected_rows) - num_affected_rows;
     let affected_rows = &mut yiq.y[start_row * width..];
+    let scratch = &mut yiq.scratch[start_row * width..];
     let cut_off_rows = num_affected_rows.saturating_sub(height);
 
     let seeder = Seeder::new(info.seed)
         .mix(noise_seeds::HEAD_SWITCHING)
         .mix(info.frame_num);
 
-    ZipChunks::new([affected_rows], width).par_for_each(|index, [row]| {
+    ZipChunks::new([affected_rows, scratch], width).par_for_each(|index, [row, scratch]| {
         let index = num_affected_rows - (index + cut_off_rows);
         let row_shift = shift * ((index + offset) as f32 / num_rows as f32).powf(1.5);
         let noisy_shift = (row_shift + (seeder.clone().mix(index).finalize::<f32>() - 0.5))
@@ -757,13 +785,7 @@ fn head_switching(
             && let Some(mid_line) = mid_line
         {
             // Shift the entire row, but only copy back a portion of it.
-            let mut tmp_row = vec![0.0; width];
-            shift_row_to(
-                row,
-                &mut tmp_row,
-                noisy_shift,
-                BoundaryHandling::Constant(0.0),
-            );
+            shift_row_to(row, scratch, noisy_shift, BoundaryHandling::Constant(0.0));
 
             let seeder = Seeder::new(info.seed)
                 .mix(noise_seeds::HEAD_SWITCHING_MID_LINE_JITTER)
@@ -779,7 +801,7 @@ fn head_switching(
             if copy_start > width {
                 return;
             }
-            row[copy_start..].copy_from_slice(&tmp_row[copy_start..]);
+            row[copy_start..].copy_from_slice(&scratch[copy_start..]);
 
             // Add a transient where the head switch is supposed to start
             let transient_intensity = (seeder.clone().mix(0).finalize::<f32>() + 0.5) * 0.5;
@@ -1110,8 +1132,9 @@ fn chroma_loss(yiq: &mut YiqView, info: &CommonInfo, intensity: f32) {
 /// Vertically blend each chroma scanline with the one above it, as VHS does.
 fn chroma_vert_blend(yiq: &mut YiqView) {
     let width = yiq.dimensions.0;
-    let mut delay_i = vec![0f32; width];
-    let mut delay_q = vec![0f32; width];
+    let delay = &mut yiq.scratch[..width * 2];
+    delay.fill(0.0);
+    let (delay_i, delay_q) = delay.split_at_mut(width);
 
     thread_pool::join(
         || {
