@@ -1,40 +1,39 @@
+use std::num::NonZero;
+
 use fearless_simd::{Level, dispatch, f32x4, prelude::*};
 
 /// Multiplies two polynomials (lowest coefficients first).
 /// Note that this function does not trim trailing zero coefficients--see below for that.
 /// This is how filters are multiplied--a transfer function is a fraction of polynomials.
-fn polynomial_multiply(a: &[f32], b: &[f32]) -> Vec<f32> {
+fn polynomial_multiply(a: &[f32], b: &[f32], dst: &mut [f32]) -> usize {
     let degree = a.len() + b.len() - 1;
-
-    let mut out = vec![0f32; degree];
 
     for ai in 0..a.len() {
         for bi in 0..b.len() {
-            out[ai + bi] += a[ai] * b[bi];
+            dst[ai + bi] += a[ai] * b[bi];
         }
     }
 
-    out
+    degree
 }
 
 /// Helper function to trim trailing zeros. Takes a slice and returns a sub-slice of it with no trailing zeros.
-fn trim_zeros(input: &[f32]) -> &[f32] {
-    let mut end = input.len() - 1;
-    while input[end].abs() == 0.0 {
-        end -= 1;
+fn trim_zeros(mut input: &[f32]) -> &[f32] {
+    while input.last().is_some_and(|last| *last == 0.0) {
+        input = &input[..input.len() - 1]
     }
-    &input[0..=end]
+    input
 }
 
 /// Rational transfer function for an IIR filter in the z-transform domain.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct TransferFunction {
-    /// Coefficients for the numerator polynomial. Padded with trailing zeros to match the number of coefficients
-    /// in the denominator.
-    num: Vec<f32>,
-    /// Coefficients for the denominator polynomial.
-    den: Vec<f32>,
+    /// Coefficients for the numerator and denominator. The first 4 elements hold the numerator, and the last 3 hold the
+    /// denominator (without the implicit 1.0 of the first element).
+    coeffs: [f32; 7],
+    /// Number of actual coefficients. The leading 1 in the denominator *is* included here.
+    len: NonZero<u32>,
 }
 
 fn filter_signal_simd<const ROWS: usize>(
@@ -57,21 +56,22 @@ fn filter_signal_simd<const ROWS: usize>(
 }
 
 impl TransferFunction {
-    pub fn new<I, J>(num: I, den: J) -> Self
-    where
-        I: IntoIterator<Item = f32>,
-        J: IntoIterator<Item = f32>,
-    {
-        let mut num = num.into_iter().collect::<Vec<f32>>();
-        let den = den.into_iter().collect::<Vec<f32>>();
-        if num.len() > den.len() {
-            panic!("Numerator length exceeds denominator length.");
-        }
+    #[inline(always)]
+    pub fn new(num: &[f32], den: &[f32]) -> Self {
+        assert!(num.len() <= 4 && den.len() <= 3, "Filter is too large.");
+        let len = den.len() + 1;
+        assert!(
+            num.len() <= len,
+            "Numerator length exceeds denominator length."
+        );
 
-        // Zero-pad the numerator from the right
-        num.resize(den.len(), 0.0);
+        let mut coeffs = [0f32; 7];
+        let (dst_num, dst_den) = coeffs.split_at_mut(4);
+        dst_num[..num.len()].copy_from_slice(num);
+        dst_den[..den.len()].copy_from_slice(den);
+        let len = NonZero::new(len as u32).unwrap();
 
-        TransferFunction { num, den }
+        TransferFunction { coeffs, len }
     }
 
     /// Chain this filter into itself `n` times. This multiplies the filter's coefficients (see polynomial_multiply
@@ -86,7 +86,18 @@ impl TransferFunction {
 
     /// Whether we should use SIMD and hence process rows in chunks.
     pub fn should_use_simd(&self, level: Level) -> bool {
-        !level.is_fallback() && (2..=4).contains(&self.den.len())
+        !level.is_fallback() && (2..=4).contains(&self.len.get())
+    }
+
+    #[inline(always)]
+    fn num_den(&self) -> (&[f32], &[f32]) {
+        let len = self.len();
+        (&self.coeffs[..len], &self.coeffs[4..4 + len - 1])
+    }
+
+    #[inline(always)]
+    pub fn len(&self) -> usize {
+        self.len.get() as usize
     }
 
     /// Return initial conditions for the filter that results in a given steady-state value (e.g. "start" the filter as
@@ -95,55 +106,34 @@ impl TransferFunction {
         // Adapted from scipy
         // https://github.com/scipy/scipy/blob/da82ac849a4ccade2d954a0998067e6aa706dd70/scipy/signal/_signaltools.py#L3609-L3742
 
-        let filter_len = self.num.len();
+        let filter_len = self.len.get() as usize;
         assert_eq!(dst.len(), filter_len);
-        assert_eq!(self.den.len(), filter_len);
-        if value.abs() == 0.0 {
-            dst.fill(0.0);
-            return;
-        }
+
         // The last element here will always be 0--in the loop below, we intentionally do not initialize the last
         // element of zi.
-        dst[filter_len - 1] = 0.0;
+        dst.fill(0.0);
 
-        let first_nonzero_coeff = self
-            .den
-            .iter()
-            .find_map(|coeff| {
-                if coeff.abs() != 0.0 {
-                    Some(*coeff)
-                } else {
-                    None
-                }
-            })
-            .expect("There must be at least one nonzero coefficient in the denominator.");
+        if value.abs() == 0.0 {
+            return;
+        }
 
-        let norm_num = self
-            .num
-            .iter()
-            .map(|item| *item / first_nonzero_coeff)
-            .collect::<Vec<f32>>();
-        let norm_den = self
-            .den
-            .iter()
-            .map(|item| *item / first_nonzero_coeff)
-            .collect::<Vec<f32>>();
+        let (num, den) = self.num_den();
 
         let mut b_sum = 0.0;
         for i in 1..filter_len {
-            let num_i = norm_num.get(i).unwrap_or(&0.0);
-            let den_i = norm_den.get(i).unwrap_or(&0.0);
-            b_sum += num_i - den_i * norm_num[0];
+            let num_i = num.get(i).unwrap_or(&0.0);
+            let den_i = den.get(i - 1).unwrap_or(&0.0);
+            b_sum += num_i - den_i * num[0];
         }
 
-        dst[0] = b_sum / norm_den.iter().sum::<f32>();
+        dst[0] = b_sum / (den.iter().sum::<f32>() + 1.0);
         let mut a_sum = 1.0;
         let mut c_sum = 0.0;
         for i in 1..filter_len - 1 {
-            let num_i = norm_num.get(i).unwrap_or(&0.0);
-            let den_i = norm_den.get(i).unwrap_or(&0.0);
+            let num_i = num.get(i).unwrap_or(&0.0);
+            let den_i = den.get(i - 1).unwrap_or(&0.0);
             a_sum += den_i;
-            c_sum += num_i - den_i * norm_num[0];
+            c_sum += num_i - den_i * num[0];
             dst[i] = (a_sum * dst[0] - c_sum) * value;
         }
         dst[0] *= value;
@@ -163,7 +153,7 @@ impl TransferFunction {
         // - Using a smallvec to store all the coefficients: slower.
         let filt_sample = z[0] + (num[0] * sample);
         for i in 0..filter_len - 1 {
-            z[i] = z[i + 1] + (num[i + 1] * sample) - (den[i + 1] * filt_sample);
+            z[i] = z[i + 1] + (num[i + 1] * sample) - (den[i] * filt_sample);
         }
         (filt_sample - sample) * scale + sample
     }
@@ -213,9 +203,8 @@ impl TransferFunction {
         });
         let z_rows_ref = z_rows.each_mut().map(|z| z.as_mut_slice());
 
-        Self::filter_signal_in_place_impl::<ROWS>(
-            signal, &self.num, &self.den, z_rows_ref, scale, delay,
-        );
+        let (num, den) = self.num_den();
+        Self::filter_signal_in_place_impl::<ROWS>(signal, num, den, z_rows_ref, scale, delay);
     }
 
     /// SIMD implementation of a linear filter. This isn't row-parallel--the architecture is a bit more complex.
@@ -245,19 +234,21 @@ impl TransferFunction {
             assert_eq!(signal[i].len(), width);
         }
 
+        let len = self.len();
         let z = initial.map(|initial| {
             let mut dest = [0.0; 4];
-            self.initial_condition_into(initial, &mut dest[..self.num.len()]);
+            self.initial_condition_into(initial, &mut dest[..len]);
             f32x4::simd_from(dest, simd)
         });
 
         let mut num = [0.0f32; 4];
         let mut den = [0.0f32; 4];
-        num[0..self.num.len()].copy_from_slice(&self.num);
-        den[0..self.den.len()].copy_from_slice(&self.den);
+        let (my_num, my_den) = self.num_den();
+        num[0..self.len()].copy_from_slice(my_num);
+        den[0..self.len() - 1].copy_from_slice(my_den);
 
         let num = f32x4::simd_from(num, simd);
-        let den = -f32x4::simd_from(den, simd).slide::<1>(0.0);
+        let den = -f32x4::simd_from(den, simd);
 
         let is_unit_scale = scale == 1.0;
 
@@ -333,42 +324,19 @@ impl TransferFunction {
         scale: f32,
         delay: usize,
     ) {
-        let filter_len = usize::max(self.num.len(), self.den.len());
-
         if self.should_use_simd(level)
             && filter_signal_simd(level, self, signal, initial, scale, delay)
         {
             return;
         }
 
-        match filter_len {
+        match self.len() {
             // Specialize fixed-size implementations for filter sizes 1-4
             1 => self.filter_signal_in_place_fixed_size::<1, ROWS>(signal, initial, scale, delay),
             2 => self.filter_signal_in_place_fixed_size::<2, ROWS>(signal, initial, scale, delay),
             3 => self.filter_signal_in_place_fixed_size::<3, ROWS>(signal, initial, scale, delay),
             4 => self.filter_signal_in_place_fixed_size::<4, ROWS>(signal, initial, scale, delay),
-            _ => {
-                // Fall back to the general-length implementation
-                let mut z: [Vec<f32>; ROWS] = initial
-                    .into_iter()
-                    .map(|init| {
-                        let mut dst = vec![0.0; filter_len];
-                        self.initial_condition_into(init, &mut dst);
-                        dst
-                    })
-                    .collect::<Vec<Vec<_>>>()
-                    .try_into()
-                    .unwrap();
-                let z: [&mut [f32]; ROWS] = z
-                    .iter_mut()
-                    .map(|z| z.as_mut_slice())
-                    .collect::<Vec<_>>()
-                    .try_into()
-                    .unwrap();
-                Self::filter_signal_in_place_impl::<ROWS>(
-                    signal, &self.num, &self.den, z, scale, delay,
-                )
-            }
+            _ => unreachable!("Filters with an order > 4 are not supported"),
         }
     }
 }
@@ -377,9 +345,28 @@ impl std::ops::Mul<&TransferFunction> for &TransferFunction {
     type Output = TransferFunction;
 
     fn mul(self, rhs: &TransferFunction) -> Self::Output {
-        TransferFunction::new(
-            polynomial_multiply(trim_zeros(&self.num), trim_zeros(&rhs.num)),
-            polynomial_multiply(trim_zeros(&self.den), trim_zeros(&rhs.den)),
-        )
+        let (lhs_num, lhs_den) = self.num_den();
+        let (rhs_num, rhs_den) = rhs.num_den();
+        // Add back the implicit leading 1 coefficient for denominator multiplication
+        let mut lhs_den_full = [0f32; 4];
+        lhs_den_full[0] = 1.0;
+        lhs_den_full[1..1 + lhs_den.len()].copy_from_slice(lhs_den);
+        let mut rhs_den_full = [0f32; 4];
+        rhs_den_full[0] = 1.0;
+        rhs_den_full[1..1 + rhs_den.len()].copy_from_slice(rhs_den);
+
+        let mut num = [0f32; 7];
+        let mut den = [0f32; 7];
+        polynomial_multiply(lhs_num, rhs_num, &mut num);
+        polynomial_multiply(
+            &lhs_den_full[..self.len()],
+            &rhs_den_full[..rhs.len()],
+            &mut den,
+        );
+        let num = trim_zeros(&num);
+        // Remove the leading 1 from the multiplied denominator
+        let den = &trim_zeros(&den)[1..];
+
+        TransferFunction::new(num, den)
     }
 }

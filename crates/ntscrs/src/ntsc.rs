@@ -28,7 +28,7 @@ fn make_lowpass(cutoff: f32, rate: f32) -> TransferFunction {
     let tau = (cutoff * 2.0 * PI).recip();
     let alpha = time_interval / (tau + time_interval);
 
-    TransferFunction::new(vec![alpha], vec![1.0, -(1.0 - alpha)])
+    TransferFunction::new(&[alpha], &[-(1.0 - alpha)])
 }
 
 /// Simulate three constant-k lowpass filters in a row by multiplying the coefficients. The original code
@@ -61,10 +61,10 @@ fn make_notch_filter(freq: f32, quality: f32) -> TransferFunction {
 
     let gain = (1.0 + beta).recip();
 
-    let num = vec![gain, -2.0 * freq.cos() * gain, gain];
-    let den = vec![1.0, -2.0 * freq.cos() * gain, 2.0 * gain - 1.0];
+    let num = [gain, -2.0 * freq.cos() * gain, gain];
+    let den = [-2.0 * freq.cos() * gain, 2.0 * gain - 1.0];
 
-    TransferFunction::new(num, den)
+    TransferFunction::new(&num, &den)
 }
 
 /// Create a 2nd-order Butterworth filter.
@@ -79,12 +79,12 @@ fn make_butterworth_filter(cutoff: f32, rate: f32) -> TransferFunction {
     let gain = (1.0 + alpha).recip();
 
     TransferFunction::new(
-        [
+        &[
             (1.0 - omega_c) * 0.5 * gain,
             (1.0 - omega_c) * gain,
             (1.0 - omega_c) * 0.5 * gain,
         ],
-        [1.0, -2.0 * omega_c * gain, (1.0 - alpha) * gain],
+        &[-2.0 * omega_c * gain, (1.0 - alpha) * gain],
     )
 }
 
