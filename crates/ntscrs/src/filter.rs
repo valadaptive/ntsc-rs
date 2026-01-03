@@ -234,8 +234,11 @@ impl TransferFunction {
         initial: [f32; ROWS],
         delay: usize,
     ) {
-        // Ensure the chunks are actually of equal length
         let width = signal[0].len();
+        if width == 0 {
+            return;
+        }
+        // Ensure the chunks are actually of equal length
         for i in 1..ROWS {
             assert_eq!(signal[i].len(), width);
         }
@@ -256,27 +259,81 @@ impl TransferFunction {
         let num = f32x4::simd_from(num, simd);
         let den = -f32x4::simd_from(den, simd);
 
-        for i in 0..(width + delay) {
-            for j in 0..ROWS {
-                // While the compiler cannot elide this bounds check in the scalar version either, here it is probably
-                // also because it doesn't know that each row of the signal has the same length.
-                let sample =
-                    unsafe { f32x4::splat(simd, *signal[j].get_unchecked(i.min(width - 1))) };
-                let filt_sample = num.mul_add(sample, z[j]);
+        #[inline(always)]
+        fn filter_single_sample<S: Simd>(
+            simd: S,
+            sample: f32,
+            num: f32x4<S>,
+            den: f32x4<S>,
+            z: &mut f32x4<S>,
+        ) -> f32 {
+            // While the compiler cannot elide this bounds check in the scalar version either, here it is probably
+            // also because it doesn't know that each row of the signal has the same length.
+            let sample = f32x4::splat(simd, sample);
+            let filt_sample = num.mul_add(sample, *z);
 
+            // Add the sample * the numerator, subtract the filtered sample * the denominator, and shift it all over
+            *z = den.mul_add(
+                // Filtered sample * the denominator, pre-negated and shifted
+                f32x4::splat(simd, filt_sample[0]),
+                // Sample * the numerator, which we are now shifting over
+                filt_sample.slide::<1>(0.0),
+            );
+            filt_sample[0]
+        }
+
+        // Due to the delay parameter, we split the loop into 3 different sections. During the main one, where we read a
+        // sample *and* write to some previous one, we don't need to do any checking or clamping of the indices. This
+        // speeds uo x86 by a bit and WebAssembly by a lot.
+
+        // We are "warming up"; we read but do not write the samples
+        for i in 0..delay {
+            for j in 0..ROWS {
+                // i may be >= width if delay >= width
+                filter_single_sample(
+                    simd,
+                    unsafe { *signal[j].get_unchecked(i.min(width - 1)) },
+                    num,
+                    den,
+                    &mut z[j],
+                );
+            }
+        }
+
+        // The main loop: we unconditionally read and write the samples. If delay >= width, this never executes.
+        for i in delay..width {
+            for j in 0..ROWS {
+                unsafe {
+                    // signal[j][i - delay] is valid because i is between [delay, width); signal[j][i] is valid for the
+                    // same reason
+                    *signal[j].get_unchecked_mut(i - delay) = filter_single_sample(
+                        simd,
+                        *signal[j].get_unchecked(i),
+                        num,
+                        den,
+                        &mut z[j],
+                    );
+                }
+            }
+        }
+
+        // We need to handle some trailing samples; we assume the last sample's value extends past the end of the signal
+        for i in width..width + delay {
+            for j in 0..ROWS {
+                let filt_sample = filter_single_sample(
+                    simd,
+                    unsafe { *signal[j].get_unchecked(width - 1) },
+                    num,
+                    den,
+                    &mut z[j],
+                );
+
+                // i - delay may be < 0 if delay >= width
                 if i >= delay {
                     unsafe {
-                        *signal[j].get_unchecked_mut(i - delay) = filt_sample[0];
+                        *signal[j].get_unchecked_mut(i - delay) = filt_sample;
                     }
                 }
-
-                // Add the sample * the numerator, subtract the filtered sample * the denominator, and shift it all over
-                z[j] = den.mul_add(
-                    // Filtered sample * the denominator, pre-negated and shifted
-                    f32x4::splat(simd, filt_sample[0]),
-                    // Sample * the numerator, which we are now shifting over
-                    filt_sample.slide::<1>(0.0),
-                );
             }
         }
     }

@@ -119,7 +119,7 @@ fn filter_plane(
     if filter.should_use_simd(info.level) {
         // The optimal number of rows seems to vary by architecture.
         #[cfg(target_family = "wasm")]
-        filter_plane_with_rows::<4>(info.level, plane, width, filter, initial, delay);
+        filter_plane_with_rows::<6>(info.level, plane, width, filter, initial, delay);
         #[cfg(not(target_family = "wasm"))]
         filter_plane_with_rows::<8>(info.level, plane, width, filter, initial, delay);
     } else {
