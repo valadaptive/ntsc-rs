@@ -1,13 +1,15 @@
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
-use crate::{settings::SettingsBlock, yiq_fielding::YiqField};
+use crate::{
+    settings::{JsonValue, SettingsBlock},
+    yiq_fielding::YiqField,
+};
 use macros::FullSettings;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-use tinyjson::JsonValue;
 
 use super::{
     GetAndExpect, MenuItem, ParseSettingsError, SettingDescriptor, SettingKind, Settings,
-    SettingsEnum, SettingsList,
+    SettingsEnum, SettingsList, parse_json,
 };
 
 #[repr(u8)]
@@ -1249,34 +1251,27 @@ impl Settings for NtscEffectFullSettings {
 
 impl SettingsList<NtscEffectFullSettings> {
     pub fn from_json(&self, json: &str) -> Result<NtscEffectFullSettings, ParseSettingsError> {
-        let parsed = json.parse::<JsonValue>()?;
-
-        let parsed_map = parsed.get::<HashMap<_, _>>().ok_or_else(|| {
-            ParseSettingsError::InvalidSettingType {
-                key: "<root>".to_string(),
-                expected: "object",
-            }
-        })?;
+        let parsed_map = parse_json(json)?;
 
         if parsed_map.contains_key("_composite_preemphasis") {
-            return Self::from_ntscqt_json(parsed_map);
+            return Self::from_ntscqt_json(&parsed_map);
         }
 
         let version = parsed_map
-            .get_and_expect::<f64>("version")?
+            .get_and_expect::<f32>("version")?
             .ok_or(ParseSettingsError::MissingField { field: "version" })?;
         if version != 1.0 {
             return Err(ParseSettingsError::UnsupportedVersion { version });
         }
 
         let mut dst_settings = NtscEffectFullSettings::legacy_value();
-        Self::settings_from_json(parsed_map, &self.setting_descriptors, &mut dst_settings)?;
+        Self::settings_from_json(&parsed_map, &self.setting_descriptors, &mut dst_settings)?;
 
         Ok(dst_settings)
     }
 
-    pub fn from_ntscqt_json(
-        json: &HashMap<String, JsonValue>,
+    fn from_ntscqt_json(
+        json: &HashMap<Cow<'_, str>, JsonValue>,
     ) -> Result<NtscEffectFullSettings, ParseSettingsError> {
         let mut settings = NtscEffectFullSettings::default();
         settings.use_field = UseField::Upper;
@@ -1295,10 +1290,10 @@ impl SettingsList<NtscEffectFullSettings> {
         settings.chroma_demodulation = ChromaDemodulationFilter::Box;
         settings.luma_smear = 0.0;
         settings.composite_sharpening = json
-            .get_and_expect::<f64>("_composite_preemphasis")?
-            .unwrap_or_default() as f32;
+            .get_and_expect::<f32>("_composite_preemphasis")?
+            .unwrap_or_default();
         settings.video_scanline_phase_shift = match json
-            .get_and_expect::<f64>("_video_scanline_phase_shift")?
+            .get_and_expect::<f32>("_video_scanline_phase_shift")?
             .unwrap_or_default()
         {
             90.0 => PhaseShift::Degrees90,
@@ -1307,8 +1302,8 @@ impl SettingsList<NtscEffectFullSettings> {
             _ => PhaseShift::Degrees0,
         };
         settings.video_scanline_phase_shift_offset = json
-            .get_and_expect::<f64>("_video_scanline_phase_shift_offset")?
-            .unwrap_or_default() as i32;
+            .get_and_expect::<i32>("_video_scanline_phase_shift_offset")?
+            .unwrap_or_default();
         settings.head_switching = SettingsBlock {
             enabled: json
                 .get_and_expect::<bool>("_vhs_head_switching")?
@@ -1329,8 +1324,8 @@ impl SettingsList<NtscEffectFullSettings> {
             settings: FbmNoiseSettings {
                 frequency: 0.1,
                 intensity: json
-                    .get_and_expect::<f64>("_video_noise")?
-                    .unwrap_or_default() as f32
+                    .get_and_expect::<f32>("_video_noise")?
+                    .unwrap_or_default()
                     / 50000.0,
                 detail: 3,
             },
@@ -1343,11 +1338,11 @@ impl SettingsList<NtscEffectFullSettings> {
                     .unwrap_or_default();
                 if ringing2 {
                     let power = json
-                        .get_and_expect::<f64>("_ringing_power")?
-                        .unwrap_or_default() as f32;
+                        .get_and_expect::<f32>("_ringing_power")?
+                        .unwrap_or_default();
                     let shift = json
-                        .get_and_expect::<f64>("_ringing_shift")?
-                        .unwrap_or_default() as f32;
+                        .get_and_expect::<f32>("_ringing_shift")?
+                        .unwrap_or_default();
 
                     let frequency = ((shift * 0.75) + 0.25).clamp(0.0, 1.0);
 
@@ -1358,8 +1353,7 @@ impl SettingsList<NtscEffectFullSettings> {
                     }
                 } else {
                     RingingSettings {
-                        frequency: json.get_and_expect::<f64>("_ringing")?.unwrap_or_default()
-                            as f32
+                        frequency: json.get_and_expect::<f32>("_ringing")?.unwrap_or_default()
                             / 3.0,
                         power: 5.0,
                         intensity: 2.0,
@@ -1373,44 +1367,44 @@ impl SettingsList<NtscEffectFullSettings> {
             settings: FbmNoiseSettings {
                 frequency: 0.2,
                 intensity: (json
-                    .get_and_expect::<f64>("_video_chroma_noise")?
+                    .get_and_expect::<f32>("_video_chroma_noise")?
                     .unwrap_or_default()
-                    * (0.4 / 16384.0)) as f32,
+                    * (0.4 / 16384.0)),
                 detail: 1,
             },
         };
         settings.snow_intensity = 0.0;
-        settings.chroma_phase_noise_intensity = (json
-            .get_and_expect::<f64>("_video_chroma_phase_noise")?
+        settings.chroma_phase_noise_intensity = json
+            .get_and_expect::<f32>("_video_chroma_phase_noise")?
             .unwrap_or_default()
-            * 0.005) as f32;
+            * 0.005;
         settings.chroma_phase_error = 0.0;
         settings.chroma_delay_horizontal = json
-            .get_and_expect::<f64>("_color_bleed_horiz")?
-            .unwrap_or_default() as f32;
+            .get_and_expect::<f32>("_color_bleed_horiz")?
+            .unwrap_or_default();
         settings.chroma_delay_vertical = json
-            .get_and_expect::<f64>("_color_bleed_vert")?
-            .unwrap_or_default() as i32;
+            .get_and_expect::<i32>("_color_bleed_vert")?
+            .unwrap_or_default();
         settings.vhs_settings = SettingsBlock {
             enabled: json
                 .get_and_expect::<bool>("_emulating_vhs")?
                 .unwrap_or_default(),
             settings: VHSSettingsFullSettings {
-                tape_speed: match json.get_and_expect::<f64>("_output_vhs_tape_speed")? {
+                tape_speed: match json.get_and_expect::<f32>("_output_vhs_tape_speed")? {
                     Some(1.0) => VHSTapeSpeed::LP,
                     Some(2.0) => VHSTapeSpeed::EP,
                     _ => VHSTapeSpeed::SP,
                 },
-                chroma_loss: (json
-                    .get_and_expect::<f64>("_video_chroma_loss")?
+                chroma_loss: json
+                    .get_and_expect::<f32>("_video_chroma_loss")?
                     .unwrap_or_default()
-                    / 100000.0) as f32,
+                    / 100000.0,
                 sharpen: SettingsBlock {
                     enabled: true,
                     settings: VHSSharpenSettings {
                         intensity: json
-                            .get_and_expect::<f64>("_vhs_out_sharpen")?
-                            .unwrap_or_default() as f32,
+                            .get_and_expect::<f32>("_vhs_out_sharpen")?
+                            .unwrap_or_default(),
                         frequency: 1.0,
                     },
                 },
@@ -1418,9 +1412,9 @@ impl SettingsList<NtscEffectFullSettings> {
                     enabled: true,
                     settings: VHSEdgeWaveSettings {
                         intensity: (json
-                            .get_and_expect::<f64>("_vhs_edge_wave")?
+                            .get_and_expect::<f32>("_vhs_edge_wave")?
                             .unwrap_or_default()
-                            * 0.5) as f32,
+                            * 0.5),
                         speed: 10.0,
                         frequency: 0.125,
                         detail: 3,

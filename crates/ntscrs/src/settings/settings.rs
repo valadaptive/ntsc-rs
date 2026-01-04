@@ -3,13 +3,25 @@
 //! duplicate a bunch of code.
 // TODO: replace with a bunch of metaprogramming macro magic?
 
-use std::{collections::HashMap, error::Error, fmt::Display, ops::RangeInclusive};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    error::Error,
+    fmt::Display,
+    num::{ParseFloatError, ParseIntError},
+    ops::RangeInclusive,
+};
 
+use hifijson::{
+    Expect, SliceLexer,
+    num::LexWrite as _,
+    str::{Lex as _, LexAlloc as _},
+    token::Lex,
+};
 use num_enum::TryFromPrimitive;
 pub use sval;
 pub use sval_json;
 use sval_json::{stream_to_fmt_write, stream_to_io_write};
-use tinyjson::{InnerAsRef, JsonParseError, JsonValue};
 
 // These are the individual setting definitions. The descriptions of what they do are included below, so I mostly won't
 // repeat them here.
@@ -320,10 +332,12 @@ pub struct SettingDescriptor<T: Settings> {
 
 #[derive(Debug)]
 pub enum ParseSettingsError {
-    InvalidJSON(JsonParseError),
+    InvalidJSON(hifijson::Error),
+    ParseFloat(ParseFloatError),
+    ParseInt(ParseIntError),
     MissingField { field: &'static str },
     WrongApplication,
-    UnsupportedVersion { version: f64 },
+    UnsupportedVersion { version: f32 },
     InvalidSettingType { key: String, expected: &'static str },
     GetSetField(GetSetFieldError),
 }
@@ -332,6 +346,8 @@ impl Display for ParseSettingsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ParseSettingsError::InvalidJSON(e) => e.fmt(f),
+            ParseSettingsError::ParseFloat(e) => e.fmt(f),
+            ParseSettingsError::ParseInt(e) => e.fmt(f),
             ParseSettingsError::MissingField { field } => {
                 write!(f, "Missing field: {}", field)
             }
@@ -357,8 +373,8 @@ impl Error for ParseSettingsError {
     }
 }
 
-impl From<JsonParseError> for ParseSettingsError {
-    fn from(err: JsonParseError) -> Self {
+impl From<hifijson::Error> for ParseSettingsError {
+    fn from(err: hifijson::Error) -> Self {
         Self::InvalidJSON(err)
     }
 }
@@ -369,29 +385,96 @@ impl From<GetSetFieldError> for ParseSettingsError {
     }
 }
 
+impl From<ParseFloatError> for ParseSettingsError {
+    fn from(value: ParseFloatError) -> Self {
+        Self::ParseFloat(value)
+    }
+}
+
+impl From<ParseIntError> for ParseSettingsError {
+    fn from(value: ParseIntError) -> Self {
+        Self::ParseInt(value)
+    }
+}
+
+pub(super) trait FromValue: Sized {
+    fn from_value(value: &JsonValue<'_>) -> Result<Self, ParseSettingsError>;
+}
+
+impl FromValue for f32 {
+    fn from_value(value: &JsonValue<'_>) -> Result<Self, ParseSettingsError> {
+        match value {
+            JsonValue::Bool(_) => Err(ParseSettingsError::GetSetField(
+                GetSetFieldError::TypeMismatch {
+                    actual_type: "boolean",
+                    requested_type: "number",
+                },
+            )),
+            JsonValue::Number(n) => Ok(n.parse()?),
+        }
+    }
+}
+
+impl FromValue for i32 {
+    fn from_value(value: &JsonValue<'_>) -> Result<Self, ParseSettingsError> {
+        match value {
+            JsonValue::Bool(_) => Err(ParseSettingsError::GetSetField(
+                GetSetFieldError::TypeMismatch {
+                    actual_type: "boolean",
+                    requested_type: "number",
+                },
+            )),
+            JsonValue::Number(n) => Ok(n
+                .parse::<i32>()
+                .or_else(|_| n.parse::<f64>().map(|n| n as i32))?),
+        }
+    }
+}
+
+impl FromValue for u32 {
+    fn from_value(value: &JsonValue<'_>) -> Result<Self, ParseSettingsError> {
+        match value {
+            JsonValue::Bool(_) => Err(ParseSettingsError::GetSetField(
+                GetSetFieldError::TypeMismatch {
+                    actual_type: "boolean",
+                    requested_type: "number",
+                },
+            )),
+            JsonValue::Number(n) => {
+                Ok(n.parse().or_else(|_| n.parse::<f64>().map(|n| n as u32))?)
+            }
+        }
+    }
+}
+
+impl FromValue for bool {
+    fn from_value(value: &JsonValue<'_>) -> Result<Self, ParseSettingsError> {
+        match value {
+            JsonValue::Bool(b) => Ok(*b),
+            JsonValue::Number(_) => Err(ParseSettingsError::GetSetField(
+                GetSetFieldError::TypeMismatch {
+                    actual_type: "number",
+                    requested_type: "boolean",
+                },
+            )),
+        }
+    }
+}
+
 /// Convenience trait for asserting the "shape" of the JSON we're parsing is what we expect.
 pub(super) trait GetAndExpect {
-    fn get_and_expect<T: InnerAsRef + Clone>(
+    fn get_and_expect<T: FromValue + Clone>(
         &self,
         key: &str,
     ) -> Result<Option<T>, ParseSettingsError>;
 }
 
-impl GetAndExpect for HashMap<String, JsonValue> {
-    fn get_and_expect<T: InnerAsRef + Clone>(
+impl<'a> GetAndExpect for HashMap<Cow<'a, str>, JsonValue<'a>> {
+    fn get_and_expect<T: FromValue + Clone>(
         &self,
         key: &str,
     ) -> Result<Option<T>, ParseSettingsError> {
-        self.get(key)
-            .map(|v| {
-                v.get::<T>()
-                    .cloned()
-                    .ok_or_else(|| ParseSettingsError::InvalidSettingType {
-                        key: key.to_owned(),
-                        expected: std::any::type_name::<T>(),
-                    })
-            })
-            .transpose()
+        self.get(key).map(|v| T::from_value(v)).transpose()
     }
 }
 
@@ -455,6 +538,86 @@ impl<T: Settings> sval::Value for SettingsAndList<'_, '_, T> {
     }
 }
 
+pub(super) enum JsonValue<'a> {
+    Bool(bool),
+    Number(&'a str),
+}
+
+fn parse<'a>(
+    next: u8,
+    lexer: &mut SliceLexer<'a>,
+) -> Result<Option<JsonValue<'a>>, hifijson::Error> {
+    let nob = |o: Option<bool>| o.map(JsonValue::Bool);
+    match next {
+        b'a'..=b'z' => Ok(lexer.null_or_bool().map(nob).ok_or(Expect::Value)?),
+        b'0'..=b'9' | b'-' => Ok(Some(JsonValue::Number(lexer.num_string().validated()?.0))),
+        // We have no string settings
+        b'"' => Ok({
+            lexer.str_ignore().map_err(hifijson::Error::Str)?;
+            None
+        }),
+        // We have no array settings
+        b'[' => Ok({
+            lexer
+                .discarded()
+                .seq(b']', SliceLexer::ws_peek, |next, lexer| {
+                    parse(next, lexer).map(|_| ())
+                })?;
+            None
+        }),
+        // All settings are in the top level; objects are ignored
+        b'{' => Ok({
+            lexer
+                .discarded()
+                .seq(b'}', SliceLexer::ws_peek, |next, lexer| {
+                    lexer.expect(|_| Some(next), b'"').ok_or(Expect::String)?;
+                    lexer.str_ignore().map_err(hifijson::Error::Str)?;
+                    lexer
+                        .expect(SliceLexer::ws_peek, b':')
+                        .ok_or(Expect::Colon)?;
+                    parse(lexer.ws_peek().ok_or(Expect::Value)?, lexer)?;
+                    Ok::<_, hifijson::Error>(())
+                })?;
+            None
+        }),
+        _ => Err(Expect::Value)?,
+    }
+}
+
+fn parse_root_object<'a>(
+    next: u8,
+    lexer: &mut SliceLexer<'a>,
+) -> Result<HashMap<Cow<'a, str>, JsonValue<'a>>, hifijson::Error> {
+    match next {
+        b'{' => Ok({
+            let mut obj = HashMap::new();
+            lexer
+                .discarded()
+                .seq(b'}', SliceLexer::ws_peek, |next, lexer| {
+                    lexer.expect(|_| Some(next), b'"').ok_or(Expect::String)?;
+                    let key = lexer.str_string().map_err(hifijson::Error::Str)?;
+                    lexer
+                        .expect(SliceLexer::ws_peek, b':')
+                        .ok_or(Expect::Colon)?;
+                    let value = parse(lexer.ws_peek().ok_or(Expect::Value)?, lexer)?;
+                    if let Some(value) = value {
+                        obj.insert(key, value);
+                    }
+                    Ok::<_, hifijson::Error>(())
+                })?;
+            obj
+        }),
+        _ => Err(Expect::Value)?,
+    }
+}
+
+pub(super) fn parse_json<'a>(
+    json: &'a str,
+) -> Result<HashMap<Cow<'a, str>, JsonValue<'a>>, ParseSettingsError> {
+    let mut lexer = SliceLexer::new(json.as_bytes());
+    Ok(lexer.exactly_one(Lex::ws_peek, parse_root_object)?)
+}
+
 impl<T: Settings> SettingsList<T> {
     /// Construct a list of all the effect settings. This isn't meant to be mutated--you should just create one instance
     /// of this to use for your entire application/plugin.
@@ -499,7 +662,7 @@ impl<T: Settings> SettingsList<T> {
     /// Recursive method for reading the settings within a given list of descriptors (either top-level or within a
     /// group) from a given JSON map and using them to update the given settings struct.
     pub(super) fn settings_from_json(
-        json: &HashMap<String, JsonValue>,
+        json: &HashMap<Cow<'_, str>, JsonValue<'_>>,
         descriptors: &[SettingDescriptor<T>],
         settings: &mut T,
     ) -> Result<(), ParseSettingsError> {
@@ -507,31 +670,24 @@ impl<T: Settings> SettingsList<T> {
             let key = descriptor.id.name;
             match &descriptor.kind {
                 SettingKind::Enumeration { .. } => {
-                    json.get_and_expect::<f64>(key)?
-                        .map(|n| {
-                            settings.set_field::<EnumValue>(&descriptor.id, EnumValue(n as u32))
-                        })
+                    json.get_and_expect::<u32>(key)?
+                        .map(|n| settings.set_field::<EnumValue>(&descriptor.id, EnumValue(n)))
                         .transpose()?;
                 }
                 SettingKind::FloatRange { range, .. } => {
-                    json.get_and_expect::<f64>(key)?.map(|n| {
-                        settings.set_field::<f32>(
-                            &descriptor.id,
-                            (n as f32).clamp(*range.start(), *range.end()),
-                        )
+                    json.get_and_expect::<f32>(key)?.map(|n| {
+                        settings
+                            .set_field::<f32>(&descriptor.id, n.clamp(*range.start(), *range.end()))
                     });
                 }
                 SettingKind::Percentage { .. } => {
-                    json.get_and_expect::<f64>(key)?.map(|n| {
-                        settings.set_field::<f32>(&descriptor.id, (n as f32).clamp(0.0, 1.0))
-                    });
+                    json.get_and_expect::<f32>(key)?
+                        .map(|n| settings.set_field::<f32>(&descriptor.id, n.clamp(0.0, 1.0)));
                 }
                 SettingKind::IntRange { range, .. } => {
-                    json.get_and_expect::<f64>(key)?.map(|n| {
-                        settings.set_field::<i32>(
-                            &descriptor.id,
-                            (n as i32).clamp(*range.start(), *range.end()),
-                        )
+                    json.get_and_expect::<i32>(key)?.map(|n| {
+                        settings
+                            .set_field::<i32>(&descriptor.id, n.clamp(*range.start(), *range.end()))
                     });
                 }
                 SettingKind::Boolean => {
@@ -551,17 +707,10 @@ impl<T: Settings> SettingsList<T> {
 
     /// Parse settings from a given string of JSON and return a new settings struct.
     pub fn from_json_generic(&self, json: &str) -> Result<T, ParseSettingsError> {
-        let parsed = json.parse::<JsonValue>()?;
-
-        let parsed_map = parsed.get::<HashMap<_, _>>().ok_or_else(|| {
-            ParseSettingsError::InvalidSettingType {
-                key: "<root>".to_string(),
-                expected: "object",
-            }
-        })?;
+        let parsed_map = parse_json(json)?;
 
         let version = parsed_map
-            .get_and_expect::<f64>("version")?
+            .get_and_expect::<f32>("version")?
             .ok_or_else(|| {
                 // Detect if the user is trying to import an ntscQT preset, and display a specific error if so
                 if parsed_map.contains_key("_composite_preemphasis") {
@@ -575,7 +724,7 @@ impl<T: Settings> SettingsList<T> {
         }
 
         let mut dst_settings = T::legacy_value();
-        Self::settings_from_json(parsed_map, &self.setting_descriptors, &mut dst_settings)?;
+        Self::settings_from_json(&parsed_map, &self.setting_descriptors, &mut dst_settings)?;
 
         Ok(dst_settings)
     }
