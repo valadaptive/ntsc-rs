@@ -471,7 +471,7 @@ fn luma_into_chroma_line_box(
 fn luma_into_chroma(
     yiq: &mut YiqView,
     info: &CommonInfo,
-    filter_mode: ChromaDemodulationFilter,
+    mut filter_mode: ChromaDemodulationFilter,
     phase_shift: PhaseShift,
     phase_offset: i32,
 ) {
@@ -482,6 +482,16 @@ fn luma_into_chroma(
     // demodulated Y signal back into yiq.y
     let modulated = &mut yiq.scratch;
     modulated.copy_from_slice(yiq.y);
+
+    // The comb filters only work if we have at least 2 lines. To avoid a panic, use a notch filter if we have only 1 line.
+    if height == 1
+        && matches!(
+            filter_mode,
+            ChromaDemodulationFilter::OneLineComb | ChromaDemodulationFilter::TwoLineComb
+        )
+    {
+        filter_mode = ChromaDemodulationFilter::Notch;
+    }
 
     match filter_mode {
         ChromaDemodulationFilter::Box => {
@@ -530,7 +540,7 @@ fn luma_into_chroma(
         ChromaDemodulationFilter::TwoLineComb => {
             let lines = ZipChunks::new([yiq.y, yiq.i, yiq.q], width);
             lines.par_for_each(|line_index, [y, i, q]| {
-                // For the first line, both prev_line and next_line point to the second line. This effecively makes
+                // For the first line, both prev_line and next_line point to the second line. This effectively makes
                 // it a one-line comb filter for that line. See the comment above in the one-line comb filter for
                 // why we do this.
                 let prev_index = if line_index == 0 { 1 } else { line_index - 1 };
