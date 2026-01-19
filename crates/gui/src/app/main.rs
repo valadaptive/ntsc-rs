@@ -995,6 +995,7 @@ impl NtscApp {
 
                     if ui.button("Reset").clicked() {
                         self.set_effect_settings(NtscEffectFullSettings::default());
+                        self.presets_state.deselect_preset();
                     }
                 });
             });

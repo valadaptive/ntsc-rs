@@ -147,6 +147,12 @@ pub struct PresetsState {
     list_state: PresetsListState,
 }
 
+impl PresetsState {
+    pub fn deselect_preset(&mut self) {
+        self.list_state.selected_preset = None;
+    }
+}
+
 impl Default for PresetsState {
     fn default() -> Self {
         Self {
