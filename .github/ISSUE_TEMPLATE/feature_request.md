@@ -15,6 +15,14 @@ Wait! Before requesting a feature:
   and if it has, leave a comment on that issue instead:
   https://github.com/valadaptive/ntsc-rs/issues?q=is%3Aissue%20state%3Aopen%20label%3Aenhancement
 
+- Please only request *one feature per issue!*
+
+  If you request multiple features in a single issue, it will be immediately
+  closed! Instead, you should open multiple issues. Keep in mind that other
+  people have probably requested the same features beforehand, so you should
+  search through the existing issues first.
+
+
 Keep in mind, ntsc-rs is not a replacement for video editing software. If you
 need to do things like crop, speed up, slow down, or color-correct videos, you
 should use real video editing software. Much of it supports using ntsc-rs as a
