@@ -1679,7 +1679,7 @@ dependencies = [
 [[package]]
 name = "fearless_simd"
 version = "0.3.0"
-source = "git+https://github.com/valadaptive/fearless_simd/?branch=ntsc-rs#5d04f256072bb26a96a56087cf880fc39481369b"
+source = "git+https://github.com/linebender/fearless_simd/?branch=main#bbb430b6f5e201fe77f9a0e7d0aeb507214ef917"
 
 [[package]]
 name = "find-msvc-tools"
@@ -2412,11 +2412,11 @@ checksum = "242402749acf71e6f32f5857598b7002c4058a4e3c3b22b4c7d51cab9aea754e"
 
 [[package]]
 name = "home"
-version = "0.5.11"
+version = "0.5.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "589533453244b0995c858700322199b2becb13b627df2851f64a2775d024abcf"
+checksum = "cc627f471c528ff0c4a49e1d5e60450c8f6461dd6d10ba9dcd3a61d3dff7728d"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

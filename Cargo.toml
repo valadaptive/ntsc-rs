@@ -13,6 +13,3 @@ dbg_macro = "warn"
 
 [profile.bench]
 debug = "full"
-
-[patch.crates-io]
-fearless_simd = { git = "https://github.com/valadaptive/fearless_simd/", branch = "ntsc-rs" }

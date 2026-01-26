@@ -22,10 +22,10 @@ fn rgb_to_yiq<S: Simd>(rgb: f32x4<S>) -> f32x4<S> {
     let bb = f32x4::splat(simd, rgb[2]);
 
     rr.mul_add(
-        f32x4::simd_from([0.299, 0.5959, 0.2115, 0.0], simd),
+        f32x4::simd_from(simd, [0.299, 0.5959, 0.2115, 0.0]),
         gg.mul_add(
-            f32x4::simd_from([0.587, -0.2746, -0.5227, 0.0], simd),
-            bb * f32x4::simd_from([0.114, -0.3213, 0.3112, 0.0], simd),
+            f32x4::simd_from(simd, [0.587, -0.2746, -0.5227, 0.0]),
+            bb * f32x4::simd_from(simd, [0.114, -0.3213, 0.3112, 0.0]),
         ),
     )
 }
@@ -46,8 +46,8 @@ fn yiq_to_rgb<S: Simd>(yiq: f32x4<S>) -> f32x4<S> {
     let qq = f32x4::splat(simd, yiq[2]);
 
     qq.mul_add(
-        f32x4::simd_from([0.619, -0.647, 1.703, 0.0], simd),
-        ii.mul_add(f32x4::simd_from([0.956, -0.272, -1.106, 0.0], simd), yy),
+        f32x4::simd_from(simd, [0.619, -0.647, 1.703, 0.0]),
+        ii.mul_add(f32x4::simd_from(simd, [0.956, -0.272, -1.106, 0.0]), yy),
     )
 }
 
@@ -156,13 +156,13 @@ impl Normalize for u16 {
     #[inline(always)]
     fn to_norm<S: Simd>(simd: S, value: [Self; 4]) -> f32x4<S> {
         let values: f32x4<S> = i32x4::simd_from(
+            simd,
             [
                 value[0] as i32,
                 value[1] as i32,
                 value[2] as i32,
                 value[3] as i32,
             ],
-            simd,
         )
         .to_float();
         values * (1.0 / Self::MAX as f32)
@@ -195,13 +195,13 @@ impl Normalize for AfterEffectsU16 {
     #[inline(always)]
     fn to_norm<S: Simd>(simd: S, value: [Self; 4]) -> f32x4<S> {
         let values: f32x4<S> = i32x4::simd_from(
+            simd,
             [
                 value[0].0 as i32,
                 value[1].0 as i32,
                 value[2].0 as i32,
                 value[3].0 as i32,
             ],
-            simd,
         )
         .to_float();
         values * (1.0 / 32768.0)
@@ -226,13 +226,13 @@ impl Normalize for i16 {
     #[inline(always)]
     fn to_norm<S: Simd>(simd: S, value: [Self; 4]) -> f32x4<S> {
         let values: f32x4<S> = i32x4::simd_from(
+            simd,
             [
                 value[0] as i32,
                 value[1] as i32,
                 value[2] as i32,
                 value[3] as i32,
             ],
-            simd,
         )
         .to_float();
         values * (1.0 / Self::MAX as f32)
@@ -257,13 +257,13 @@ impl Normalize for u8 {
     #[inline(always)]
     fn to_norm<S: Simd>(simd: S, value: [Self; 4]) -> f32x4<S> {
         let values: f32x4<S> = i32x4::simd_from(
+            simd,
             [
                 value[0] as i32,
                 value[1] as i32,
                 value[2] as i32,
                 value[3] as i32,
             ],
-            simd,
         )
         .to_float();
         values * (1.0 / Self::MAX as f32)
@@ -438,7 +438,7 @@ impl<T: Fn([f32; 3]) -> [f32; 3] + Send + Sync + Copy> PixelTransform for T {
         tmp[0] = transformed[0];
         tmp[1] = transformed[1];
         tmp[2] = transformed[2];
-        f32x4::simd_from(tmp, simd)
+        f32x4::simd_from(simd, tmp)
     }
 }
 impl PixelTransform for () {
@@ -787,22 +787,22 @@ impl<'a> YiqView<'a> {
                                 ((dst_row_idx + 1) >> 1) * width + pix_idx + blit_info.rect.left;
 
                             let upper_pixel = f32x4::simd_from(
+                                simd,
                                 [
                                     view.y[src_idx_upper],
                                     view.i[src_idx_upper],
                                     view.q[src_idx_upper],
                                     0.0,
                                 ],
-                                simd,
                             );
                             let lower_pixel = f32x4::simd_from(
+                                simd,
                                 [
                                     view.y[src_idx_lower],
                                     view.i[src_idx_lower],
                                     view.q[src_idx_lower],
                                     0.0,
                                 ],
-                                simd,
                             );
 
                             let interp_pixel = (upper_pixel + lower_pixel) * 0.5;
@@ -827,8 +827,8 @@ impl<'a> YiqView<'a> {
                                 + blit_info.rect.left;
                             let rgba = T::from_norm(pixel_transform.transform_pixel(yiq_to_rgb(
                                 f32x4::simd_from(
-                                    [view.y[src_idx], view.i[src_idx], view.q[src_idx], 0.0],
                                     simd,
+                                    [view.y[src_idx], view.i[src_idx], view.q[src_idx], 0.0],
                                 ),
                             )));
                             pixel[r_idx] = MaybeUninit::new(rgba[0]);
@@ -858,8 +858,8 @@ impl<'a> YiqView<'a> {
                             + blit_info.rect.left;
                         let rgba = T::from_norm(pixel_transform.transform_pixel(yiq_to_rgb(
                             f32x4::simd_from(
-                                [view.y[src_idx], view.i[src_idx], view.q[src_idx], 0.0],
                                 simd,
+                                [view.y[src_idx], view.i[src_idx], view.q[src_idx], 0.0],
                             ),
                         )));
                         pixel[r_idx] = MaybeUninit::new(rgba[0]);
@@ -896,13 +896,13 @@ impl<'a> YiqView<'a> {
                     {
                         let rgba = T::from_norm(pixel_transform.transform_pixel(yiq_to_rgb(
                             f32x4::simd_from(
+                                simd,
                                 [
                                     view.y[src_idx + pix_idx + blit_info.rect.left],
                                     view.i[src_idx + pix_idx + blit_info.rect.left],
                                     view.q[src_idx + pix_idx + blit_info.rect.left],
                                     0.0,
                                 ],
-                                simd,
                             ),
                         )));
                         pixel[r_idx] = MaybeUninit::new(rgba[0]);
@@ -927,8 +927,8 @@ impl<'a> YiqView<'a> {
                             dst_row_idx.min(num_rows - 1) * width + pix_idx + blit_info.rect.left;
                         let rgba = T::from_norm(pixel_transform.transform_pixel(yiq_to_rgb(
                             f32x4::simd_from(
-                                [view.y[src_idx], view.i[src_idx], view.q[src_idx], 0.0],
                                 simd,
+                                [view.y[src_idx], view.i[src_idx], view.q[src_idx], 0.0],
                             ),
                         )));
                         pixel[r_idx] = MaybeUninit::new(rgba[0]);

@@ -247,7 +247,7 @@ impl TransferFunction {
         let mut z = initial.map(|initial| {
             let mut dest = [0.0; 4];
             self.initial_condition_into(initial, &mut dest[..len]);
-            f32x4::simd_from(dest, simd)
+            f32x4::simd_from(simd, dest)
         });
 
         let mut num = [0.0f32; 4];
@@ -256,8 +256,8 @@ impl TransferFunction {
         num[0..self.len()].copy_from_slice(my_num);
         den[0..self.len() - 1].copy_from_slice(my_den);
 
-        let num = f32x4::simd_from(num, simd);
-        let den = -f32x4::simd_from(den, simd);
+        let num = f32x4::simd_from(simd, num);
+        let den = -f32x4::simd_from(simd, den);
 
         #[inline(always)]
         fn filter_single_sample<S: Simd>(
