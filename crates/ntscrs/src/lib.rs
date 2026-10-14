@@ -18,3 +18,6 @@ pub mod yiq_fielding;
 pub use ctx::Context;
 pub use settings::standard::NtscEffect;
 pub use yiq_fielding::{YiqOwned, YiqView};
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64", feature = "metal"))]
+pub use ntsc::metal;

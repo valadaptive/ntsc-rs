@@ -1,0 +1,46 @@
+name: Core and OpenFX checks
+
+on:
+  pull_request:
+    paths:
+      - 'crates/ntscrs/**'
+      - 'crates/openfx-plugin/**'
+      - 'Cargo.*'
+      - '.github/workflows/check-processing.yml'
+  push:
+    paths:
+      - 'crates/ntscrs/**'
+      - 'crates/openfx-plugin/**'
+      - 'Cargo.*'
+      - '.github/workflows/check-processing.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022, macos-26]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: Swatinem/rust-cache@v2
+      - name: Test the CPU implementation
+        run: cargo test --locked -p ntsc-rs --features rayon,neon-filter
+      - name: Check the no_std implementation
+        run: cargo check --locked -p ntsc-rs --no-default-features --features libm,neon-filter
+      - name: Check the default OpenFX build
+        run: cargo check --locked -p ntsc-rs-openfx-plugin
+      - name: Build the opt-in Apple Silicon Metal plugin
+        if: runner.os == 'macOS'
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          MACOSX_DEPLOYMENT_TARGET=11.0 cargo build --locked -p ntsc-rs-openfx-plugin --features metal --target aarch64-apple-darwin
+          MACOSX_DEPLOYMENT_TARGET=10.12 cargo build --locked -p ntsc-rs-openfx-plugin --features metal --target x86_64-apple-darwin
+      # GPU parity tests are explicitly run on a physical Mac. Hosted runners
+      # do not guarantee a Metal device, so compilation alone is not GPU validation.

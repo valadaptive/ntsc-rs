@@ -58,6 +58,11 @@ fn filter_signal_simd<const ROWS: usize>(
 }
 
 impl TransferFunction {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64", feature = "metal"))]
+    pub(crate) fn metal_coefficients(&self) -> [f32; 7] {
+        self.coeffs
+    }
+
     #[inline(always)]
     pub fn new(num: &[f32], den: &[f32]) -> Self {
         assert!(num.len() <= 4 && den.len() <= 3, "Filter is too large.");

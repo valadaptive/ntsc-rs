@@ -5,6 +5,9 @@ use core::{
 };
 use fearless_simd::{dispatch, prelude::*};
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64", feature = "metal"))]
+pub mod metal;
+
 #[cfg(not(feature = "std"))]
 use core_maths::CoreFloat as _;
 
@@ -1069,7 +1072,14 @@ impl EffectCtx {
     }
 
     /// Helper function for generating "snow"/transient speckles.
-    fn row_speckles(&self, row: &mut [f32], rng: &mut SplitMix64, intensity: f32, anisotropy: f32) {
+    fn for_each_speckle(
+        &self,
+        width: usize,
+        rng: &mut SplitMix64,
+        intensity: f32,
+        anisotropy: f32,
+        mut add: impl FnMut(usize, f32),
+    ) {
         let intensity = intensity as f64;
         let anisotropy = anisotropy as f64;
         const TRANSIENT_LEN_RANGE: Range<f32> = 8.0..64.0;
@@ -1106,7 +1116,7 @@ impl EffectCtx {
         let mut pixel_idx = (-TRANSIENT_LEN_RANGE.end).floor() as isize;
         loop {
             pixel_idx += rng.random_geometric(dist).min(isize::MAX as usize) as isize;
-            if pixel_idx >= row.len() as isize {
+            if pixel_idx >= width as isize {
                 break;
             }
 
@@ -1119,20 +1129,25 @@ impl EffectCtx {
             // transient, which can cause the snow to "jitter" when changing the "bandwidth scale" setting.
             let mut transient_rng = SplitMix64::new(rng.random());
 
-            for i in
-                pixel_idx.clamp(0, row.len() as isize)..pixel_idx_end.clamp(0, row.len() as isize)
-            {
+            for i in pixel_idx.clamp(0, width as isize)..pixel_idx_end.clamp(0, width as isize) {
                 let x = (i - pixel_idx) as f32;
                 // Simulate transient with sin(pi*x / 4) * (1 - x/len)^2
-                row[i as usize] += ((x * PI) / transient_freq).cos()
-                    * (1.0f32 - x / transient_len).powi(2)
-                    * transient_rng.random_range(-1.0..2.0);
+                add(
+                    i as usize,
+                    ((x * PI) / transient_freq).cos()
+                        * (1.0f32 - x / transient_len).powi(2)
+                        * transient_rng.random_range(-1.0..2.0),
+                );
             }
 
             // Make sure we advance the pixel index each time. Our geometric distribution gives us the time between
             // successive events, which can be 0 for very high probabilities.
             pixel_idx += 1;
         }
+    }
+
+    fn row_speckles(&self, row: &mut [f32], rng: &mut SplitMix64, intensity: f32, anisotropy: f32) {
+        self.for_each_speckle(row.len(), rng, intensity, anisotropy, |i, v| row[i] += v);
     }
 
     /// Emulate VHS tracking error/noise.

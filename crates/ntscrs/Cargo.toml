@@ -25,6 +25,7 @@ libm = ["fearless_simd/libm", "dep:core_maths"]
 std = ["fearless_simd/std", "hifijson/std"]
 rayon = ["std", "dep:rayon-core", "dep:num_cpus"]
 neon-filter = []
+metal = ["std", "rayon", "neon-filter"]
 
 [[bench]]
 name = "filter_profile"

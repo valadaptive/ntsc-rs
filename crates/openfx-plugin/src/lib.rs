@@ -190,7 +190,20 @@ unsafe fn action_describe(descriptor: OfxImageEffectHandle) -> OfxResult<()> {
         .propSetInt
         .ok_or(OfxStat::kOfxStatFailed)?;
 
-    propSetString(effectProps, kOfxPropLabel.as_ptr(), 0, c"NTSC-rs".as_ptr()).ofx_ok()?;
+    #[cfg(all(target_os = "macos", target_arch = "aarch64", feature = "metal"))]
+    let label = c"NTSC-rs Metal";
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64", feature = "metal")))]
+    let label = c"NTSC-rs";
+    propSetString(effectProps, kOfxPropLabel.as_ptr(), 0, label.as_ptr()).ofx_ok()?;
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64", feature = "metal"))]
+    propSetString(
+        effectProps,
+        kOfxImageEffectPropMetalRenderSupported.as_ptr(),
+        0,
+        c"true".as_ptr(),
+    )
+    .ofx_ok()?;
 
     propSetString(
         effectProps,
@@ -1530,6 +1543,75 @@ unsafe fn action_render(
         .ofx_ok()?;
         proxy_scale_x = proxy_scale_x.recip();
         proxy_scale_y = proxy_scale_y.recip();
+    }
+
+    // A Metal image pointer is an Objective-C MTLBuffer, never a CPU pixel address.
+    // Keep this branch ahead of every CPU slice construction.
+    #[cfg(all(target_os = "macos", target_arch = "aarch64", feature = "metal"))]
+    {
+        let mut metal_enabled = 0;
+        let _ = propGetInt(
+            inArgs,
+            kOfxImageEffectPropMetalEnabled.as_ptr(),
+            0,
+            &mut metal_enabled,
+        );
+        if metal_enabled != 0 {
+            let mut queue = ptr::null_mut();
+            propGetPointer(
+                inArgs,
+                kOfxImageEffectPropMetalCommandQueue.as_ptr(),
+                0,
+                &mut queue,
+            )
+            .ofx_ok()?;
+            if queue.is_null()
+                || srcRowBytes <= 0
+                || dstRowBytes <= 0
+                || srcBounds.x2 - srcBounds.x1 != dstBounds.x2 - dstBounds.x1
+                || srcBounds.y2 - srcBounds.y1 != dstBounds.y2 - dstBounds.y1
+            {
+                return Err(OfxStat::kOfxStatErrUnsupported);
+            }
+            let layout =
+                |stride: i32, components: SupportedImageComponents, depth: SupportedPixelDepth| {
+                    ntsc_rs::metal::ImageLayout {
+                        row_bytes: stride as usize,
+                        components: if components == SupportedImageComponents::Rgb {
+                            3
+                        } else {
+                            4
+                        },
+                        bytes_per_component: match depth {
+                            SupportedPixelDepth::Byte => 1,
+                            SupportedPixelDepth::Short => 2,
+                            SupportedPixelDepth::Float => 4,
+                        },
+                        flip_y: true,
+                    }
+                };
+            ntsc_rs::metal::render(
+                &data.ctx,
+                &effect,
+                (
+                    (srcBounds.x2 - srcBounds.x1) as usize,
+                    (srcBounds.y2 - srcBounds.y1) as usize,
+                ),
+                frame_num,
+                [proxy_scale_x as f32, proxy_scale_y as f32],
+                apply_srgb_gamma,
+                queue,
+                srcPtr,
+                layout(srcRowBytes, num_source_components, source_pixel_depth),
+                dstPtr,
+                layout(dstRowBytes, num_output_components, output_pixel_depth),
+            )
+            .map_err(|error| {
+                eprintln!("NTSC-rs Metal: {error}");
+                OfxStat::kOfxStatFailed
+            })?;
+            return Ok(());
+        }
     }
 
     let application_params = EffectApplicationParams {

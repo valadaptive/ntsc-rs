@@ -17,3 +17,7 @@ crate-type = ["cdylib"]
 
 [lints]
 workspace = true
+
+[features]
+default = []
+metal = ["ntsc-rs/metal"]
