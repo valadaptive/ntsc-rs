@@ -2,6 +2,9 @@ use core::num::NonZero;
 
 use fearless_simd::{Level, dispatch, f32x4, prelude::*};
 
+#[cfg(all(target_arch = "aarch64", feature = "neon-filter"))]
+mod neon;
+
 /// Multiplies two polynomials (lowest coefficients first).
 /// Note that this function does not trim trailing zero coefficients--see below for that.
 /// This is how filters are multiplied--a transfer function is a fraction of polynomials.
@@ -362,6 +365,12 @@ impl TransferFunction {
         initial: [f32; ROWS],
         delay: usize,
     ) {
+        #[cfg(all(target_arch = "aarch64", feature = "neon-filter"))]
+        if ROWS >= 4 && ROWS.is_multiple_of(4) && self.should_use_simd(level) {
+            // AArch64 has NEON as part of its baseline ISA.
+            unsafe { self.filter_rows_neon(signal, initial, delay) };
+            return;
+        }
         if self.should_use_simd(level) && filter_signal_simd(level, self, signal, initial, delay) {
             return;
         }
@@ -517,5 +526,52 @@ mod tests {
         check::<2>(&tf, 3, 8);
         check::<4>(&tf, 1, 4);
         check::<2>(&tf, 1, 10);
+    }
+
+    #[cfg(all(target_arch = "aarch64", feature = "neon-filter"))]
+    #[test]
+    fn row_neon_matches_coefficient_neon_bits() {
+        fn check_rows<const ROWS: usize>() {
+            let filters = [
+                TransferFunction::new(&[0.6, 0.3], &[-0.4]),
+                TransferFunction::new(&[0.2, 0.5, 0.3], &[-0.3, 0.1]),
+                TransferFunction::new(&[0.015625], &[-2.25, 1.6875, -0.421875]),
+            ];
+            for filter in filters {
+                for width in [0, 1, 3, 4, 5, 7, 8, 31, 32, 33, 127, 128, 3839, 3840] {
+                    for delay in [0, 1, 3, 4, 7, 129] {
+                        let mut old: [Vec<f32>; ROWS] = core::array::from_fn(|r| {
+                            (0..width)
+                                .map(|i| ((i * 31 + r * 7) % 61) as f32 * 0.125 - 3.0)
+                                .collect()
+                        });
+                        let mut new = old.clone();
+                        let initial = core::array::from_fn(|r| r as f32 * 0.125);
+                        let mut refs = old.each_mut().map(Vec::as_mut_slice);
+                        assert!(super::filter_signal_simd(
+                            Level::new(),
+                            &filter,
+                            &mut refs,
+                            initial,
+                            delay
+                        ));
+                        let mut refs = new.each_mut().map(Vec::as_mut_slice);
+                        unsafe { filter.filter_rows_neon(&mut refs, initial, delay) };
+                        for row in 0..ROWS {
+                            for x in 0..width {
+                                assert_eq!(
+                                    old[row][x].to_bits(),
+                                    new[row][x].to_bits(),
+                                    "ROWS={ROWS} width={width} delay={delay} row={row} x={x}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        check_rows::<4>();
+        check_rows::<8>();
+        check_rows::<16>();
     }
 }
