@@ -20,7 +20,7 @@ criterion = { version = "0.8", default-features = false }
 image = { version = "0.25.1", default-features = false, features = ["png"] }
 
 [features]
-default = ["std"]
+default = ["std", "rayon"]
 libm = ["fearless_simd/libm", "dep:core_maths"]
 std = ["fearless_simd/std", "hifijson/std"]
 rayon = ["std", "dep:rayon-core", "dep:num_cpus"]
