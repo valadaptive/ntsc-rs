@@ -3042,7 +3042,7 @@ dependencies = [
 
 [[package]]
 name = "ntsc-rs-gui"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "async-executor",
  "blocking",
@@ -3073,7 +3073,7 @@ dependencies = [
 
 [[package]]
 name = "ntsc-rs-openfx-plugin"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "bindgen",
  "ntsc-rs",

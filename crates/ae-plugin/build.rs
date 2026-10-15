@@ -8,7 +8,7 @@ fn main() {
 
         const EFFECT_VERSION_MAJOR: u32 = 1;
         const EFFECT_VERSION_MINOR: u32 = 5;
-        const EFFECT_VERSION_PATCH: u32 = 5;
+        const EFFECT_VERSION_PATCH: u32 = 6;
         use pipl::*;
         pipl::plugin_build(vec![
             Property::Kind(PIPLType::AEEffect),
